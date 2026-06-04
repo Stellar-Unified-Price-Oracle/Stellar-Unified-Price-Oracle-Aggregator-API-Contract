@@ -108,7 +108,10 @@ contracts/price-oracle/
 ├── Cargo.toml
 ├── .cargo/config.toml
 └── src/
-    ├── lib.rs       # Contract implementation (storage, types, errors, all endpoints)
+    ├── lib.rs       # Contract entrypoint and endpoint implementations
+    ├── types.rs     # Data types, storage keys, error codes
+    ├── storage.rs   # Storage helpers and median computation
+    ├── events.rs    # Contract event definitions
     └── test.rs      # Test suite (43 tests)
 ```
 

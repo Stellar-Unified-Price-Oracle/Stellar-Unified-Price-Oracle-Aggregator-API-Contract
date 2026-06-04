@@ -1,0 +1,120 @@
+use crate::types::{DataKey, ErrorCode, OracleSources};
+use soroban_sdk::{panic_with_error, Address, Env, Vec};
+
+pub const LEDGER_THRESHOLD: u32 = 1000;
+pub const LEDGER_BUMP: u32 = 4000;
+
+pub fn get_admin(env: &Env) -> Address {
+    env.storage().persistent().get(&DataKey::Admin).unwrap()
+}
+
+pub fn check_source(env: &Env, addr: &Address) {
+    let key = DataKey::Source(addr.clone());
+    let is_source: bool = env.storage().persistent().get(&key).unwrap_or(false);
+    if !is_source {
+        panic_with_error!(env, ErrorCode::NotAuthorized);
+    }
+    env.storage()
+        .persistent()
+        .extend_ttl(&key, LEDGER_THRESHOLD, LEDGER_BUMP);
+}
+
+pub fn check_registered_asset(env: &Env, asset: &Address) {
+    let key = DataKey::AssetRegistered(asset.clone());
+    let is_registered: bool = env.storage().persistent().get(&key).unwrap_or(false);
+    if !is_registered {
+        panic_with_error!(env, ErrorCode::AssetNotRegistered);
+    }
+    env.storage()
+        .persistent()
+        .extend_ttl(&key, LEDGER_THRESHOLD, LEDGER_BUMP);
+}
+
+pub fn sort_prices(prices: &mut soroban_sdk::Vec<i128>) {
+    let n = prices.len();
+    if n <= 1 {
+        return;
+    }
+    quicksort(prices, 0, n - 1);
+}
+
+fn quicksort(prices: &mut soroban_sdk::Vec<i128>, low: u32, high: u32) {
+    if low < high {
+        let pi = partition(prices, low, high);
+        if pi > 0 {
+            quicksort(prices, low, pi - 1);
+        }
+        quicksort(prices, pi + 1, high);
+    }
+}
+
+fn partition(prices: &mut soroban_sdk::Vec<i128>, low: u32, high: u32) -> u32 {
+    let pivot = prices.get_unchecked(high);
+    let mut i = low;
+    let mut j = low;
+    while j < high {
+        if prices.get_unchecked(j) <= pivot {
+            let tmp = prices.get_unchecked(i);
+            prices.set(i, prices.get_unchecked(j));
+            prices.set(j, tmp);
+            i += 1;
+        }
+        j += 1;
+    }
+    let tmp = prices.get_unchecked(i);
+    prices.set(i, prices.get_unchecked(high));
+    prices.set(high, tmp);
+    i
+}
+
+pub fn compute_median(prices: &soroban_sdk::Vec<i128>) -> i128 {
+    let n = prices.len();
+    if n == 0 {
+        return 0;
+    }
+    let mut sorted = prices.clone();
+    sort_prices(&mut sorted);
+    if n.is_multiple_of(2) {
+        let mid = n / 2;
+        let a = sorted.get_unchecked(mid - 1);
+        let b = sorted.get_unchecked(mid);
+        (a + b) / 2
+    } else {
+        sorted.get_unchecked(n / 2)
+    }
+}
+
+pub fn read_registered_assets(env: &Env) -> Vec<Address> {
+    let key = DataKey::RegisteredAssets;
+    if env.storage().persistent().has(&key) {
+        env.storage()
+            .persistent()
+            .extend_ttl(&key, LEDGER_THRESHOLD, LEDGER_BUMP);
+    }
+    env.storage()
+        .persistent()
+        .get(&key)
+        .unwrap_or(Vec::new(env))
+}
+
+pub fn write_registered_assets(env: &Env, assets: &Vec<Address>) {
+    env.storage()
+        .persistent()
+        .set(&DataKey::RegisteredAssets, assets);
+}
+
+pub fn read_oracle_sources(env: &Env) -> OracleSources {
+    let key = DataKey::OracleSources;
+    if env.storage().persistent().has(&key) {
+        env.storage()
+            .persistent()
+            .extend_ttl(&key, LEDGER_THRESHOLD, LEDGER_BUMP);
+    }
+    env.storage()
+        .persistent()
+        .get(&key)
+        .unwrap_or(OracleSources {
+            sources: soroban_sdk::Vec::new(env),
+            metadata: soroban_sdk::Map::new(env),
+        })
+}

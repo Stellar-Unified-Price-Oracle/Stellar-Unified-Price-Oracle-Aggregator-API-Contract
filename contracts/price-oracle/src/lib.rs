@@ -1,144 +1,30 @@
 #![no_std]
 
-use soroban_sdk::{
-    contract, contracterror, contractimpl, contracttype, Address, Env, Map, String, Vec,
-    panic_with_error,
+mod types;
+mod events;
+mod storage;
+
+pub use types::{
+    AggregatePrice, Asset, DataKey, ErrorCode, OracleSources, PriceData, PriceEntry,
+    PriceHistoryEntry,
 };
 
-#[derive(Clone, Debug, Eq, PartialEq)]
-#[contracttype]
-pub enum DataKey {
-    Admin,
-    Source(Address),
-    AssetRegistered(Address),
-    Submission(Address, Address),
-    Aggregate(Address),
-    PriceHistory(Address, u32),
-    OracleSources,
-    MinSourcesRequired,
-    MaxHistoryLength,
-    Decimals,
-    Description,
-}
+use soroban_sdk::{contract, contractimpl, Address, Env, String, Symbol, Vec, panic_with_error};
 
-#[derive(Clone, Debug, Eq, PartialEq)]
-#[contracttype]
-pub struct PriceEntry {
-    pub price: i128,
-    pub timestamp: u64,
-    pub source: Address,
-    pub decimals: u32,
-}
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-#[contracttype]
-pub struct AggregatePrice {
-    pub price: i128,
-    pub timestamp: u64,
-    pub num_sources: u32,
-    pub decimals: u32,
-}
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-#[contracttype]
-pub struct PriceHistoryEntry {
-    pub price: i128,
-    pub timestamp: u64,
-    pub ledger: u32,
-    pub num_sources: u32,
-}
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-#[contracttype]
-pub struct OracleSources {
-    pub sources: Vec<Address>,
-    pub metadata: Map<Address, String>,
-}
-
-#[contracterror]
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub enum ErrorCode {
-    NotAuthorized = 0,
-    AlreadyInitialized = 1,
-    AssetNotRegistered = 2,
-    AssetAlreadyRegistered = 3,
-    SourceAlreadyExists = 4,
-    SourceNotFound = 5,
-    InsufficientSources = 6,
-    InvalidPrice = 7,
-    NoData = 8,
-}
+use crate::events::*;
+use crate::storage::*;
 
 const DEFAULT_MAX_HISTORY: u32 = 100;
 const DEFAULT_MIN_SOURCES: u32 = 1;
 const DEFAULT_DECIMALS: u32 = 18;
-
-fn get_admin(env: &Env) -> Address {
-    env.storage().persistent().get(&DataKey::Admin).unwrap()
-}
-
-fn check_source(env: &Env, addr: &Address) {
-    let is_source: bool = env
-        .storage()
-        .persistent()
-        .get(&DataKey::Source(addr.clone()))
-        .unwrap_or(false);
-    if !is_source {
-        panic_with_error!(env, ErrorCode::NotAuthorized);
-    }
-}
-
-fn check_registered_asset(env: &Env, asset: &Address) {
-    let is_registered: bool = env
-        .storage()
-        .persistent()
-        .get(&DataKey::AssetRegistered(asset.clone()))
-        .unwrap_or(false);
-    if !is_registered {
-        panic_with_error!(env, ErrorCode::AssetNotRegistered);
-    }
-}
-
-fn sort_prices(prices: &mut Vec<i128>) {
-    let n = prices.len();
-    if n <= 1 {
-        return;
-    }
-    for i in 0..n {
-        for j in (i + 1)..n {
-            if prices.get_unchecked(i) > prices.get_unchecked(j) {
-                let tmp = prices.get_unchecked(i);
-                prices.set(i, prices.get_unchecked(j));
-                prices.set(j, tmp);
-            }
-        }
-    }
-}
-
-fn compute_median(prices: &Vec<i128>) -> i128 {
-    let n = prices.len();
-    if n == 0 {
-        return 0;
-    }
-    let mut sorted = prices.clone();
-    sort_prices(&mut sorted);
-    if n % 2 == 0 {
-        let mid = n / 2;
-        let a = sorted.get_unchecked(mid - 1);
-        let b = sorted.get_unchecked(mid);
-        (a + b) / 2
-    } else {
-        sorted.get_unchecked(n / 2)
-    }
-}
+const DEFAULT_RESOLUTION: u32 = 0;
 
 #[contract]
 pub struct PriceOracleContract;
 
 #[contractimpl]
 impl PriceOracleContract {
-    pub fn __constructor(_env: Env) {
-    }
+    pub fn __constructor(_env: Env) {}
 
     pub fn initialize(
         env: Env,
@@ -169,15 +55,19 @@ impl PriceOracleContract {
                 DEFAULT_MAX_HISTORY
             },
         );
+        env.storage().persistent().set(&DataKey::Resolution, &DEFAULT_RESOLUTION);
         env.storage().persistent().set(&DataKey::Decimals, &decimals);
         env.storage().persistent().set(&DataKey::Description, &description);
         env.storage().persistent().set(
             &DataKey::OracleSources,
             &OracleSources {
                 sources: Vec::new(&env),
-                metadata: Map::new(&env),
+                metadata: soroban_sdk::Map::new(&env),
             },
         );
+        env.storage()
+            .persistent()
+            .set(&DataKey::RegisteredAssets, &Vec::<Address>::new(&env));
     }
 
     pub fn upgrade(env: Env, new_wasm_hash: soroban_sdk::BytesN<32>) {
@@ -190,9 +80,18 @@ impl PriceOracleContract {
         let admin = get_admin(&env);
         admin.require_auth();
         env.storage().persistent().set(&DataKey::Admin, &new_admin);
+        AdminChangedEvent {
+            new_admin: new_admin.clone(),
+        }
+        .publish(&env);
     }
 
     pub fn get_admin_address(env: Env) -> Address {
+        if env.storage().persistent().has(&DataKey::Admin) {
+            env.storage()
+                .persistent()
+                .extend_ttl(&DataKey::Admin, LEDGER_THRESHOLD, LEDGER_BUMP);
+        }
         get_admin(&env)
     }
 
@@ -202,13 +101,17 @@ impl PriceOracleContract {
         env.storage()
             .persistent()
             .set(&DataKey::MinSourcesRequired, &new_min);
+        MinSourcesChangedEvent { value: new_min }.publish(&env);
     }
 
     pub fn get_min_sources_required(env: Env) -> u32 {
-        env.storage()
-            .persistent()
-            .get(&DataKey::MinSourcesRequired)
-            .unwrap_or(DEFAULT_MIN_SOURCES)
+        let key = DataKey::MinSourcesRequired;
+        if env.storage().persistent().has(&key) {
+            env.storage()
+                .persistent()
+                .extend_ttl(&key, LEDGER_THRESHOLD, LEDGER_BUMP);
+        }
+        env.storage().persistent().get(&key).unwrap_or(DEFAULT_MIN_SOURCES)
     }
 
     pub fn set_max_history_length(env: Env, new_max: u32) {
@@ -217,26 +120,53 @@ impl PriceOracleContract {
         env.storage()
             .persistent()
             .set(&DataKey::MaxHistoryLength, &new_max);
+        MaxHistoryChangedEvent { value: new_max }.publish(&env);
     }
 
     pub fn get_max_history_length(env: Env) -> u32 {
+        let key = DataKey::MaxHistoryLength;
+        if env.storage().persistent().has(&key) {
+            env.storage()
+                .persistent()
+                .extend_ttl(&key, LEDGER_THRESHOLD, LEDGER_BUMP);
+        }
+        env.storage().persistent().get(&key).unwrap_or(DEFAULT_MAX_HISTORY)
+    }
+
+    pub fn set_resolution(env: Env, new_resolution: u32) {
+        let admin = get_admin(&env);
+        admin.require_auth();
         env.storage()
             .persistent()
-            .get(&DataKey::MaxHistoryLength)
-            .unwrap_or(DEFAULT_MAX_HISTORY)
+            .set(&DataKey::Resolution, &new_resolution);
+        ResolutionChangedEvent { value: new_resolution }.publish(&env);
+    }
+
+    pub fn get_resolution(env: Env) -> u32 {
+        let key = DataKey::Resolution;
+        if env.storage().persistent().has(&key) {
+            env.storage()
+                .persistent()
+                .extend_ttl(&key, LEDGER_THRESHOLD, LEDGER_BUMP);
+        }
+        env.storage().persistent().get(&key).unwrap_or(DEFAULT_RESOLUTION)
     }
 
     pub fn set_decimals(env: Env, new_decimals: u32) {
         let admin = get_admin(&env);
         admin.require_auth();
         env.storage().persistent().set(&DataKey::Decimals, &new_decimals);
+        DecimalsChangedEvent { value: new_decimals }.publish(&env);
     }
 
     pub fn get_decimals(env: Env) -> u32 {
-        env.storage()
-            .persistent()
-            .get(&DataKey::Decimals)
-            .unwrap_or(DEFAULT_DECIMALS)
+        let key = DataKey::Decimals;
+        if env.storage().persistent().has(&key) {
+            env.storage()
+                .persistent()
+                .extend_ttl(&key, LEDGER_THRESHOLD, LEDGER_BUMP);
+        }
+        env.storage().persistent().get(&key).unwrap_or(DEFAULT_DECIMALS)
     }
 
     pub fn set_description(env: Env, new_description: String) {
@@ -245,12 +175,22 @@ impl PriceOracleContract {
         env.storage()
             .persistent()
             .set(&DataKey::Description, &new_description);
+        DescriptionChangedEvent {
+            description: new_description.clone(),
+        }
+        .publish(&env);
     }
 
     pub fn get_description(env: Env) -> String {
+        let key = DataKey::Description;
+        if env.storage().persistent().has(&key) {
+            env.storage()
+                .persistent()
+                .extend_ttl(&key, LEDGER_THRESHOLD, LEDGER_BUMP);
+        }
         env.storage()
             .persistent()
-            .get(&DataKey::Description)
+            .get(&key)
             .unwrap_or(String::from_str(&env, "Stellar Price Oracle"))
     }
 
@@ -275,6 +215,13 @@ impl PriceOracleContract {
                 num_sources: 0,
                 decimals: Self::get_decimals(env.clone()),
             });
+        let mut assets = read_registered_assets(&env);
+        assets.push_back(asset.clone());
+        write_registered_assets(&env, &assets);
+        AssetRegisteredEvent {
+            asset: asset.clone(),
+        }
+        .publish(&env);
     }
 
     pub fn unregister_asset(env: Env, asset: Address) {
@@ -287,13 +234,30 @@ impl PriceOracleContract {
         env.storage()
             .persistent()
             .remove(&DataKey::Aggregate(asset.clone()));
+        let assets = read_registered_assets(&env);
+        let mut new_assets: Vec<Address> = Vec::new(&env);
+        for i in 0..assets.len() {
+            let a = assets.get_unchecked(i);
+            if a != asset {
+                new_assets.push_back(a);
+            }
+        }
+        write_registered_assets(&env, &new_assets);
+        AssetUnregisteredEvent {
+            asset: asset.clone(),
+        }
+        .publish(&env);
     }
 
     pub fn is_asset_registered(env: Env, asset: Address) -> bool {
-        env.storage()
-            .persistent()
-            .get(&DataKey::AssetRegistered(asset))
-            .unwrap_or(false)
+        let key = DataKey::AssetRegistered(asset);
+        let exists: bool = env.storage().persistent().get(&key).unwrap_or(false);
+        if exists {
+            env.storage()
+                .persistent()
+                .extend_ttl(&key, LEDGER_THRESHOLD, LEDGER_BUMP);
+        }
+        exists
     }
 
     pub fn add_source(env: Env, source: Address, name: String) {
@@ -310,16 +274,18 @@ impl PriceOracleContract {
             .persistent()
             .set(&DataKey::Source(source.clone()), &true);
 
-        let mut oracle_sources: OracleSources = env
-            .storage()
-            .persistent()
-            .get(&DataKey::OracleSources)
-            .unwrap();
+        let mut oracle_sources: OracleSources = read_oracle_sources(&env);
         oracle_sources.sources.push_back(source.clone());
+        let source_name = name.clone();
         oracle_sources.metadata.set(source.clone(), name);
         env.storage()
             .persistent()
             .set(&DataKey::OracleSources, &oracle_sources);
+        SourceAddedEvent {
+            source: source.clone(),
+            name: source_name,
+        }
+        .publish(&env);
     }
 
     pub fn remove_source(env: Env, source: Address) {
@@ -336,11 +302,7 @@ impl PriceOracleContract {
             .persistent()
             .remove(&DataKey::Source(source.clone()));
 
-        let mut oracle_sources: OracleSources = env
-            .storage()
-            .persistent()
-            .get(&DataKey::OracleSources)
-            .unwrap();
+        let mut oracle_sources: OracleSources = read_oracle_sources(&env);
         let mut new_sources: Vec<Address> = Vec::new(&env);
         for i in 0..oracle_sources.sources.len() {
             let s = oracle_sources.sources.get_unchecked(i);
@@ -349,24 +311,30 @@ impl PriceOracleContract {
             }
         }
         oracle_sources.sources = new_sources;
+        let removed_source = source.clone();
         oracle_sources.metadata.remove(source);
         env.storage()
             .persistent()
             .set(&DataKey::OracleSources, &oracle_sources);
+        SourceRemovedEvent {
+            source: removed_source,
+        }
+        .publish(&env);
     }
 
     pub fn is_source(env: Env, source: Address) -> bool {
-        env.storage()
-            .persistent()
-            .get(&DataKey::Source(source))
-            .unwrap_or(false)
+        let key = DataKey::Source(source.clone());
+        let exists: bool = env.storage().persistent().get(&key).unwrap_or(false);
+        if exists {
+            env.storage()
+                .persistent()
+                .extend_ttl(&key, LEDGER_THRESHOLD, LEDGER_BUMP);
+        }
+        exists
     }
 
     pub fn get_oracle_sources(env: Env) -> OracleSources {
-        env.storage()
-            .persistent()
-            .get(&DataKey::OracleSources)
-            .unwrap()
+        read_oracle_sources(&env)
     }
 
     pub fn submit_price(
@@ -397,12 +365,16 @@ impl PriceOracleContract {
             .persistent()
             .set(&DataKey::Submission(asset.clone(), source.clone()), &entry);
 
+        PriceSubmittedEvent {
+            asset: asset.clone(),
+            source: source.clone(),
+            price,
+            timestamp,
+        }
+        .publish(&env);
+
         let min_required = Self::get_min_sources_required(env.clone());
-        let oracle_sources: OracleSources = env
-            .storage()
-            .persistent()
-            .get(&DataKey::OracleSources)
-            .unwrap();
+        let oracle_sources: OracleSources = read_oracle_sources(&env);
         let total_sources = oracle_sources.sources.len();
 
         let mut valid_prices: Vec<i128> = Vec::new(&env);
@@ -411,11 +383,12 @@ impl PriceOracleContract {
 
         for i in 0..total_sources {
             let src = oracle_sources.sources.get_unchecked(i);
-            let sub: Option<PriceEntry> = env
-                .storage()
-                .persistent()
-                .get(&DataKey::Submission(asset.clone(), src));
+            let sub_key = DataKey::Submission(asset.clone(), src);
+            let sub: Option<PriceEntry> = env.storage().persistent().get(&sub_key);
             if let Some(entry_data) = sub {
+                env.storage()
+                    .persistent()
+                    .extend_ttl(&sub_key, LEDGER_THRESHOLD, LEDGER_BUMP);
                 if entry_data.timestamp > latest_timestamp {
                     latest_timestamp = entry_data.timestamp;
                 }
@@ -424,14 +397,18 @@ impl PriceOracleContract {
             }
         }
 
-        if contributing_sources >= min_required && valid_prices.len() > 0 {
+        if contributing_sources >= min_required && !valid_prices.is_empty() {
             let median_price = compute_median(&valid_prices);
 
             let current_ledger = env.ledger().sequence();
+            let agg_key = DataKey::Aggregate(asset.clone());
+            env.storage()
+                .persistent()
+                .extend_ttl(&agg_key, LEDGER_THRESHOLD, LEDGER_BUMP);
             let prev_aggregate: AggregatePrice = env
                 .storage()
                 .persistent()
-                .get(&DataKey::Aggregate(asset.clone()))
+                .get(&agg_key)
                 .unwrap();
 
             let aggregate = AggregatePrice {
@@ -444,7 +421,9 @@ impl PriceOracleContract {
                 .persistent()
                 .set(&DataKey::Aggregate(asset.clone()), &aggregate);
 
-            if prev_aggregate.price != median_price || prev_aggregate.timestamp != latest_timestamp {
+            if prev_aggregate.price != median_price
+                || prev_aggregate.timestamp != latest_timestamp
+            {
                 let history_entry = PriceHistoryEntry {
                     price: median_price,
                     timestamp: latest_timestamp,
@@ -455,15 +434,32 @@ impl PriceOracleContract {
                     .temporary()
                     .set(&DataKey::PriceHistory(asset.clone(), current_ledger), &history_entry);
             }
+
+            PriceAggregatedEvent {
+                asset: asset.clone(),
+                price: median_price,
+                num_sources: contributing_sources,
+                timestamp: latest_timestamp,
+            }
+            .publish(&env);
         }
     }
 
     pub fn get_price(env: Env, asset: Address) -> AggregatePrice {
         check_registered_asset(&env, &asset);
+        let key = DataKey::Aggregate(asset);
         env.storage()
             .persistent()
-            .get(&DataKey::Aggregate(asset))
-            .unwrap()
+            .extend_ttl(&key, LEDGER_THRESHOLD, LEDGER_BUMP);
+        let result: AggregatePrice = env.storage().persistent().get(&key).unwrap();
+        let resolution = Self::get_resolution(env.clone());
+        if resolution > 0 {
+            let ledger_time = env.ledger().timestamp();
+            if result.timestamp + (resolution as u64) < ledger_time {
+                panic_with_error!(env, ErrorCode::NoData);
+            }
+        }
+        result
     }
 
     pub fn get_source_price(
@@ -473,27 +469,25 @@ impl PriceOracleContract {
     ) -> PriceEntry {
         check_registered_asset(&env, &asset);
         check_source(&env, &source);
+        let key = DataKey::Submission(asset, source);
         env.storage()
             .persistent()
-            .get(&DataKey::Submission(asset, source))
-            .unwrap()
+            .extend_ttl(&key, LEDGER_THRESHOLD, LEDGER_BUMP);
+        env.storage().persistent().get(&key).unwrap()
     }
 
     pub fn get_all_prices(env: Env, asset: Address) -> Vec<PriceEntry> {
         check_registered_asset(&env, &asset);
-        let oracle_sources: OracleSources = env
-            .storage()
-            .persistent()
-            .get(&DataKey::OracleSources)
-            .unwrap();
+        let oracle_sources: OracleSources = read_oracle_sources(&env);
         let mut prices: Vec<PriceEntry> = Vec::new(&env);
         for i in 0..oracle_sources.sources.len() {
             let src = oracle_sources.sources.get_unchecked(i);
-            let sub: Option<PriceEntry> = env
-                .storage()
-                .persistent()
-                .get(&DataKey::Submission(asset.clone(), src));
+            let sub_key = DataKey::Submission(asset.clone(), src);
+            let sub: Option<PriceEntry> = env.storage().persistent().get(&sub_key);
             if let Some(entry) = sub {
+                env.storage()
+                    .persistent()
+                    .extend_ttl(&sub_key, LEDGER_THRESHOLD, LEDGER_BUMP);
                 prices.push_back(entry);
             }
         }
@@ -509,8 +503,8 @@ impl PriceOracleContract {
         let key = DataKey::PriceHistory(asset, ledger);
         env.storage()
             .temporary()
-            .get(&key)
-            .unwrap()
+            .extend_ttl(&key, LEDGER_THRESHOLD, LEDGER_BUMP);
+        env.storage().temporary().get(&key).unwrap()
     }
 
     pub fn has_historical_price(
@@ -526,7 +520,13 @@ impl PriceOracleContract {
             return false;
         }
         let key = DataKey::PriceHistory(asset, ledger);
-        env.storage().temporary().has(&key)
+        let exists = env.storage().temporary().has(&key);
+        if exists {
+            env.storage()
+                .temporary()
+                .extend_ttl(&key, LEDGER_THRESHOLD, LEDGER_BUMP);
+        }
+        exists
     }
 
     pub fn get_historical_prices(
@@ -536,12 +536,19 @@ impl PriceOracleContract {
         end_ledger: u32,
     ) -> Vec<PriceHistoryEntry> {
         check_registered_asset(&env, &asset);
+        let max_range = Self::get_max_history_length(env.clone());
+        if end_ledger - start_ledger > max_range {
+            panic_with_error!(env, ErrorCode::NoData);
+        }
         let mut entries: Vec<PriceHistoryEntry> = Vec::new(&env);
         let mut ledger = start_ledger;
         while ledger <= end_ledger {
             let key = DataKey::PriceHistory(asset.clone(), ledger);
             if env.storage().temporary().has(&key) {
                 let entry: PriceHistoryEntry = env.storage().temporary().get(&key).unwrap();
+                env.storage()
+                    .temporary()
+                    .extend_ttl(&key, LEDGER_THRESHOLD, LEDGER_BUMP);
                 entries.push_back(entry);
             }
             ledger += 1;
@@ -551,6 +558,129 @@ impl PriceOracleContract {
 
     pub fn get_latest_ledger(env: Env) -> u32 {
         env.ledger().sequence()
+    }
+
+    // ---- SEP-40 Oracle Interface ----
+
+    pub fn base(env: Env) -> Asset {
+        Asset::Other(Symbol::new(&env, "USD"))
+    }
+
+    pub fn assets(env: Env) -> Vec<Asset> {
+        let registered = read_registered_assets(&env);
+        let mut result: Vec<Asset> = Vec::new(&env);
+        for i in 0..registered.len() {
+            result.push_back(Asset::Stellar(registered.get_unchecked(i)));
+        }
+        result
+    }
+
+    pub fn resolution(env: Env) -> u32 {
+        Self::get_resolution(env)
+    }
+
+    pub fn lastprice(env: Env, asset: Asset) -> Option<PriceData> {
+        let addr = match asset {
+            Asset::Stellar(a) => a,
+            Asset::Other(_) => return None,
+        };
+        let reg_key = DataKey::AssetRegistered(addr.clone());
+        if !env.storage().persistent().get(&reg_key).unwrap_or(false) {
+            return None;
+        }
+        let agg_key = DataKey::Aggregate(addr);
+        let result: AggregatePrice = env.storage().persistent().get(&agg_key)?;
+        let resolution = Self::get_resolution(env.clone());
+        if resolution > 0 {
+            let ledger_time = env.ledger().timestamp();
+            if result.timestamp + (resolution as u64) < ledger_time {
+                return None;
+            }
+        }
+        env.storage()
+            .persistent()
+            .extend_ttl(&agg_key, LEDGER_THRESHOLD, LEDGER_BUMP);
+        Some(PriceData {
+            price: result.price,
+            timestamp: result.timestamp,
+        })
+    }
+
+    pub fn price(env: Env, asset: Asset, timestamp: u64) -> Option<PriceData> {
+        let addr = match asset {
+            Asset::Stellar(a) => a,
+            Asset::Other(_) => return None,
+        };
+        let reg_key = DataKey::AssetRegistered(addr.clone());
+        if !env.storage().persistent().get(&reg_key).unwrap_or(false) {
+            return None;
+        }
+        let agg_key = DataKey::Aggregate(addr.clone());
+        if let Some(agg) = env.storage().persistent().get::<_, AggregatePrice>(&agg_key) {
+            if agg.timestamp == timestamp {
+                return Some(PriceData {
+                    price: agg.price,
+                    timestamp: agg.timestamp,
+                });
+            }
+        }
+        let current_ledger = env.ledger().sequence();
+        let start = current_ledger.saturating_sub(1000);
+        let mut ledger = current_ledger;
+        while ledger >= start {
+            let hist_key = DataKey::PriceHistory(addr.clone(), ledger);
+            if let Some(entry) = env.storage().temporary().get::<_, PriceHistoryEntry>(&hist_key)
+            {
+                if entry.timestamp <= timestamp {
+                    return Some(PriceData {
+                        price: entry.price,
+                        timestamp: entry.timestamp,
+                    });
+                }
+            }
+            ledger -= 1;
+        }
+        None
+    }
+
+    pub fn prices(env: Env, asset: Asset, records: u32) -> Option<Vec<PriceData>> {
+        let addr = match asset {
+            Asset::Stellar(a) => a,
+            Asset::Other(_) => return None,
+        };
+        let reg_key = DataKey::AssetRegistered(addr.clone());
+        if !env.storage().persistent().get(&reg_key).unwrap_or(false) {
+            return None;
+        }
+        if records == 0 {
+            return Some(Vec::new(&env));
+        }
+        let mut result: Vec<PriceData> = Vec::new(&env);
+        let current_ledger = env.ledger().sequence();
+        let max_to_check = (records * 10).min(10000);
+        let start = current_ledger.saturating_sub(max_to_check);
+        let mut ledger = current_ledger;
+        while ledger >= start && result.len() < records {
+            let hist_key = DataKey::PriceHistory(addr.clone(), ledger);
+            if let Some(entry) = env.storage().temporary().get::<_, PriceHistoryEntry>(&hist_key)
+            {
+                result.push_back(PriceData {
+                    price: entry.price,
+                    timestamp: entry.timestamp,
+                });
+            }
+            ledger -= 1;
+        }
+        if result.is_empty() {
+            let agg_key = DataKey::Aggregate(addr);
+            if let Some(agg) = env.storage().persistent().get::<_, AggregatePrice>(&agg_key) {
+                result.push_back(PriceData {
+                    price: agg.price,
+                    timestamp: agg.timestamp,
+                });
+            }
+        }
+        Some(result)
     }
 }
 
