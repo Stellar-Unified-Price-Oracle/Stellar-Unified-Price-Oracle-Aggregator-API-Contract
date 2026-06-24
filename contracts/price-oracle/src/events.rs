@@ -108,19 +108,15 @@ pub struct DescriptionChangedEvent {
 
 #[contractevent]
 #[derive(Clone)]
-pub struct HistoryPrunedEvent {
+pub struct SourcesInsufficientEvent {
     #[topic]
     pub asset: Address,
-    pub pruned_ledger: u32,
-    pub remaining: u32,
+    pub current_source_count: u32,
+    pub min_sources_required: u32,
 }
 
 #[contractevent]
 #[derive(Clone)]
-pub struct PriceAggregatedEvent {
-    #[topic]
-    pub asset: Address,
-    pub price: i128,
-    pub num_sources: u32,
-    pub timestamp: u64,
+pub struct TimestampThresholdChangedEvent {
+    pub value: u64,
 }

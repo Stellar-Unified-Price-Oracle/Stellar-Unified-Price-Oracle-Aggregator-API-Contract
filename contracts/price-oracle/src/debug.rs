@@ -40,7 +40,7 @@ pub fn print_config(client: &PriceOracleContractClient<'_>) {
 /// Prints the aggregated price and all per-source prices for an asset to stdout.
 pub fn print_prices(client: &PriceOracleContractClient<'_>, asset: &Address) {
     std::println!("=== Prices for {:?} ===", asset);
-    match client.try_get_price(asset) {
+    match client.try_get_price(asset, &0u64) {
         Ok(Ok(agg)) => {
             std::println!(
                 "  aggregate: price={} ts={} sources={} decimals={}",

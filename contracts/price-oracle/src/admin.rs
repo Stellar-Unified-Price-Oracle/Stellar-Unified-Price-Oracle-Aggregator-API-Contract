@@ -3,6 +3,7 @@ use soroban_sdk::{panic_with_error, Address, Env, String};
 use crate::events::{
     AdminChangedEvent, ContractUpgradedEvent, DecimalsChangedEvent, DescriptionChangedEvent,
     MaxHistoryChangedEvent, MinSourcesChangedEvent, ResolutionChangedEvent,
+    TimestampThresholdChangedEvent,
 };
 use crate::storage::{get_admin, read_oracle_sources, LEDGER_BUMP, LEDGER_THRESHOLD};
 use crate::types::{DataKey, ErrorCode, OracleSources};
@@ -11,7 +12,7 @@ const DEFAULT_MAX_HISTORY: u32 = 100;
 const DEFAULT_MIN_SOURCES: u32 = 1;
 const DEFAULT_DECIMALS: u32 = 18;
 pub const DEFAULT_RESOLUTION: u32 = 0;
-pub const MAX_DESCRIPTION_LENGTH: u32 = 256;
+pub const DEFAULT_TIMESTAMP_THRESHOLD: u64 = 300; // 5 minutes
 
 pub fn initialize(
     env: &Env,
@@ -81,6 +82,7 @@ pub fn set_admin(env: &Env, new_admin: Address) {
     admin.require_auth();
     env.storage().persistent().set(&DataKey::Admin, &new_admin);
     AdminChangedEvent {
+        old_admin: admin,
         new_admin: new_admin.clone(),
     }
     .publish(env);
@@ -223,4 +225,26 @@ pub fn get_description(env: &Env) -> String {
         .persistent()
         .get(&key)
         .unwrap_or(String::from_str(env, "Stellar Price Oracle"))
+}
+
+pub fn set_timestamp_threshold(env: &Env, threshold: u64) {
+    let admin = get_admin(env);
+    admin.require_auth();
+    env.storage()
+        .persistent()
+        .set(&DataKey::TimestampThreshold, &threshold);
+    TimestampThresholdChangedEvent { value: threshold }.publish(env);
+}
+
+pub fn get_timestamp_threshold(env: &Env) -> u64 {
+    let key = DataKey::TimestampThreshold;
+    if env.storage().persistent().has(&key) {
+        env.storage()
+            .persistent()
+            .extend_ttl(&key, LEDGER_THRESHOLD, LEDGER_BUMP);
+    }
+    env.storage()
+        .persistent()
+        .get(&key)
+        .unwrap_or(DEFAULT_TIMESTAMP_THRESHOLD)
 }

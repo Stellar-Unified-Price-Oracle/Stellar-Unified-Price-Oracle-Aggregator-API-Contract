@@ -32,6 +32,7 @@ pub fn register_asset(env: &Env, asset: Address) {
     write_registered_assets(env, &assets);
     AssetRegisteredEvent {
         asset: asset.clone(),
+        admin: admin.clone(),
     }
     .publish(env);
 }
@@ -57,6 +58,7 @@ pub fn unregister_asset(env: &Env, asset: Address) {
     write_registered_assets(env, &new_assets);
     AssetUnregisteredEvent {
         asset: asset.clone(),
+        admin: admin.clone(),
     }
     .publish(env);
 }

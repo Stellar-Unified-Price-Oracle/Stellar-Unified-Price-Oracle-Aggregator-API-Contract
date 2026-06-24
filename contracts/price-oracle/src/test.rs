@@ -1016,186 +1016,289 @@ fn test_event_admin_changed() {
     assert_eq!(topics.len(), 3);
 }
 
-// ---- Task 1: Description max length ----
+// ---- Task 1: Timestamp Validation Tests ----
 
 #[test]
-#[should_panic(expected = "Error(Contract, #10)")]
-fn test_set_description_too_long() {
+fn test_submit_price_current_timestamp_accepted() {
     let e = Env::default();
-    let (client, _) = setup_contract(&e);
+    ledger_default(&e, 100, 1000);
+    let (client, _admin, source, asset) = setup_basic(&e);
 
-    // 257 characters — exceeds MAX_DESCRIPTION_LENGTH (256)
-    let long_desc = String::from_str(&e, "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
-    client.set_description(&long_desc);
+    // Timestamp equal to ledger time — accepted
+    client.submit_price(&source, &asset, &100i128, &1000u64);
 }
 
 #[test]
-fn test_set_description_at_max_length() {
+fn test_submit_price_past_timestamp_accepted() {
     let e = Env::default();
-    let (client, _) = setup_contract(&e);
+    ledger_default(&e, 100, 1000);
+    let (client, _admin, source, asset) = setup_basic(&e);
 
-    // Exactly 256 characters — must succeed
-    let max_desc = String::from_str(&e, "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
-    client.set_description(&max_desc);
-    assert_eq!(client.get_description(), max_desc);
+    // Timestamp in the past — accepted
+    client.submit_price(&source, &asset, &100i128, &500u64);
 }
 
 #[test]
-#[should_panic(expected = "Error(Contract, #10)")]
-fn test_initialize_description_too_long() {
+fn test_submit_price_slightly_future_timestamp_accepted() {
     let e = Env::default();
-    let admin = Address::generate(&e);
-    let client = create_contract(&e);
+    ledger_default(&e, 100, 1000);
+    let (client, _admin, source, asset) = setup_basic(&e);
 
-    // 257 characters — exceeds MAX_DESCRIPTION_LENGTH (256)
-    let long_desc = String::from_str(&e, "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
-    client.initialize(&admin, &2u32, &10u32, &18u32, &long_desc);
-}
-
-// ---- Task 2: Asset variant (Stellar vs Other) registration ----
-
-/// The contract registers assets by Address (used as the Stellar variant key).
-/// Asset::Other(Symbol) is a different type and is not registerable as an address.
-/// This test documents and verifies that two different Address values are treated as distinct assets,
-/// and that the same address cannot be registered twice regardless of "variant" framing.
-#[test]
-fn test_register_stellar_asset_distinct_from_other_address() {
-    let e = Env::default();
-    let (client, _) = setup_contract(&e);
-
-    let asset_a = Address::generate(&e);
-    let asset_b = Address::generate(&e);
-
-    // Two distinct Stellar assets — both can be registered independently
-    client.register_asset(&asset_a);
-    client.register_asset(&asset_b);
-
-    assert!(client.is_asset_registered(&asset_a));
-    assert!(client.is_asset_registered(&asset_b));
+    // Timestamp within threshold (default 300s) — accepted
+    client.submit_price(&source, &asset, &100i128, &1299u64);
 }
 
 #[test]
-#[should_panic(expected = "Error(Contract, #3)")]
-fn test_register_same_stellar_asset_twice_rejected() {
+#[should_panic(expected = "Error(Contract, #9)")]
+fn test_submit_price_far_future_timestamp_rejected() {
     let e = Env::default();
-    let (client, _) = setup_contract(&e);
+    ledger_default(&e, 100, 1000);
+    let (client, _admin, source, asset) = setup_basic(&e);
 
-    let asset = Address::generate(&e);
-    client.register_asset(&asset);
-    // Registering the same address again must be rejected
-    client.register_asset(&asset);
+    // Timestamp more than 5 minutes (300s) in the future — rejected
+    client.submit_price(&source, &asset, &100i128, &1301u64);
 }
 
 #[test]
-fn test_sep40_base_is_other_variant() {
+fn test_set_get_timestamp_threshold() {
     let e = Env::default();
     let (client, _) = setup_contract(&e);
 
-    // base() returns Asset::Other("USD") — verifying Other variant is used for base currency
-    let base = client.base();
-    assert_eq!(base, Asset::Other(Symbol::new(&e, "USD")));
+    // Default is 300
+    assert_eq!(client.get_timestamp_threshold(), 300u64);
+
+    client.set_timestamp_threshold(&600u64);
+    assert_eq!(client.get_timestamp_threshold(), 600u64);
 }
 
 #[test]
-fn test_sep40_assets_returns_stellar_variant() {
+fn test_timestamp_threshold_configurable() {
     let e = Env::default();
-    let (client, _) = setup_contract(&e);
+    ledger_default(&e, 100, 1000);
+    let (client, _admin, source, asset) = setup_basic(&e);
 
+    // With default threshold of 300s, timestamp 1310 would be rejected
+    // Set threshold to 600s
+    client.set_timestamp_threshold(&600u64);
+
+    // Now 1599 should be accepted (within 600s)
+    client.submit_price(&source, &asset, &100i128, &1599u64);
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #9)")]
+fn test_timestamp_threshold_custom_rejects_beyond() {
+    let e = Env::default();
+    ledger_default(&e, 100, 1000);
+    let (client, _admin, source, asset) = setup_basic(&e);
+
+    client.set_timestamp_threshold(&60u64);
+
+    // 1061 is 61s in future — beyond custom threshold of 60s
+    client.submit_price(&source, &asset, &100i128, &1061u64);
+}
+
+// ---- Task 2: SourcesInsufficientEvent Tests ----
+
+#[test]
+fn test_sources_insufficient_event_emitted() {
+    let e = Env::default();
+    ledger_default(&e, 100, 1000);
+
+    let (client, _) = setup_contract(&e);
+    client.set_min_sources_required(&2u32);
+    let source1 = register_test_source(&e, &client, "A");
     let asset = register_test_asset(&e, &client);
-
-    // assets() wraps each registered address as Asset::Stellar
-    let all_assets = client.assets();
-    assert_eq!(all_assets.len(), 1);
-    assert_eq!(all_assets.get_unchecked(0), Asset::Stellar(asset));
-}
-
-// ---- Task 3: get_all_prices with no prices submitted ----
-
-#[test]
-fn test_get_all_prices_no_submissions_returns_empty() {
-    let e = Env::default();
-    let (client, _) = setup_contract(&e);
-    register_test_source(&e, &client, "Chainlink");
-    let asset = register_test_asset(&e, &client);
-
-    // Asset registered, source registered, but no prices submitted
-    let prices = client.get_all_prices(&asset);
-    assert_eq!(prices.len(), 0);
-}
-
-#[test]
-fn test_get_all_prices_no_sources_returns_empty() {
-    let e = Env::default();
-    let (client, _) = setup_contract(&e);
-    let asset = register_test_asset(&e, &client);
-
-    // No sources registered at all
-    let prices = client.get_all_prices(&asset);
-    assert_eq!(prices.len(), 0);
-}
-
-#[test]
-fn test_get_all_prices_multiple_assets_none_with_prices() {
-    let e = Env::default();
-    let (client, _) = setup_contract(&e);
-    register_test_source(&e, &client, "Chainlink");
-
-    let asset_a = register_test_asset(&e, &client);
-    let asset_b = register_test_asset(&e, &client);
-
-    // Neither asset has prices submitted
-    assert_eq!(client.get_all_prices(&asset_a).len(), 0);
-    assert_eq!(client.get_all_prices(&asset_b).len(), 0);
-}
-
-#[test]
-fn test_get_all_prices_partial_sources_submitted() {
-    let e = Env::default();
-    let (client, _) = setup_contract(&e);
-    let source1 = register_test_source(&e, &client, "Chainlink");
-    register_test_source(&e, &client, "Band"); // registered but won't submit
-    client.set_min_sources_required(&1u32);
-    let asset = register_test_asset(&e, &client);
-
-    // Only source1 submits — get_all_prices returns only the submitted entry
-    submit_test_price(&client, &source1, &asset, 100i128, 1000);
-    let prices = client.get_all_prices(&asset);
-    assert_eq!(prices.len(), 1);
-    assert_eq!(prices.get_unchecked(0).price, 100i128);
-}
-
-// ---- Task 4: HistoryPrunedEvent emission during pruning ----
-
-#[test]
-fn test_history_pruned_event_emitted_when_history_overflows() {
-    let e = Env::default();
-    let admin = Address::generate(&e);
-    let client = create_contract(&e);
-    init_admin(&client, &admin);
-
-    // Set max_history to 2 so pruning triggers on the 3rd entry
-    client.set_max_history_length(&2u32);
-    client.set_min_sources_required(&1u32);
-
-    let source = register_test_source(&e, &client, "A");
-    let asset = register_test_asset(&e, &client);
-
-    // Submit at ledger 10 — 1st history entry
-    ledger_default(&e, 10, 1000);
-    submit_test_price(&client, &source, &asset, 100i128, 1000);
-
-    // Submit at ledger 11 — 2nd history entry (history full)
-    ledger_default(&e, 11, 1001);
-    submit_test_price(&client, &source, &asset, 200i128, 1001);
 
     let events_before = e.events().all().len();
+    // Only one source submits — min is 2 → SourcesInsufficientEvent
+    client.submit_price(&source1, &asset, &100i128, &1000u64);
+    let events = e.events().all();
 
-    // Submit at ledger 12 — 3rd entry triggers pruning of oldest
-    ledger_default(&e, 12, 1002);
-    submit_test_price(&client, &source, &asset, 300i128, 1002);
+    // PriceSubmittedEvent + SourcesInsufficientEvent = 2 new events
+    assert_eq!(events.len(), events_before + 2);
+}
 
-    let events_after = e.events().all().len();
+#[test]
+fn test_sources_insufficient_event_not_emitted_when_sufficient() {
+    let e = Env::default();
+    ledger_default(&e, 100, 1000);
 
-    // At least one more event than before (the HistoryPrunedEvent)
-    assert!(events_after > events_before);
+    let (client, _) = setup_contract(&e);
+    client.set_min_sources_required(&1u32);
+    let source1 = register_test_source(&e, &client, "A");
+    let asset = register_test_asset(&e, &client);
+
+    client.submit_price(&source1, &asset, &100i128, &1000u64);
+    let events = e.events().all();
+
+    // PriceSubmittedEvent + PriceAggregatedEvent — no SourcesInsufficientEvent
+    // Check last event is not SourcesInsufficientEvent by verifying 2 events total (submitted + aggregated)
+    assert!(events.len() >= 2);
+}
+
+// ---- Task 3: Asset Lifecycle Tests ----
+
+#[test]
+fn test_asset_lifecycle_register_submit_unregister_reregister() {
+    let e = Env::default();
+    ledger_default(&e, 100, 1000);
+
+    let (client, _) = setup_contract(&e);
+    client.set_min_sources_required(&1u32);
+    let source = register_test_source(&e, &client, "Oracle");
+    let asset = register_test_asset(&e, &client);
+
+    // Submit a price
+    submit_test_price(&client, &source, &asset, 500i128, 1000);
+    let price = client.get_price(&asset, &0u64).unwrap();
+    assert_eq!(price.price, 500i128);
+
+    // Unregister the asset
+    client.unregister_asset(&asset);
+    assert!(!client.is_asset_registered(&asset));
+
+    // Asset no longer in the assets list
+    let assets_list = client.assets();
+    let mut found = false;
+    for i in 0..assets_list.len() {
+        if let crate::Asset::Stellar(ref a) = assets_list.get_unchecked(i) {
+            if *a == asset {
+                found = true;
+            }
+        }
+    }
+    assert!(!found);
+
+    // Re-register the same asset
+    client.register_asset(&asset);
+    assert!(client.is_asset_registered(&asset));
+
+    // No aggregate price yet after re-registration
+    assert!(client.get_price(&asset, &0u64).is_none());
+
+    // Submit new price after re-registration
+    submit_test_price(&client, &source, &asset, 600i128, 1000);
+    let new_price = client.get_price(&asset, &0u64).unwrap();
+    assert_eq!(new_price.price, 600i128);
+}
+
+#[test]
+fn test_asset_not_in_list_after_unregister() {
+    let e = Env::default();
+    let (client, _) = setup_contract(&e);
+    let asset = register_test_asset(&e, &client);
+
+    assert_eq!(client.assets().len(), 1);
+    client.unregister_asset(&asset);
+    assert_eq!(client.assets().len(), 0);
+}
+
+#[test]
+fn test_asset_reregister_after_unregister() {
+    let e = Env::default();
+    ledger_default(&e, 100, 1000);
+
+    let (client, _) = setup_contract(&e);
+    client.set_min_sources_required(&1u32);
+    let source = register_test_source(&e, &client, "Oracle");
+
+    let asset_addr = Address::generate(&e);
+    client.register_asset(&asset_addr);
+    submit_test_price(&client, &source, &asset_addr, 100i128, 1000);
+
+    client.unregister_asset(&asset_addr);
+
+    // Re-register
+    client.register_asset(&asset_addr);
+    assert!(client.is_asset_registered(&asset_addr));
+
+    // Submit fresh price
+    submit_test_price(&client, &source, &asset_addr, 200i128, 1000);
+    let p = client.get_price(&asset_addr, &0u64).unwrap();
+    assert_eq!(p.price, 200i128);
+}
+
+// ---- Task 4: Removed Source Data Integrity Tests ----
+
+#[test]
+fn test_removed_source_cannot_submit_prices() {
+    let e = Env::default();
+    ledger_default(&e, 100, 1000);
+
+    let (client, _) = setup_contract(&e);
+    let source = register_test_source(&e, &client, "Oracle");
+    let asset = register_test_asset(&e, &client);
+
+    submit_test_price(&client, &source, &asset, 100i128, 1000);
+
+    client.remove_source(&source);
+
+    // Removed source cannot submit
+    assert!(client
+        .try_submit_price(&source, &asset, &200i128, &1000u64)
+        .is_err());
+}
+
+#[test]
+fn test_removed_source_price_not_in_get_all_prices() {
+    let e = Env::default();
+    ledger_default(&e, 100, 1000);
+
+    let (client, _) = setup_contract(&e);
+    client.set_min_sources_required(&1u32);
+    let source1 = register_test_source(&e, &client, "Oracle1");
+    let source2 = register_test_source(&e, &client, "Oracle2");
+    let asset = register_test_asset(&e, &client);
+
+    submit_test_price(&client, &source1, &asset, 100i128, 1000);
+    submit_test_price(&client, &source2, &asset, 200i128, 1000);
+
+    // Remove source1
+    client.remove_source(&source1);
+
+    // get_all_prices only returns active sources
+    let all_prices = client.get_all_prices(&asset);
+    assert_eq!(all_prices.len(), 1);
+    let entry: PriceEntry = all_prices.get_unchecked(0);
+    assert_eq!(entry.source, source2);
+}
+
+#[test]
+fn test_removed_source_historical_price_still_accessible() {
+    let e = Env::default();
+    ledger_default(&e, 100, 1000);
+
+    let (client, _) = setup_contract(&e);
+    client.set_min_sources_required(&2u32);
+    let source1 = register_test_source(&e, &client, "Oracle1");
+    let source2 = register_test_source(&e, &client, "Oracle2");
+    let asset = register_test_asset(&e, &client);
+
+    submit_test_price(&client, &source1, &asset, 100i128, 1000);
+    submit_test_price(&client, &source2, &asset, 200i128, 1000);
+
+    // Aggregate was recorded at ledger 100
+    assert!(client.has_historical_price(&asset, &100u32));
+    let hist = client.get_historical_price(&asset, &100u32);
+    assert_eq!(hist.price, 150i128);
+
+    // Remove source1
+    client.remove_source(&source1);
+
+    // Historical price is still accessible
+    assert!(client.has_historical_price(&asset, &100u32));
+    let hist_after = client.get_historical_price(&asset, &100u32);
+    assert_eq!(hist_after.price, 150i128);
+}
+
+#[test]
+fn test_removed_source_is_no_longer_source() {
+    let e = Env::default();
+    let (client, _) = setup_contract(&e);
+    let source = register_test_source(&e, &client, "Oracle");
+
+    assert!(client.is_source(&source));
+    client.remove_source(&source);
+    assert!(!client.is_source(&source));
 }

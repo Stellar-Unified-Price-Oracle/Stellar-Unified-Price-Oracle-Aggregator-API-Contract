@@ -91,6 +91,14 @@ impl PriceOracleContract {
         admin::get_description(&env)
     }
 
+    pub fn set_timestamp_threshold(env: Env, threshold: u64) {
+        admin::set_timestamp_threshold(&env, threshold);
+    }
+
+    pub fn get_timestamp_threshold(env: Env) -> u64 {
+        admin::get_timestamp_threshold(&env)
+    }
+
     // --- Sources ---
 
     pub fn add_source(env: Env, source: Address, name: String) {
@@ -129,8 +137,8 @@ impl PriceOracleContract {
         prices::submit_price(&env, source, asset, price, timestamp);
     }
 
-    pub fn get_price(env: Env, asset: Address) -> AggregatePrice {
-        prices::get_price(&env, asset)
+    pub fn get_price(env: Env, asset: Address, max_age: u64) -> Option<AggregatePrice> {
+        prices::get_price(&env, asset, max_age)
     }
 
     pub fn get_source_price(env: Env, asset: Address, source: Address) -> PriceEntry {

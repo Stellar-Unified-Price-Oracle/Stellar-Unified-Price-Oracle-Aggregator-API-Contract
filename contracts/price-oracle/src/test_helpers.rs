@@ -103,23 +103,22 @@ pub fn ledger_default(e: &Env, seq: u32, timestamp: u64) {
     });
 }
 
-/// Initializes the contract with the given admin and standard defaults.
+/// Initializes an already-created contract with the given admin address.
 pub fn init_admin(client: &PriceOracleContractClient<'_>, admin: &Address) {
     let e = client.env();
     client.initialize(
         admin,
-        &2u32,
-        &10u32,
+        &1u32,
+        &100u32,
         &18u32,
         &String::from_str(e, "Stellar Price Oracle Aggregator"),
     );
 }
 
-/// Sets up a basic oracle: 1 source, 1 asset, min_sources=1. Returns (client, admin, source, asset).
+/// Sets up a contract with one source and one asset for event testing.
+/// Returns (client, admin, source, asset).
 pub fn setup_basic(e: &Env) -> (PriceOracleContractClient<'_>, Address, Address, Address) {
-    let admin = Address::generate(e);
-    let client = create_contract(e);
-    init_admin(&client, &admin);
+    let (client, admin) = setup_contract(e);
     client.set_min_sources_required(&1u32);
     let source = register_test_source(e, &client, "Source");
     let asset = register_test_asset(e, &client);
