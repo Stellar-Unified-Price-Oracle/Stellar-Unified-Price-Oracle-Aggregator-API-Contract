@@ -166,6 +166,10 @@ impl PriceOracleContract {
 
     // --- SEP-40 Oracle Interface ---
 
+    pub fn decimals(env: Env) -> u32 {
+        Self::get_decimals(env)
+    }
+
     pub fn base(env: Env) -> Asset {
         Asset::Other(Symbol::new(&env, "USD"))
     }

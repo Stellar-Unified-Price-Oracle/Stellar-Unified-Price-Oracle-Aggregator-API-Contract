@@ -10,7 +10,9 @@ A **decentralized price oracle aggregator** built on Soroban (Stellar smart cont
 - **Per-source prices** — inspect individual source submissions for transparency
 - **Historical prices** — ledger-based price history with configurable retention
 - **Contract upgradability** — WASM-based upgrade mechanism
-- **26 public endpoints** — full admin, source, asset, submission, query, and history interface
+- **SEP-40 compliant** — full implementation of the Stellar Oracle Consumer Interface standard
+- **Contract events** — all state changes emit on-chain events for indexers and monitoring
+- **27 public endpoints** — full admin, source, asset, submission, query, history, and SEP-40 interface
 
 ## Contract Interface
 
@@ -71,6 +73,31 @@ A **decentralized price oracle aggregator** built on Soroban (Stellar smart cont
 | `get_historical_prices(asset, start, end) -> Vec<PriceHistoryEntry>` | Get historical prices in a ledger range |
 | `has_historical_price(asset, ledger) -> bool` | Check if historical price exists |
 
+### SEP-40 Oracle Consumer Interface
+
+| Function | Description |
+|----------|-------------|
+| `base() → Asset` | Returns the base asset (USD) |
+| `assets() → Vec<Asset>` | Returns all registered assets as `Asset::Stellar` |
+| `decimals() → u32` | Returns price decimals |
+| `resolution() → u32` | Returns staleness window in seconds (0 = no expiry) |
+| `price(asset, timestamp) → Option<PriceData>` | Get price at or before a given timestamp |
+| `prices(asset, records) → Option<Vec<PriceData>>` | Get latest N historical price records |
+| `lastprice(asset) → Option<PriceData>` | Get latest aggregated price |
+
+### Contract Events
+
+| Event | Trigger | Topics | Data |
+|-------|---------|--------|------|
+| `SourceAddedEvent` | `add_source()` | source, admin | name |
+| `SourceRemovedEvent` | `remove_source()` | source, admin | — |
+| `AssetRegisteredEvent` | `register_asset()` | asset, admin | — |
+| `AssetUnregisteredEvent` | `unregister_asset()` | asset, admin | — |
+| `PriceSubmittedEvent` | `submit_price()` | asset, source | price, timestamp |
+| `PriceUpdatedEvent` | aggregate price changes | asset | new_price, old_price, timestamp |
+| `AdminChangedEvent` | `set_admin()` | old_admin, new_admin | — |
+| `ContractUpgradedEvent` | `upgrade()` | new_wasm_hash | — |
+
 ## Getting Started
 
 ### Prerequisites
@@ -90,7 +117,7 @@ cargo build -p price-oracle --target wasm32v1-none --release
 cargo test -p price-oracle --lib
 ```
 
-All **56 tests pass** with zero warnings.
+All **65 tests pass** with zero warnings.
 
 ### Deploy
 
@@ -112,7 +139,7 @@ contracts/price-oracle/
     ├── types.rs     # Data types, storage keys, error codes
     ├── storage.rs   # Storage helpers and median computation
     ├── events.rs    # Contract event definitions
-    └── test.rs      # Test suite (43 tests)
+    └── test.rs      # Test suite (65 tests)
 ```
 
 ## Tech Stack

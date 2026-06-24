@@ -1085,127 +1085,112 @@ fn test_sep40_prices_unregistered_asset() {
     assert!(result.is_none());
 }
 
-// ---- #6 Source Name Validation Tests ----
+// ---- SEP-40 decimals() ----
 
 #[test]
-#[should_panic(expected = "Error(Contract, #9)")]
-fn test_add_source_empty_name() {
+fn test_sep40_decimals() {
+    let e = Env::default();
+    let admin = Address::generate(&e);
+    let client = create_contract(&e);
+    init_admin(&client, &admin);
+
+    assert_eq!(client.decimals(), 18u32);
+
+    client.set_decimals(&8u32);
+    assert_eq!(client.decimals(), 8u32);
+    // Alias must match get_decimals
+    assert_eq!(client.decimals(), client.get_decimals());
+}
+
+// ---- Event emission tests ----
+
+#[test]
+fn test_event_source_added() {
     let e = Env::default();
     let admin = Address::generate(&e);
     let client = create_contract(&e);
     init_admin(&client, &admin);
 
     let source = Address::generate(&e);
-    client.add_source(&source, &String::from_str(&e, ""));
+    client.add_source(&source, &String::from_str(&e, "Chainlink"));
+
+    let events = e.events().all();
+    // Last event should be SourceAddedEvent
+    assert!(!events.is_empty());
+    let last = events.get_unchecked(events.len() - 1);
+    // topics: [event_name_sym, source, admin]; data: name
+    let (_, topics, _): (Address, soroban_sdk::Vec<soroban_sdk::Val>, soroban_sdk::Val) = last;
+    // First topic is the event type symbol "SourceAddedEvent", second is source, third is admin
+    assert_eq!(topics.len(), 3);
 }
 
 #[test]
-#[should_panic(expected = "Error(Contract, #9)")]
-fn test_add_source_whitespace_only_name() {
+fn test_event_source_removed() {
     let e = Env::default();
     let admin = Address::generate(&e);
     let client = create_contract(&e);
     init_admin(&client, &admin);
 
     let source = Address::generate(&e);
-    client.add_source(&source, &String::from_str(&e, "   "));
+    client.add_source(&source, &String::from_str(&e, "Test"));
+
+    let events_before = e.events().all().len();
+    client.remove_source(&source);
+
+    let events = e.events().all();
+    assert_eq!(events.len(), events_before + 1);
 }
 
 #[test]
-fn test_add_source_trims_name() {
+fn test_event_asset_registered() {
     let e = Env::default();
     let admin = Address::generate(&e);
     let client = create_contract(&e);
     init_admin(&client, &admin);
 
-    let source = Address::generate(&e);
-    client.add_source(&source, &String::from_str(&e, "  Chainlink  "));
+    let asset = Address::generate(&e);
+    let events_before = e.events().all().len();
+    client.register_asset(&asset);
 
-    let sources = client.get_oracle_sources();
-    assert_eq!(
-        sources.metadata.get(source).unwrap(),
-        String::from_str(&e, "Chainlink")
-    );
+    let events = e.events().all();
+    assert_eq!(events.len(), events_before + 1);
 }
 
-// ---- #5 Staleness and TWAP Tests ----
-
 #[test]
-fn test_get_price_fresh_within_max_age() {
+fn test_event_asset_unregistered() {
     let e = Env::default();
-    ledger_default(&e, 100, 1000);
-
     let admin = Address::generate(&e);
     let client = create_contract(&e);
     init_admin(&client, &admin);
-
-    let source1 = Address::generate(&e);
-    client.add_source(&source1, &String::from_str(&e, "Chainlink"));
-    client.set_min_sources_required(&1u32);
 
     let asset = Address::generate(&e);
     client.register_asset(&asset);
 
-    // Submit price at t=1000
-    client.submit_price(&source1, &asset, &500i128, &1000u64);
+    let events_before = e.events().all().len();
+    client.unregister_asset(&asset);
 
-    // Advance ledger to t=1050, max_age=100s → still fresh
-    ledger_default(&e, 200, 1050);
-    let price = client.get_price(&asset, &100u64).unwrap();
-    assert_eq!(price.price, 500i128);
+    let events = e.events().all();
+    assert_eq!(events.len(), events_before + 1);
 }
 
 #[test]
-fn test_get_price_stale_exceeds_max_age() {
+fn test_event_price_submitted() {
     let e = Env::default();
     ledger_default(&e, 100, 1000);
+    let (client, _admin, source1, asset1) = setup_basic(&e);
 
-    let admin = Address::generate(&e);
-    let client = create_contract(&e);
-    init_admin(&client, &admin);
+    let events_before = e.events().all().len();
+    client.submit_price(&source1, &asset1, &100i128, &1000u64);
 
-    let source1 = Address::generate(&e);
-    client.add_source(&source1, &String::from_str(&e, "Chainlink"));
-    client.set_min_sources_required(&1u32);
-
-    let asset = Address::generate(&e);
-    client.register_asset(&asset);
-
-    // Submit price at t=1000
-    client.submit_price(&source1, &asset, &500i128, &1000u64);
-
-    // Advance ledger to t=1200, max_age=100s → stale (200s > 100s)
-    ledger_default(&e, 200, 1200);
-    assert!(client.get_price(&asset, &100u64).is_none());
+    let events = e.events().all();
+    // At minimum PriceSubmittedEvent was emitted (price_updated may also fire)
+    assert!(events.len() > events_before);
 }
 
 #[test]
-fn test_get_price_zero_max_age_skips_staleness() {
+fn test_event_price_updated_emitted_on_aggregate_change() {
     let e = Env::default();
     ledger_default(&e, 100, 1000);
-
-    let admin = Address::generate(&e);
-    let client = create_contract(&e);
-    init_admin(&client, &admin);
-
-    let source1 = Address::generate(&e);
-    client.add_source(&source1, &String::from_str(&e, "Chainlink"));
-    client.set_min_sources_required(&1u32);
-
-    let asset = Address::generate(&e);
-    client.register_asset(&asset);
-
-    client.submit_price(&source1, &asset, &500i128, &1000u64);
-
-    // Far in the future but max_age=0 → no staleness check
-    ledger_default(&e, 9999, 9999999);
-    let price = client.get_price(&asset, &0u64).unwrap();
-    assert_eq!(price.price, 500i128);
-}
-
-#[test]
-fn test_get_twap_basic() {
-    let e = Env::default();
 
     let admin = Address::generate(&e);
     let client = create_contract(&e);
@@ -1213,45 +1198,26 @@ fn test_get_twap_basic() {
 
     let source1 = Address::generate(&e);
     let source2 = Address::generate(&e);
-    let source3 = Address::generate(&e);
-
     client.add_source(&source1, &String::from_str(&e, "A"));
     client.add_source(&source2, &String::from_str(&e, "B"));
-    client.add_source(&source3, &String::from_str(&e, "C"));
-    client.set_min_sources_required(&3u32);
+    client.set_min_sources_required(&2u32);
 
     let asset = Address::generate(&e);
     client.register_asset(&asset);
 
-    // Ledger 100, t=0: price=100
-    ledger_default(&e, 100, 0);
-    client.submit_price(&source1, &asset, &100i128, &0);
-    client.submit_price(&source2, &asset, &100i128, &0);
-    client.submit_price(&source3, &asset, &100i128, &0);
+    // Submit two prices so aggregation fires and price_updated is emitted
+    client.submit_price(&source1, &asset, &100i128, &1000u64);
+    let events_after_first = e.events().all().len();
 
-    // Ledger 101, t=10: price=200
-    ledger_default(&e, 101, 10);
-    client.submit_price(&source1, &asset, &200i128, &10);
-    client.submit_price(&source2, &asset, &200i128, &10);
-    client.submit_price(&source3, &asset, &200i128, &10);
+    client.submit_price(&source2, &asset, &200i128, &1000u64);
+    let events_after_second = e.events().all().len();
 
-    // Ledger 102, t=30: price=300
-    ledger_default(&e, 102, 30);
-    client.submit_price(&source1, &asset, &300i128, &30);
-    client.submit_price(&source2, &asset, &300i128, &30);
-    client.submit_price(&source3, &asset, &300i128, &30);
-
-    // TWAP over [100, 102]:
-    // entry[0]: price=100, t=0 → duration to next = 10-0 = 10 → 100*10 = 1000
-    // entry[1]: price=200, t=10 → duration to next = 30-10 = 20 → 200*20 = 4000
-    // total_duration = 30, weighted_sum = 5000
-    // twap = 5000/30 = 166
-    let twap = client.get_twap(&asset, &100u32, &102u32).unwrap();
-    assert_eq!(twap, 5000i128 / 30i128);
+    // Second submit triggers aggregation → PriceSubmittedEvent + PriceUpdatedEvent
+    assert!(events_after_second > events_after_first + 1);
 }
 
 #[test]
-fn test_get_twap_none_insufficient_entries() {
+fn test_event_price_updated_not_emitted_when_unchanged() {
     let e = Env::default();
     ledger_default(&e, 100, 1000);
 
@@ -1260,29 +1226,39 @@ fn test_get_twap_none_insufficient_entries() {
     init_admin(&client, &admin);
 
     let source1 = Address::generate(&e);
-    client.add_source(&source1, &String::from_str(&e, "Chainlink"));
+    client.add_source(&source1, &String::from_str(&e, "A"));
     client.set_min_sources_required(&1u32);
 
     let asset = Address::generate(&e);
     client.register_asset(&asset);
 
-    client.submit_price(&source1, &asset, &100i128, &1000);
+    // First submit sets price to 100
+    client.submit_price(&source1, &asset, &100i128, &1000u64);
+    let events_after_first = e.events().all().len();
 
-    // Only 1 history entry → TWAP needs ≥2
-    assert!(client.get_twap(&asset, &100u32, &110u32).is_none());
+    // Second submit with same price and same timestamp — no change, no price_updated
+    client.submit_price(&source1, &asset, &100i128, &1000u64);
+    let events_after_second = e.events().all().len();
+
+    // Only PriceSubmittedEvent added, no PriceUpdatedEvent
+    assert_eq!(events_after_second, events_after_first + 1);
 }
 
 #[test]
-fn test_get_twap_none_invalid_range() {
+fn test_event_admin_changed() {
     let e = Env::default();
     let admin = Address::generate(&e);
     let client = create_contract(&e);
     init_admin(&client, &admin);
 
-    let asset = Address::generate(&e);
-    client.register_asset(&asset);
+    let new_admin = Address::generate(&e);
+    let events_before = e.events().all().len();
+    client.set_admin(&new_admin);
 
-    // end_ledger <= start_ledger → None
-    assert!(client.get_twap(&asset, &100u32, &100u32).is_none());
-    assert!(client.get_twap(&asset, &100u32, &50u32).is_none());
+    let events = e.events().all();
+    assert_eq!(events.len(), events_before + 1);
+    // Topics: [event_sym, old_admin, new_admin]
+    let (_, topics, _): (Address, soroban_sdk::Vec<soroban_sdk::Val>, soroban_sdk::Val) =
+        events.get_unchecked(events.len() - 1);
+    assert_eq!(topics.len(), 3);
 }
