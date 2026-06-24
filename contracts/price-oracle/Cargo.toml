@@ -13,3 +13,9 @@ soroban-sdk = { version = "26" }
 
 [dev-dependencies]
 soroban-sdk = { version = "26", features = ["testutils"] }
+proptest = { version = "1.5.0", default-features = false, features = ["std"] }
+criterion = { version = "0.5.1", features = ["html_reports"] }
+
+[[bench]]
+name = "oracle_benchmarks"
+harness = false

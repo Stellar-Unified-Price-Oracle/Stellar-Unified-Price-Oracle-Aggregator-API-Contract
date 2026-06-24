@@ -10,6 +10,9 @@ mod sources;
 mod storage;
 mod types;
 
+#[cfg(test)]
+mod prop_tests;
+
 pub use types::{
     AggregatePrice, Asset, DataKey, ErrorCode, OracleSources, PriceData, PriceEntry,
     PriceHistoryEntry,
