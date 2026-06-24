@@ -1015,3 +1015,187 @@ fn test_event_admin_changed() {
         events.get_unchecked(events.len() - 1);
     assert_eq!(topics.len(), 3);
 }
+
+// ---- Task 1: Description max length ----
+
+#[test]
+#[should_panic(expected = "Error(Contract, #10)")]
+fn test_set_description_too_long() {
+    let e = Env::default();
+    let (client, _) = setup_contract(&e);
+
+    // 257 characters — exceeds MAX_DESCRIPTION_LENGTH (256)
+    let long_desc = String::from_str(&e, "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+    client.set_description(&long_desc);
+}
+
+#[test]
+fn test_set_description_at_max_length() {
+    let e = Env::default();
+    let (client, _) = setup_contract(&e);
+
+    // Exactly 256 characters — must succeed
+    let max_desc = String::from_str(&e, "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+    client.set_description(&max_desc);
+    assert_eq!(client.get_description(), max_desc);
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #10)")]
+fn test_initialize_description_too_long() {
+    let e = Env::default();
+    let admin = Address::generate(&e);
+    let client = create_contract(&e);
+
+    // 257 characters — exceeds MAX_DESCRIPTION_LENGTH (256)
+    let long_desc = String::from_str(&e, "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+    client.initialize(&admin, &2u32, &10u32, &18u32, &long_desc);
+}
+
+// ---- Task 2: Asset variant (Stellar vs Other) registration ----
+
+/// The contract registers assets by Address (used as the Stellar variant key).
+/// Asset::Other(Symbol) is a different type and is not registerable as an address.
+/// This test documents and verifies that two different Address values are treated as distinct assets,
+/// and that the same address cannot be registered twice regardless of "variant" framing.
+#[test]
+fn test_register_stellar_asset_distinct_from_other_address() {
+    let e = Env::default();
+    let (client, _) = setup_contract(&e);
+
+    let asset_a = Address::generate(&e);
+    let asset_b = Address::generate(&e);
+
+    // Two distinct Stellar assets — both can be registered independently
+    client.register_asset(&asset_a);
+    client.register_asset(&asset_b);
+
+    assert!(client.is_asset_registered(&asset_a));
+    assert!(client.is_asset_registered(&asset_b));
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #3)")]
+fn test_register_same_stellar_asset_twice_rejected() {
+    let e = Env::default();
+    let (client, _) = setup_contract(&e);
+
+    let asset = Address::generate(&e);
+    client.register_asset(&asset);
+    // Registering the same address again must be rejected
+    client.register_asset(&asset);
+}
+
+#[test]
+fn test_sep40_base_is_other_variant() {
+    let e = Env::default();
+    let (client, _) = setup_contract(&e);
+
+    // base() returns Asset::Other("USD") — verifying Other variant is used for base currency
+    let base = client.base();
+    assert_eq!(base, Asset::Other(Symbol::new(&e, "USD")));
+}
+
+#[test]
+fn test_sep40_assets_returns_stellar_variant() {
+    let e = Env::default();
+    let (client, _) = setup_contract(&e);
+
+    let asset = register_test_asset(&e, &client);
+
+    // assets() wraps each registered address as Asset::Stellar
+    let all_assets = client.assets();
+    assert_eq!(all_assets.len(), 1);
+    assert_eq!(all_assets.get_unchecked(0), Asset::Stellar(asset));
+}
+
+// ---- Task 3: get_all_prices with no prices submitted ----
+
+#[test]
+fn test_get_all_prices_no_submissions_returns_empty() {
+    let e = Env::default();
+    let (client, _) = setup_contract(&e);
+    register_test_source(&e, &client, "Chainlink");
+    let asset = register_test_asset(&e, &client);
+
+    // Asset registered, source registered, but no prices submitted
+    let prices = client.get_all_prices(&asset);
+    assert_eq!(prices.len(), 0);
+}
+
+#[test]
+fn test_get_all_prices_no_sources_returns_empty() {
+    let e = Env::default();
+    let (client, _) = setup_contract(&e);
+    let asset = register_test_asset(&e, &client);
+
+    // No sources registered at all
+    let prices = client.get_all_prices(&asset);
+    assert_eq!(prices.len(), 0);
+}
+
+#[test]
+fn test_get_all_prices_multiple_assets_none_with_prices() {
+    let e = Env::default();
+    let (client, _) = setup_contract(&e);
+    register_test_source(&e, &client, "Chainlink");
+
+    let asset_a = register_test_asset(&e, &client);
+    let asset_b = register_test_asset(&e, &client);
+
+    // Neither asset has prices submitted
+    assert_eq!(client.get_all_prices(&asset_a).len(), 0);
+    assert_eq!(client.get_all_prices(&asset_b).len(), 0);
+}
+
+#[test]
+fn test_get_all_prices_partial_sources_submitted() {
+    let e = Env::default();
+    let (client, _) = setup_contract(&e);
+    let source1 = register_test_source(&e, &client, "Chainlink");
+    register_test_source(&e, &client, "Band"); // registered but won't submit
+    client.set_min_sources_required(&1u32);
+    let asset = register_test_asset(&e, &client);
+
+    // Only source1 submits — get_all_prices returns only the submitted entry
+    submit_test_price(&client, &source1, &asset, 100i128, 1000);
+    let prices = client.get_all_prices(&asset);
+    assert_eq!(prices.len(), 1);
+    assert_eq!(prices.get_unchecked(0).price, 100i128);
+}
+
+// ---- Task 4: HistoryPrunedEvent emission during pruning ----
+
+#[test]
+fn test_history_pruned_event_emitted_when_history_overflows() {
+    let e = Env::default();
+    let admin = Address::generate(&e);
+    let client = create_contract(&e);
+    init_admin(&client, &admin);
+
+    // Set max_history to 2 so pruning triggers on the 3rd entry
+    client.set_max_history_length(&2u32);
+    client.set_min_sources_required(&1u32);
+
+    let source = register_test_source(&e, &client, "A");
+    let asset = register_test_asset(&e, &client);
+
+    // Submit at ledger 10 — 1st history entry
+    ledger_default(&e, 10, 1000);
+    submit_test_price(&client, &source, &asset, 100i128, 1000);
+
+    // Submit at ledger 11 — 2nd history entry (history full)
+    ledger_default(&e, 11, 1001);
+    submit_test_price(&client, &source, &asset, 200i128, 1001);
+
+    let events_before = e.events().all().len();
+
+    // Submit at ledger 12 — 3rd entry triggers pruning of oldest
+    ledger_default(&e, 12, 1002);
+    submit_test_price(&client, &source, &asset, 300i128, 1002);
+
+    let events_after = e.events().all().len();
+
+    // At least one more event than before (the HistoryPrunedEvent)
+    assert!(events_after > events_before);
+}

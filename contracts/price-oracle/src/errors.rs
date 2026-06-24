@@ -13,4 +13,5 @@ pub enum ErrorCode {
     InvalidPrice = 7,
     NoData = 8,
     InvalidConfiguration = 9,
+    DescriptionTooLong = 10,
 }
