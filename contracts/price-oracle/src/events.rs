@@ -92,3 +92,12 @@ pub struct DescriptionChangedEvent {
 pub struct ContractUpgradedEvent {
     pub new_wasm_hash: soroban_sdk::BytesN<32>,
 }
+
+#[contractevent]
+#[derive(Clone)]
+pub struct HistoryPrunedEvent {
+    #[topic]
+    pub asset: Address,
+    pub pruned_ledger: u32,
+    pub remaining: u32,
+}

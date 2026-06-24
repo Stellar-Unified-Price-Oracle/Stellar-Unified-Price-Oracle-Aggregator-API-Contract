@@ -11,6 +11,7 @@ pub enum DataKey {
     Submission(Address, Address),
     Aggregate(Address),
     PriceHistory(Address, u32),
+    PriceHistoryLedgers(Address),
     OracleSources,
     RegisteredAssets,
     MinSourcesRequired,

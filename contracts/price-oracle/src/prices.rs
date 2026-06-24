@@ -1,7 +1,7 @@
 use soroban_sdk::{panic_with_error, Address, Env, Vec};
 
-use crate::admin::{get_decimals, get_min_sources_required, get_resolution};
-use crate::events::{PriceAggregatedEvent, PriceSubmittedEvent};
+use crate::admin::{get_decimals, get_max_history_length, get_min_sources_required, get_resolution};
+use crate::events::{HistoryPrunedEvent, PriceAggregatedEvent, PriceSubmittedEvent};
 use crate::storage::{
     check_registered_asset, check_source, compute_median, read_oracle_sources, LEDGER_BUMP,
     LEDGER_THRESHOLD,
@@ -96,6 +96,31 @@ pub fn submit_price(env: &Env, source: Address, asset: Address, price: i128, tim
                 &DataKey::PriceHistory(asset.clone(), current_ledger),
                 &history_entry,
             );
+
+            // Track ledger in history index for pruning
+            let ledgers_key = DataKey::PriceHistoryLedgers(asset.clone());
+            let mut ledger_list: soroban_sdk::Vec<u32> = env
+                .storage()
+                .persistent()
+                .get(&ledgers_key)
+                .unwrap_or(soroban_sdk::Vec::new(env));
+            ledger_list.push_back(current_ledger);
+
+            let max_history = get_max_history_length(env);
+            while ledger_list.len() > max_history {
+                let oldest_ledger = ledger_list.get_unchecked(0);
+                ledger_list.remove(0);
+                env.storage()
+                    .temporary()
+                    .remove(&DataKey::PriceHistory(asset.clone(), oldest_ledger));
+                HistoryPrunedEvent {
+                    asset: asset.clone(),
+                    pruned_ledger: oldest_ledger,
+                    remaining: ledger_list.len(),
+                }
+                .publish(env);
+            }
+            env.storage().persistent().set(&ledgers_key, &ledger_list);
         }
 
         PriceAggregatedEvent {
