@@ -9,6 +9,7 @@ pub enum DataKey {
     Source(Address),
     AssetRegistered(Address),
     Submission(Address, Address),
+    SubmissionLedger(Address, Address),
     Aggregate(Address),
     PriceHistory(Address, u32),
     OracleSources,

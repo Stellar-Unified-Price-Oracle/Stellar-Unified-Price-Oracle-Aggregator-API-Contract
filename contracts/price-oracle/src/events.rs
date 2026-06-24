@@ -19,6 +19,8 @@ pub struct PriceUpdatedEvent {
     pub new_price: i128,
     pub old_price: i128,
     pub timestamp: u64,
+    pub prev_timestamp: u64,
+    pub decimals: u32,
 }
 
 #[contractevent]
