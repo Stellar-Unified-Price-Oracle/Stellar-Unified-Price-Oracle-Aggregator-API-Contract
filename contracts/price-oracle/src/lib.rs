@@ -716,4 +716,7 @@ impl PriceOracleContract {
     }
 }
 
+#[cfg(test)]
+mod debug;
+
 mod test;
