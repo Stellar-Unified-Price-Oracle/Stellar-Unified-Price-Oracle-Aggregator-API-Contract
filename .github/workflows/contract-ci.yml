@@ -1,0 +1,19 @@
+name: Contract CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: stellar/actions/setup-rust@v1
+        with:
+          target: wasm32v1-none
+      - run: cargo build -p price-oracle --target wasm32v1-none --release
+      - run: cargo test -p price-oracle --lib
+      - run: cargo clippy -p price-oracle -- -D warnings
