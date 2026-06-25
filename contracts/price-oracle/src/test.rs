@@ -1103,3 +1103,315 @@ fn test_removed_source_is_no_longer_source() {
     client.remove_source(&source);
     assert!(!client.is_source(&source));
 }
+
+
+// ============================================================================
+// ISSUE #42: Price Deviation Tolerance Threshold Tests
+// ============================================================================
+
+#[test]
+fn test_max_price_deviation_defaults() {
+    let e = Env::default();
+    let (client, _) = setup_contract(&e);
+    
+    // Default should be 500 basis points (5%)
+    assert_eq!(client.get_max_price_deviation(), 500u32);
+}
+
+#[test]
+fn test_set_max_price_deviation() {
+    let e = Env::default();
+    let (client, _) = setup_contract(&e);
+    
+    client.set_max_price_deviation(&1000u32);
+    assert_eq!(client.get_max_price_deviation(), 1000u32);
+}
+
+#[test]
+fn test_set_max_price_deviation_zero_accepted() {
+    let e = Env::default();
+    let (client, _) = setup_contract(&e);
+    
+    // Zero deviation means all prices must match median exactly (strict)
+    client.set_max_price_deviation(&0u32);
+    assert_eq!(client.get_max_price_deviation(), 0u32);
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #10)")]
+fn test_set_max_price_deviation_exceeds_max() {
+    let e = Env::default();
+    let (client, _) = setup_contract(&e);
+    
+    // > 100000 basis points (1000%) should be rejected
+    client.set_max_price_deviation(&100001u32);
+}
+
+#[test]
+fn test_set_max_price_deviation_unauthorized() {
+    let e = Env::default();
+    let (client, _) = setup_contract(&e);
+    
+    clear_auth(&e);
+    assert!(client.try_set_max_price_deviation(&1000u32).is_err());
+}
+
+#[test]
+fn test_price_within_deviation_threshold_included() {
+    let e = Env::default();
+    ledger_default(&e, 100, 1000);
+    
+    let (client, _) = setup_contract(&e);
+    client.set_min_sources_required(&1u32);
+    let source1 = register_test_source(&e, &client, "S1");
+    let asset = register_test_asset(&e, &client);
+    
+    // Set 5% deviation threshold
+    client.set_max_price_deviation(&500u32);
+    
+    // Submit price
+    submit_test_price(&client, &source1, &asset, 100i128, 1000);
+    
+    // Verify price is aggregated
+    let price = client.get_price(&asset, &0u64).unwrap();
+    assert_eq!(price.price, 100i128);
+    assert_eq!(price.num_sources, 1u32);
+}
+
+#[test]
+fn test_price_exceeding_deviation_flagged() {
+    let e = Env::default();
+    ledger_default(&e, 100, 1000);
+    
+    let (client, _) = setup_contract(&e);
+    client.set_min_sources_required(&1u32);
+    let source1 = register_test_source(&e, &client, "S1");
+    let asset = register_test_asset(&e, &client);
+    
+    // Set 5% deviation threshold
+    client.set_max_price_deviation(&500u32);
+    
+    // Submit price
+    submit_test_price(&client, &source1, &asset, 100i128, 1000);
+    
+    // Verify threshold was set
+    assert_eq!(client.get_max_price_deviation(), 500u32);
+}
+
+#[test]
+fn test_multiple_deviant_prices_excluded() {
+    let e = Env::default();
+    ledger_default(&e, 100, 1000);
+    
+    let (client, _) = setup_contract(&e);
+    client.set_min_sources_required(&1u32);
+    let source1 = register_test_source(&e, &client, "S1");
+    let asset = register_test_asset(&e, &client);
+    
+    // Set 10% deviation threshold
+    client.set_max_price_deviation(&1000u32);
+    
+    // Submit prices
+    submit_test_price(&client, &source1, &asset, 100i128, 1000);
+    
+    let price = client.get_price(&asset, &0u64).unwrap();
+    assert_eq!(price.price, 100i128);
+    assert_eq!(price.num_sources, 1u32);
+}
+
+#[test]
+fn test_zero_deviation_only_exact_matches() {
+    let e = Env::default();
+    ledger_default(&e, 100, 1000);
+    
+    let (client, _) = setup_contract(&e);
+    client.set_min_sources_required(&1u32);
+    let source1 = register_test_source(&e, &client, "S1");
+    let asset = register_test_asset(&e, &client);
+    
+    // Set 0% deviation (strict, no deviation allowed)
+    client.set_max_price_deviation(&0u32);
+    
+    // Submit price
+    submit_test_price(&client, &source1, &asset, 100i128, 1000);
+    
+    let price = client.get_price(&asset, &0u64).unwrap();
+    assert_eq!(price.price, 100i128);
+    assert_eq!(price.num_sources, 1u32);
+}
+
+#[test]
+fn test_deviant_price_not_affecting_subsequent_aggregation() {
+    let e = Env::default();
+    ledger_default(&e, 100, 1000);
+    
+    let (client, _) = setup_contract(&e);
+    client.set_min_sources_required(&1u32);
+    let source1 = register_test_source(&e, &client, "S1");
+    let asset = register_test_asset(&e, &client);
+    
+    client.set_max_price_deviation(&500u32); // 5%
+    
+    // First submission
+    submit_test_price(&client, &source1, &asset, 100i128, 1000);
+    
+    let price1 = client.get_price(&asset, &0u64).unwrap();
+    assert_eq!(price1.price, 100i128);
+    
+    // Second submission
+    submit_test_price(&client, &source1, &asset, 110i128, 1001);
+    
+    // Price updated
+    let price2 = client.get_price(&asset, &0u64).unwrap();
+    assert_eq!(price2.price, 110i128);
+}
+
+#[test]
+fn test_inactive_sources_excluded_from_aggregation() {
+    let e = Env::default();
+    ledger_default(&e, 100, 1000);
+    
+    let (client, _) = setup_contract(&e);
+    client.set_min_sources_required(&1u32);
+    let source1 = register_test_source(&e, &client, "S1");
+    let asset = register_test_asset(&e, &client);
+    
+    client.set_heartbeat_interval(&60u64);
+    
+    // Submit heartbeat and price
+    client.submit_heartbeat(&source1);
+    submit_test_price(&client, &source1, &asset, 100i128, 1000);
+    
+    // Source should still be active
+    assert!(!client.is_source_inactive(&source1));
+    
+    // Price should be aggregated
+    let price = client.get_price(&asset, &0u64).unwrap();
+    assert_eq!(price.price, 100i128);
+}
+
+#[test]
+fn test_get_inactive_sources() {
+    let e = Env::default();
+    ledger_default(&e, 100, 1000);
+    
+    let (client, _) = setup_contract(&e);
+    let source1 = register_test_source(&e, &client, "S1");
+    let source2 = register_test_source(&e, &client, "S2");
+    let source3 = register_test_source(&e, &client, "S3");
+    
+    client.set_heartbeat_interval(&60u64);
+    
+    // source1 and source2 heartbeat, source3 does not
+    client.submit_heartbeat(&source1);
+    client.submit_heartbeat(&source2);
+    
+    // Advance time past heartbeat window
+    ledger_default(&e, 200, 1061);
+    
+    // source1, source2 should be inactive (no new heartbeat)
+    // source3 was never active
+    let inactive_count = client.get_inactive_sources();
+    assert_eq!(inactive_count, 3u32);
+}
+
+#[test]
+fn test_heartbeat_timestamp_tracking() {
+    let e = Env::default();
+    ledger_default(&e, 100, 1000);
+    
+    let (client, _) = setup_contract(&e);
+    let source = register_test_source(&e, &client, "Oracle");
+    
+    // Submit heartbeat
+    client.submit_heartbeat(&source);
+    
+    // Get last heartbeat timestamp
+    let last_heartbeat = client.get_source_last_heartbeat(&source);
+    assert_eq!(last_heartbeat, 1000u64);
+}
+
+#[test]
+fn test_heartbeat_updates_on_each_submission() {
+    let e = Env::default();
+    ledger_default(&e, 100, 1000);
+    
+    let (client, _) = setup_contract(&e);
+    let source = register_test_source(&e, &client, "Oracle");
+    
+    client.set_heartbeat_interval(&60u64);
+    
+    // First heartbeat at 1000
+    client.submit_heartbeat(&source);
+    let ts1 = client.get_source_last_heartbeat(&source);
+    assert_eq!(ts1, 1000u64);
+    
+    // Advance and submit another heartbeat
+    ledger_default(&e, 101, 1030);
+    client.submit_heartbeat(&source);
+    let ts2 = client.get_source_last_heartbeat(&source);
+    assert_eq!(ts2, 1030u64);
+}
+
+#[test]
+fn test_multiple_inactive_sources() {
+    let e = Env::default();
+    ledger_default(&e, 100, 1000);
+    
+    let (client, _) = setup_contract(&e);
+    let source1 = register_test_source(&e, &client, "S1");
+    let source2 = register_test_source(&e, &client, "S2");
+    let source3 = register_test_source(&e, &client, "S3");
+    
+    client.set_heartbeat_interval(&100u64);
+    
+    // Only source1 submits heartbeat
+    client.submit_heartbeat(&source1);
+    
+    // Advance time past heartbeat window
+    ledger_default(&e, 200, 1101);
+    
+    // Verify source1 is now inactive
+    assert!(client.is_source_inactive(&source1));
+    
+    // source2 and source3 were never active
+    assert!(client.is_source_inactive(&source2));
+    assert!(client.is_source_inactive(&source3));
+    
+    let inactive_count = client.get_inactive_sources();
+    assert_eq!(inactive_count, 3u32);
+}
+
+#[test]
+fn test_heartbeat_with_price_submission() {
+    let e = Env::default();
+    ledger_default(&e, 100, 1000);
+    
+    let (client, _) = setup_contract(&e);
+    let source = register_test_source(&e, &client, "Oracle");
+    let asset = register_test_asset(&e, &client);
+    
+    client.set_min_sources_required(&1u32);
+    client.set_heartbeat_interval(&60u64);
+    
+    // Submit heartbeat and price
+    client.submit_heartbeat(&source);
+    submit_test_price(&client, &source, &asset, 100i128, 1000);
+    
+    // Source should still be active
+    assert!(!client.is_source_inactive(&source));
+    
+    // Advance time
+    ledger_default(&e, 200, 1061);
+    
+    // Source inactive (no new heartbeat)
+    assert!(client.is_source_inactive(&source));
+    
+    // But can still submit price if explicitly heartbeating
+    client.submit_heartbeat(&source);
+    submit_test_price(&client, &source, &asset, 110i128, 1061);
+    
+    // Price should be updated
+    let price = client.get_price(&asset, &0u64).unwrap();
+    assert_eq!(price.price, 110i128);
+}
