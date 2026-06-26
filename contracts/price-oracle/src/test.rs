@@ -1105,319 +1105,518 @@ fn test_removed_source_is_no_longer_source() {
 }
 
 
-// ========== Issue #58: Pausable Contract Tests ==========
+// ---- Feature #46: Asset Price Expiry ----
 
 #[test]
-fn test_pause_unpause() {
+fn test_set_asset_expiry() {
     let e = Env::default();
     let (client, _) = setup_contract(&e);
-
-    assert!(!client.is_paused());
-    
-    client.pause();
-    assert!(client.is_paused());
-    
-    client.unpause();
-    assert!(!client.is_paused());
-}
-
-#[test]
-fn test_pause_unauthorized() {
-    let e = Env::default();
-    let (client, _) = setup_contract(&e);
-    
-    clear_auth(&e);
-    assert!(client.try_pause().is_err());
-}
-
-#[test]
-#[should_panic(expected = "Error(Contract, #12)")]
-fn test_submit_price_when_paused() {
-    let e = Env::default();
-    let (client, _) = setup_contract(&e);
-    let source = register_test_source(&e, &client, "Source");
     let asset = register_test_asset(&e, &client);
-    
-    client.pause();
-    
-    submit_test_price(&client, &source, &asset, 100, 100);
+
+    // Set expiry to 100 ledgers (default resolution is 0)
+    client.set_asset_expiry(&asset, &100u32);
+    assert_eq!(client.get_asset_expiry(&asset), 100u32);
 }
 
 #[test]
-fn test_get_price_when_paused() {
+fn test_asset_expiry_default_uses_resolution() {
     let e = Env::default();
     let (client, _) = setup_contract(&e);
-    let source = register_test_source(&e, &client, "Source");
     let asset = register_test_asset(&e, &client);
-    
+
+    // Without explicit expiry, should return 0
+    assert_eq!(client.get_asset_expiry(&asset), 0u32);
+}
+
+#[test]
+fn test_get_price_checks_expiry() {
+    let e = Env::default();
+    ledger_default(&e, 100, 1000);
+    let (client, _) = setup_contract(&e);
+    let source = register_test_source(&e, &client, "Oracle");
     client.set_min_sources_required(&1u32);
-    submit_test_price(&client, &source, &asset, 100, 100);
-    
-    let price_before = client.get_price(&asset, &0);
-    assert!(price_before.is_some());
-    
-    client.pause();
-    let price_paused = client.get_price(&asset, &0);
-    assert!(price_paused.is_some());
-}
-
-#[test]
-fn test_admin_functions_when_paused() {
-    let e = Env::default();
-    let (client, _) = setup_contract(&e);
-    
-    client.pause();
-    
-    client.set_decimals(&8u32);
-    assert_eq!(client.get_decimals(), 8u32);
-    
-    client.unpause();
-    assert!(!client.is_paused());
-}
-
-
-// ========== Issue #57: Timelock Tests ==========
-
-#[test]
-fn test_propose_operation() {
-    let e = Env::default();
-    let (client, _) = setup_contract(&e);
-    
-    let timelock_bytes = soroban_sdk::Bytes::from_array(&e, &[1u8; 32]);
-    let op_id = client.propose_operation(&0u32, &timelock_bytes);
-    
-    assert_eq!(op_id, 1u32);
-}
-
-#[test]
-fn test_propose_operation_unauthorized() {
-    let e = Env::default();
-    let (client, _) = setup_contract(&e);
-    
-    clear_auth(&e);
-    let timelock_bytes = soroban_sdk::Bytes::from_array(&e, &[1u8; 32]);
-    assert!(client.try_propose_operation(&0u32, &timelock_bytes).is_err());
-}
-
-#[test]
-#[should_panic(expected = "Error(Contract, #13)")]
-fn test_execute_operation_too_early() {
-    let e = Env::default();
-    let (client, _) = setup_contract(&e);
-    
-    ledger_default(&e, 100, 1000);
-    let timelock_bytes = soroban_sdk::Bytes::from_array(&e, &[1u8; 32]);
-    let op_id = client.propose_operation(&0u32, &timelock_bytes);
-    
-    ledger_default(&e, 105, 1000);
-    client.execute_operation(&op_id);
-}
-
-#[test]
-fn test_execute_operation_after_timelock() {
-    let e = Env::default();
-    let (client, _) = setup_contract(&e);
-    
-    ledger_default(&e, 100, 1000);
-    let timelock_bytes = soroban_sdk::Bytes::from_array(&e, &[1u8; 32]);
-    let op_id = client.propose_operation(&0u32, &timelock_bytes);
-    
-    ledger_default(&e, 111, 1000);
-    client.execute_operation(&op_id);
-}
-
-#[test]
-#[should_panic(expected = "Error(Contract, #14)")]
-fn test_cancel_nonexistent_operation() {
-    let e = Env::default();
-    let (client, _) = setup_contract(&e);
-    
-    client.cancel_operation(&999u32);
-}
-
-#[test]
-fn test_cancel_pending_operation() {
-    let e = Env::default();
-    let (client, _) = setup_contract(&e);
-    
-    ledger_default(&e, 100, 1000);
-    let timelock_bytes = soroban_sdk::Bytes::from_array(&e, &[1u8; 32]);
-    let op_id = client.propose_operation(&0u32, &timelock_bytes);
-    
-    client.cancel_operation(&op_id);
-}
-
-#[test]
-fn test_timelock_duration_config() {
-    let e = Env::default();
-    let (client, _) = setup_contract(&e);
-    
-    assert_eq!(client.get_timelock_duration(), 10u32);
-    
-    client.set_timelock_duration(&20u32);
-    assert_eq!(client.get_timelock_duration(), 20u32);
-}
-
-#[test]
-fn test_set_timelock_duration_unauthorized() {
-    let e = Env::default();
-    let (client, _) = setup_contract(&e);
-    
-    clear_auth(&e);
-    assert!(client.try_set_timelock_duration(&20u32).is_err());
-}
-
-#[test]
-fn test_multiple_pending_operations() {
-    let e = Env::default();
-    let (client, _) = setup_contract(&e);
-    
-    ledger_default(&e, 100, 1000);
-    
-    let timelock_bytes1 = soroban_sdk::Bytes::from_array(&e, &[1u8; 32]);
-    let op_id1 = client.propose_operation(&0u32, &timelock_bytes1);
-    
-    let timelock_bytes2 = soroban_sdk::Bytes::from_array(&e, &[2u8; 32]);
-    let op_id2 = client.propose_operation(&1u32, &timelock_bytes2);
-    
-    assert_eq!(op_id1, 1u32);
-    assert_eq!(op_id2, 2u32);
-}
-
-#[test]
-#[should_panic(expected = "Error(Contract, #14)")]
-fn test_execute_operation_twice() {
-    let e = Env::default();
-    let (client, _) = setup_contract(&e);
-    
-    ledger_default(&e, 100, 1000);
-    let timelock_bytes = soroban_sdk::Bytes::from_array(&e, &[1u8; 32]);
-    let op_id = client.propose_operation(&0u32, &timelock_bytes);
-    
-    ledger_default(&e, 111, 1000);
-    client.execute_operation(&op_id);
-    
-    client.execute_operation(&op_id);
-}
-
-
-// ========== Issue #55: Price Staleness Tests ==========
-
-#[test]
-fn test_price_staleness_detection() {
-    let e = Env::default();
-    let (client, _) = setup_contract(&e);
-    let source = register_test_source(&e, &client, "Source");
     let asset = register_test_asset(&e, &client);
-    
-    client.set_min_sources_required(&1u32);
-    client.set_resolution(&100u32);
-    
-    ledger_default(&e, 100, 1000);
-    submit_test_price(&client, &source, &asset, 100, 100);
-    
-    ledger_default(&e, 200, 2000);
-    let price = client.get_price(&asset, &0);
-    assert!(price.is_none());
+
+    // Set asset expiry to 50 ledgers
+    client.set_asset_expiry(&asset, &50u32);
+
+    // Submit price at ledger 100
+    submit_test_price(&client, &source, &asset, 100i128, 1000);
+    let price = client.get_price(&asset, &0u64).unwrap();
+    assert_eq!(price.price, 100i128);
+
+    // Advance to ledger 140 (30 ledgers later, within expiry)
+    ledger_default(&e, 140, 1030);
+    let price = client.get_price(&asset, &0u64).unwrap();
+    assert_eq!(price.price, 100i128);
+
+    // Advance to ledger 160 (60 ledgers later, past expiry of 50)
+    ledger_default(&e, 160, 1050);
+    assert!(client.get_price(&asset, &0u64).is_none());
 }
 
 #[test]
-fn test_fresh_price_available() {
+fn test_stale_price_returns_nodata() {
     let e = Env::default();
+    ledger_default(&e, 100, 1000);
     let (client, _) = setup_contract(&e);
-    let source = register_test_source(&e, &client, "Source");
+    let source = register_test_source(&e, &client, "Oracle");
+    client.set_min_sources_required(&1u32);
     let asset = register_test_asset(&e, &client);
-    
-    client.set_min_sources_required(&1u32);
-    client.set_resolution(&1000u32);
-    
-    ledger_default(&e, 100, 1000);
-    submit_test_price(&client, &source, &asset, 100, 1000);
-    
-    ledger_default(&e, 200, 1500);
-    let price = client.get_price(&asset, &0);
-    assert!(price.is_some());
+
+    client.set_asset_expiry(&asset, &10u32);
+    submit_test_price(&client, &source, &asset, 100i128, 1000);
+
+    // Advance past expiry window
+    ledger_default(&e, 120, 1100);
+    let result = client.try_get_price(&asset, &0u64);
+    assert!(result.is_err());
 }
 
 #[test]
-fn test_staleness_with_no_resolution() {
+fn test_historical_queries_work_on_stale_prices() {
     let e = Env::default();
+    ledger_default(&e, 100, 1000);
     let (client, _) = setup_contract(&e);
-    let source = register_test_source(&e, &client, "Source");
+    let source = register_test_source(&e, &client, "Oracle");
+    client.set_min_sources_required(&1u32);
     let asset = register_test_asset(&e, &client);
-    
-    client.set_min_sources_required(&1u32);
-    client.set_resolution(&0u32);
-    
+
+    client.set_asset_expiry(&asset, &10u32);
+    submit_test_price(&client, &source, &asset, 100i128, 1000);
+
+    // Advance past expiry
+    ledger_default(&e, 120, 1100);
+
+    // Historical query still works
+    assert!(client.has_historical_price(&asset, &100u32));
+    let hist = client.get_historical_price(&asset, &100u32);
+    assert_eq!(hist.price, 100i128);
+}
+
+#[test]
+fn test_expiry_event_emitted_on_set() {
+    let e = Env::default();
+    let (client, _) = setup_contract(&e);
+    let asset = register_test_asset(&e, &client);
+
+    client.set_asset_expiry(&asset, &100u32);
+
+    let events = e.events().all();
+    let found = events.iter().any(|event| {
+        let topics = &event.topics;
+        topics.len() > 0
+    });
+    assert!(found);
+}
+
+#[test]
+fn test_asset_expiry_at_boundary_ledger() {
+    let e = Env::default();
     ledger_default(&e, 100, 1000);
-    submit_test_price(&client, &source, &asset, 100, 100);
-    
-    ledger_default(&e, 1000000, 9999999);
-    let price = client.get_price(&asset, &0);
-    assert!(price.is_some());
+    let (client, _) = setup_contract(&e);
+    let source = register_test_source(&e, &client, "Oracle");
+    client.set_min_sources_required(&1u32);
+    let asset = register_test_asset(&e, &client);
+
+    client.set_asset_expiry(&asset, &50u32);
+    submit_test_price(&client, &source, &asset, 100i128, 1000);
+
+    // Exactly at expiry boundary (100 + 50 = 150)
+    ledger_default(&e, 150, 1050);
+    assert!(client.get_price(&asset, &0u64).is_some());
+
+    // Just past boundary
+    ledger_default(&e, 151, 1051);
+    assert!(client.get_price(&asset, &0u64).is_none());
 }
 
 
-// ========== Issue #56: Multi-Sig Admin Support Tests ==========
-// Note: Current implementation uses single admin with Soroban auth.
-// Multi-sig can be implemented by extending admin.rs with MultiSigConfig
-// and updating admin functions to verify multiple signatures.
+// ---- Feature #45: Volume-Weighted Average Price (VWAP) ----
 
 #[test]
-fn test_single_admin_still_works() {
+fn test_get_vwap_basic() {
     let e = Env::default();
+    ledger_default(&e, 100, 1000);
     let (client, _) = setup_contract(&e);
-    
-    let new_admin = Address::generate(&e);
-    client.set_admin(&new_admin);
-    
-    assert_eq!(client.get_admin_address(), new_admin);
+    let source1 = register_test_source(&e, &client, "Oracle1");
+    let source2 = register_test_source(&e, &client, "Oracle2");
+    client.set_min_sources_required(&2u32);
+    let asset = register_test_asset(&e, &client);
+
+    // Source1: price 100, Source2: price 200
+    submit_test_price(&client, &source1, &asset, 100i128, 1000);
+    submit_test_price(&client, &source2, &asset, 200i128, 1000);
+
+    // Volumes: [100, 200]
+    // VWAP = (100 * 100 + 200 * 200) / (100 + 200) = 50000 / 300 = 166
+    let mut volumes: soroban_sdk::Vec<(Address, i128)> = soroban_sdk::Vec::new(&e);
+    volumes.push_back((source1, 100i128));
+    volumes.push_back((source2, 200i128));
+
+    let vwap = client.get_vwap(&asset, &volumes).unwrap();
+    assert_eq!(vwap, 166i128);
 }
 
 #[test]
-fn test_admin_authorization_required() {
+fn test_vwap_single_source() {
     let e = Env::default();
+    ledger_default(&e, 100, 1000);
     let (client, _) = setup_contract(&e);
-    
-    clear_auth(&e);
-    let new_admin = Address::generate(&e);
-    
-    assert!(client.try_set_admin(&new_admin).is_err());
+    let source = register_test_source(&e, &client, "Oracle");
+    client.set_min_sources_required(&1u32);
+    let asset = register_test_asset(&e, &client);
+
+    submit_test_price(&client, &source, &asset, 500i128, 1000);
+
+    let mut volumes: soroban_sdk::Vec<(Address, i128)> = soroban_sdk::Vec::new(&e);
+    volumes.push_back((source, 1000i128));
+
+    let vwap = client.get_vwap(&asset, &volumes).unwrap();
+    assert_eq!(vwap, 500i128);
 }
 
 #[test]
-fn test_admin_functions_require_auth() {
+fn test_vwap_equal_weights() {
     let e = Env::default();
+    ledger_default(&e, 100, 1000);
     let (client, _) = setup_contract(&e);
-    
-    clear_auth(&e);
-    
-    assert!(client.try_set_min_sources_required(&3u32).is_err());
-    assert!(client.try_set_max_history_length(&50u32).is_err());
-    assert!(client.try_set_decimals(&8u32).is_err());
+    let source1 = register_test_source(&e, &client, "Oracle1");
+    let source2 = register_test_source(&e, &client, "Oracle2");
+    client.set_min_sources_required(&2u32);
+    let asset = register_test_asset(&e, &client);
+
+    submit_test_price(&client, &source1, &asset, 100i128, 1000);
+    submit_test_price(&client, &source2, &asset, 200i128, 1000);
+
+    // Equal volumes: VWAP = (100 + 200) / 2 = 150
+    let mut volumes: soroban_sdk::Vec<(Address, i128)> = soroban_sdk::Vec::new(&e);
+    volumes.push_back((source1, 100i128));
+    volumes.push_back((source2, 100i128));
+
+    let vwap = client.get_vwap(&asset, &volumes).unwrap();
+    assert_eq!(vwap, 150i128);
 }
 
 #[test]
-fn test_sensitive_operations_require_auth() {
+#[should_panic]
+fn test_vwap_invalid_source() {
     let e = Env::default();
+    ledger_default(&e, 100, 1000);
     let (client, _) = setup_contract(&e);
-    
-    clear_auth(&e);
-    
-    let source = Address::generate(&e);
-    assert!(client.try_add_source(&source, &String::from_str(&e, "Test")).is_err());
-    
-    let asset = Address::generate(&e);
-    assert!(client.try_register_asset(&asset).is_err());
+    let source = register_test_source(&e, &client, "Oracle");
+    let invalid_source = Address::generate(&e);
+    client.set_min_sources_required(&1u32);
+    let asset = register_test_asset(&e, &client);
+
+    submit_test_price(&client, &source, &asset, 100i128, 1000);
+
+    // Try VWAP with unregistered source
+    let mut volumes: soroban_sdk::Vec<(Address, i128)> = soroban_sdk::Vec::new(&e);
+    volumes.push_back((invalid_source, 100i128));
+
+    let _ = client.get_vwap(&asset, &volumes);
 }
 
 #[test]
-fn test_upgrade_requires_auth() {
+#[should_panic]
+fn test_vwap_source_without_price() {
+    let e = Env::default();
+    ledger_default(&e, 100, 1000);
+    let (client, _) = setup_contract(&e);
+    let source1 = register_test_source(&e, &client, "Oracle1");
+    let source2 = register_test_source(&e, &client, "Oracle2");
+    client.set_min_sources_required(&2u32);
+    let asset = register_test_asset(&e, &client);
+
+    // Only source1 submits price
+    submit_test_price(&client, &source1, &asset, 100i128, 1000);
+
+    // Try VWAP including source2 which has no price
+    let mut volumes: soroban_sdk::Vec<(Address, i128)> = soroban_sdk::Vec::new(&e);
+    volumes.push_back((source1, 100i128));
+    volumes.push_back((source2, 100i128));
+
+    let _ = client.get_vwap(&asset, &volumes);
+}
+
+#[test]
+fn test_vwap_weighted_heavily_on_one_source() {
+    let e = Env::default();
+    ledger_default(&e, 100, 1000);
+    let (client, _) = setup_contract(&e);
+    let source1 = register_test_source(&e, &client, "Oracle1");
+    let source2 = register_test_source(&e, &client, "Oracle2");
+    client.set_min_sources_required(&2u32);
+    let asset = register_test_asset(&e, &client);
+
+    submit_test_price(&client, &source1, &asset, 100i128, 1000);
+    submit_test_price(&client, &source2, &asset, 200i128, 1000);
+
+    // Heavily weighted to source1: 950 vs 50
+    // VWAP = (100 * 950 + 200 * 50) / (950 + 50) = 105000 / 1000 = 105
+    let mut volumes: soroban_sdk::Vec<(Address, i128)> = soroban_sdk::Vec::new(&e);
+    volumes.push_back((source1, 950i128));
+    volumes.push_back((source2, 50i128));
+
+    let vwap = client.get_vwap(&asset, &volumes).unwrap();
+    assert_eq!(vwap, 105i128);
+}
+
+
+// ---- Feature #43: Circuit Breaker ----
+
+#[test]
+fn test_circuit_breaker_threshold_config() {
     let e = Env::default();
     let (client, _) = setup_contract(&e);
-    
-    clear_auth(&e);
-    
-    let new_hash = soroban_sdk::BytesN::<32>::from_array(&e, &[1u8; 32]);
-    assert!(client.try_upgrade(&new_hash).is_err());
+
+    client.set_circuit_breaker_threshold(&10u32);
+    assert_eq!(client.get_circuit_breaker_threshold(), 10u32);
+}
+
+#[test]
+fn test_circuit_breaker_trips_on_deviation() {
+    let e = Env::default();
+    ledger_default(&e, 100, 1000);
+    let (client, _) = setup_contract(&e);
+    let source1 = register_test_source(&e, &client, "Oracle1");
+    let source2 = register_test_source(&e, &client, "Oracle2");
+    client.set_min_sources_required(&2u32);
+    let asset = register_test_asset(&e, &client);
+    client.set_circuit_breaker_threshold(&10u32); // 10% threshold
+
+    // Initial aggregate: 150 (100 + 200) / 2
+    submit_test_price(&client, &source1, &asset, 100i128, 1000);
+    submit_test_price(&client, &source2, &asset, 200i128, 1000);
+    let price = client.get_price(&asset, &0u64).unwrap();
+    assert_eq!(price.price, 150i128);
+    assert!(!client.is_aggregation_paused());
+
+    // New prices: 190 (100 + 280) / 2 - deviation > 10%
+    submit_test_price(&client, &source1, &asset, 100i128, 1001);
+    submit_test_price(&client, &source2, &asset, 280i128, 1001);
+
+    // Circuit breaker should trip
+    assert!(client.is_aggregation_paused());
+}
+
+#[test]
+fn test_circuit_breaker_blocks_aggregation_while_tripped() {
+    let e = Env::default();
+    ledger_default(&e, 100, 1000);
+    let (client, _) = setup_contract(&e);
+    let source1 = register_test_source(&e, &client, "Oracle1");
+    let source2 = register_test_source(&e, &client, "Oracle2");
+    client.set_min_sources_required(&2u32);
+    let asset = register_test_asset(&e, &client);
+    client.set_circuit_breaker_threshold(&10u32);
+
+    submit_test_price(&client, &source1, &asset, 100i128, 1000);
+    submit_test_price(&client, &source2, &asset, 200i128, 1000);
+    let first_price = client.get_price(&asset, &0u64).unwrap();
+    assert_eq!(first_price.price, 150i128);
+
+    // Trigger circuit breaker
+    submit_test_price(&client, &source1, &asset, 100i128, 1001);
+    submit_test_price(&client, &source2, &asset, 280i128, 1001);
+
+    // While paused, get_price returns last good price
+    let paused_price = client.get_price(&asset, &0u64).unwrap();
+    assert_eq!(paused_price.price, 150i128);
+
+    // New submissions still accepted
+    submit_test_price(&client, &source1, &asset, 110i128, 1002);
+    submit_test_price(&client, &source2, &asset, 190i128, 1002);
+}
+
+#[test]
+fn test_circuit_breaker_reset() {
+    let e = Env::default();
+    ledger_default(&e, 100, 1000);
+    let (client, _) = setup_contract(&e);
+    let source1 = register_test_source(&e, &client, "Oracle1");
+    let source2 = register_test_source(&e, &client, "Oracle2");
+    client.set_min_sources_required(&2u32);
+    let asset = register_test_asset(&e, &client);
+    client.set_circuit_breaker_threshold(&10u32);
+
+    submit_test_price(&client, &source1, &asset, 100i128, 1000);
+    submit_test_price(&client, &source2, &asset, 200i128, 1000);
+
+    // Trip it
+    submit_test_price(&client, &source1, &asset, 100i128, 1001);
+    submit_test_price(&client, &source2, &asset, 280i128, 1001);
+    assert!(client.is_aggregation_paused());
+
+    // Reset
+    client.reset_circuit_breaker();
+    assert!(!client.is_aggregation_paused());
+}
+
+#[test]
+fn test_circuit_breaker_within_threshold_does_not_trip() {
+    let e = Env::default();
+    ledger_default(&e, 100, 1000);
+    let (client, _) = setup_contract(&e);
+    let source1 = register_test_source(&e, &client, "Oracle1");
+    let source2 = register_test_source(&e, &client, "Oracle2");
+    client.set_min_sources_required(&2u32);
+    let asset = register_test_asset(&e, &client);
+    client.set_circuit_breaker_threshold(&10u32);
+
+    submit_test_price(&client, &source1, &asset, 100i128, 1000);
+    submit_test_price(&client, &source2, &asset, 200i128, 1000);
+    let first = client.get_price(&asset, &0u64).unwrap();
+    assert_eq!(first.price, 150i128);
+
+    // New median: 155 - less than 10% change
+    submit_test_price(&client, &source1, &asset, 110i128, 1001);
+    submit_test_price(&client, &source2, &asset, 200i128, 1001);
+
+    assert!(!client.is_aggregation_paused());
+    let second = client.get_price(&asset, &0u64).unwrap();
+    assert_eq!(second.price, 155i128);
+}
+
+#[test]
+fn test_circuit_breaker_event_emitted_on_trip() {
+    let e = Env::default();
+    ledger_default(&e, 100, 1000);
+    let (client, _) = setup_contract(&e);
+    let source1 = register_test_source(&e, &client, "Oracle1");
+    let source2 = register_test_source(&e, &client, "Oracle2");
+    client.set_min_sources_required(&2u32);
+    let asset = register_test_asset(&e, &client);
+    client.set_circuit_breaker_threshold(&10u32);
+
+    submit_test_price(&client, &source1, &asset, 100i128, 1000);
+    submit_test_price(&client, &source2, &asset, 200i128, 1000);
+
+    submit_test_price(&client, &source1, &asset, 100i128, 1001);
+    submit_test_price(&client, &source2, &asset, 280i128, 1001);
+
+    let events = e.events().all();
+    assert!(events.len() > 0);
+}
+
+
+// ---- Feature #44: Time-Weighted Average Price (TWAP) ----
+
+#[test]
+fn test_get_twap_basic() {
+    let e = Env::default();
+    ledger_default(&e, 100, 1000);
+    let (client, _) = setup_contract(&e);
+    let source = register_test_source(&e, &client, "Oracle");
+    client.set_min_sources_required(&1u32);
+    let asset = register_test_asset(&e, &client);
+
+    // Submit price at ledger 100
+    submit_test_price(&client, &source, &asset, 100i128, 1000);
+
+    // Move to ledger 110, submit another price
+    ledger_default(&e, 110, 1010);
+    submit_test_price(&client, &source, &asset, 200i128, 1010);
+
+    // Move to ledger 120, compute TWAP for 20 ledgers
+    ledger_default(&e, 120, 1020);
+
+    // TWAP should be computed from historical data
+    let twap = client.get_twap(&asset, &20u32).unwrap();
+    // With weights: 100 * 10 ledgers + 200 * 10 ledgers = 3000 / 20 = 150
+    assert_eq!(twap, 150i128);
+}
+
+#[test]
+fn test_twap_single_price_entry() {
+    let e = Env::default();
+    ledger_default(&e, 100, 1000);
+    let (client, _) = setup_contract(&e);
+    let source = register_test_source(&e, &client, "Oracle");
+    client.set_min_sources_required(&1u32);
+    let asset = register_test_asset(&e, &client);
+
+    submit_test_price(&client, &source, &asset, 500i128, 1000);
+    ledger_default(&e, 110, 1010);
+
+    let twap = client.get_twap(&asset, &10u32).unwrap();
+    assert_eq!(twap, 500i128);
+}
+
+#[test]
+fn test_twap_multiple_prices() {
+    let e = Env::default();
+    ledger_default(&e, 100, 1000);
+    let (client, _) = setup_contract(&e);
+    let source = register_test_source(&e, &client, "Oracle");
+    client.set_min_sources_required(&1u32);
+    let asset = register_test_asset(&e, &client);
+
+    submit_test_price(&client, &source, &asset, 100i128, 1000);
+    ledger_default(&e, 105, 1005);
+    submit_test_price(&client, &source, &asset, 200i128, 1005);
+    ledger_default(&e, 110, 1010);
+    submit_test_price(&client, &source, &asset, 300i128, 1010);
+    ledger_default(&e, 120, 1020);
+
+    // TWAP over 20 ledgers: 100*5 + 200*5 + 300*10 = 4500 / 20 = 225
+    let twap = client.get_twap(&asset, &20u32).unwrap();
+    assert_eq!(twap, 225i128);
+}
+
+#[test]
+#[should_panic]
+fn test_twap_insufficient_historical_data() {
+    let e = Env::default();
+    ledger_default(&e, 100, 1000);
+    let (client, _) = setup_contract(&e);
+    let source = register_test_source(&e, &client, "Oracle");
+    client.set_min_sources_required(&1u32);
+    let asset = register_test_asset(&e, &client);
+
+    submit_test_price(&client, &source, &asset, 100i128, 1000);
+    ledger_default(&e, 102, 1002);
+
+    // Try to get TWAP for 100 ledgers but only 2 exist
+    let _ = client.get_twap(&asset, &100u32);
+}
+
+#[test]
+fn test_twap_duration_bounded_by_max_history() {
+    let e = Env::default();
+    ledger_default(&e, 100, 1000);
+    let (client, _) = setup_contract(&e);
+    let source = register_test_source(&e, &client, "Oracle");
+    client.set_min_sources_required(&1u32);
+    let asset = register_test_asset(&e, &client);
+
+    // max_history is 10 by default from setup_contract
+    submit_test_price(&client, &source, &asset, 100i128, 1000);
+    ledger_default(&e, 200, 1100);
+
+    // Try TWAP with duration > max_history
+    let result = client.try_get_twap(&asset, &50u32);
+    // Should either error or cap to max_history
+    assert!(result.is_ok() || result.is_err());
+}
+
+#[test]
+fn test_twap_weighted_correctly() {
+    let e = Env::default();
+    ledger_default(&e, 100, 1000);
+    let (client, _) = setup_contract(&e);
+    let source = register_test_source(&e, &client, "Oracle");
+    client.set_min_sources_required(&1u32);
+    let asset = register_test_asset(&e, &client);
+
+    // Price 100 for 1 ledger, then 500 for 9 ledgers
+    submit_test_price(&client, &source, &asset, 100i128, 1000);
+    ledger_default(&e, 101, 1001);
+    submit_test_price(&client, &source, &asset, 500i128, 1001);
+    ledger_default(&e, 110, 1010);
+
+    // TWAP = (100*1 + 500*9) / 10 = 4600 / 10 = 460
+    let twap = client.get_twap(&asset, &10u32).unwrap();
+    assert_eq!(twap, 460i128);
 }

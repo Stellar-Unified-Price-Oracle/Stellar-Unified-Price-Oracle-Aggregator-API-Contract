@@ -164,54 +164,48 @@ pub fn emit_timestamp_threshold_changed(env: &soroban_sdk::Env, admin: Address, 
 
 #[contractevent]
 #[derive(Clone)]
-pub struct ContractPausedEvent {
-    #[topic]
-    pub admin: Address,
-}
-
-#[contractevent]
-#[derive(Clone)]
-pub struct ContractUnpausedEvent {
-    #[topic]
-    pub admin: Address,
-}
-
-#[contractevent]
-#[derive(Clone)]
-pub struct OperationProposedEvent {
-    #[topic]
-    pub operation_id: u32,
-    pub op_type: u32,
-    #[topic]
-    pub proposed_by: Address,
-    pub proposed_ledger: u32,
-}
-
-#[contractevent]
-#[derive(Clone)]
-pub struct OperationExecutedEvent {
-    #[topic]
-    pub operation_id: u32,
-    pub op_type: u32,
-    #[topic]
-    pub executed_by: Address,
-}
-
-#[contractevent]
-#[derive(Clone)]
-pub struct OperationCancelledEvent {
-    #[topic]
-    pub operation_id: u32,
-    pub op_type: u32,
-    #[topic]
-    pub cancelled_by: Address,
-}
-
-#[contractevent]
-#[derive(Clone)]
-pub struct PriceStaleEvent {
+pub struct PriceDeviationFlaggedEvent {
     #[topic]
     pub asset: Address,
-    pub last_update_ledger: u32,
-    pub current_ledger: u32,
+    #[topic]
+    pub source: Address,
+    pub price: i128,
+    pub median_price: i128,
+    pub deviation_percent: u32,
+}
+
+#[allow(deprecated)]
+pub fn emit_max_price_deviation_changed(env: &soroban_sdk::Env, admin: Address, value: u32) {
+    let sym = soroban_sdk::symbol_short!("devn");
+    env.events().publish((sym, admin), (value,));
+}
+
+#[contractevent]
+#[derive(Clone)]
+pub struct SourceHeartbeatEvent {
+    #[topic]
+    pub source: Address,
+    pub timestamp: u64,
+}
+
+#[contractevent]
+#[derive(Clone)]
+pub struct SourceInactiveEvent {
+    #[topic]
+    pub source: Address,
+    pub last_heartbeat: u64,
+}
+
+#[contractevent]
+#[derive(Clone)]
+pub struct HeartbeatIntervalChangedEvent {
+    pub value: u64,
+}
+
+#[contractevent]
+#[derive(Clone)]
+pub struct SourceActiveAgainEvent {
+    #[topic]
+    pub source: Address,
+    pub timestamp: u64,
 }
