@@ -7,7 +7,7 @@ use crate::events::{
     ResolutionChangedEvent,
 };
 use crate::storage::{get_admin, read_oracle_sources, LEDGER_BUMP, LEDGER_THRESHOLD};
-use crate::types::{DataKey, ErrorCode, OracleSources};
+use crate::types::{AggregationMethod, DataKey, ErrorCode, OracleSources};
 
 const DEFAULT_MAX_HISTORY: u32 = 100;
 const DEFAULT_MIN_SOURCES: u32 = 1;
@@ -69,6 +69,14 @@ pub fn initialize(
     env.storage().persistent().set(
         &DataKey::RegisteredAssets,
         &soroban_sdk::Vec::<Address>::new(env),
+    );
+    env.storage().persistent().set(
+        &DataKey::MaxInvalidSubmissions,
+        &DEFAULT_MAX_INVALID_SUBMISSIONS,
+    );
+    env.storage().persistent().set(
+        &DataKey::AggregationMethod,
+        &(AggregationMethod::Median as u32),
     );
     emit_initialized(
         env,

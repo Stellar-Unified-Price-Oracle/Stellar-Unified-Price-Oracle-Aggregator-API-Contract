@@ -14,7 +14,7 @@ mod types;
 mod prop_tests;
 
 pub use types::{
-    AggregatePrice, Asset, DataKey, ErrorCode, OracleSources, PriceData, PriceEntry,
+    AggregatePrice, Asset, AggregationMethod, DataKey, ErrorCode, OracleSources, PriceData, PriceEntry,
     PriceHistoryEntry,
 };
 

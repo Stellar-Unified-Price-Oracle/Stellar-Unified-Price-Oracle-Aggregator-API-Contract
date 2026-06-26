@@ -2,17 +2,17 @@ use soroban_sdk::{panic_with_error, Address, Env, Vec};
 
 use crate::admin::{
     get_decimals, get_max_history_length, get_min_sources_required, get_resolution,
-    get_timestamp_threshold,
+    get_timestamp_threshold, get_aggregation_method,
 };
 use crate::events::{
     HistoryPrunedEvent, PriceAggregatedEvent, PriceSubmittedEvent, SourcesInsufficientEvent,
 };
 use crate::storage::{
-    check_registered_asset, check_source, compute_median, read_oracle_sources, LEDGER_BUMP,
+    check_registered_asset, check_source, compute_median, compute_mean, compute_trimmed_median, compute_trimmed_mean, read_oracle_sources, LEDGER_BUMP,
     LEDGER_THRESHOLD,
 };
 use crate::types::{
-    AggregatePrice, Asset, DataKey, ErrorCode, OracleSources, PriceData, PriceEntry,
+    AggregatePrice, Asset, AggregationMethod, DataKey, ErrorCode, OracleSources, PriceData, PriceEntry,
     PriceHistoryEntry,
 };
 
@@ -20,24 +20,32 @@ pub fn submit_price(env: &Env, source: Address, asset: Address, price: i128, tim
     source.require_auth();
     check_source(env, &source);
     check_registered_asset(env, &asset);
+    
+    if crate::sources::is_source_suspended(env, source.clone()) {
+        panic_with_error!(env, ErrorCode::NotAuthorized);
+    }
 
     if price <= 0 {
+        crate::sources::record_invalid_submission(env, source.clone());
         panic_with_error!(env, ErrorCode::InvalidPrice);
     }
 
     let ledger_time = env.ledger().timestamp();
     let threshold = get_timestamp_threshold(env);
     if timestamp > ledger_time + threshold {
+        crate::sources::record_invalid_submission(env, source.clone());
         panic_with_error!(env, ErrorCode::InvalidTimestamp);
     }
 
     let decimals = get_decimals(env);
+    let current_ledger = env.ledger().sequence();
 
     let entry = PriceEntry {
         price,
         timestamp,
         source: source.clone(),
         decimals,
+        last_updated: current_ledger,
     };
 
     env.storage()
@@ -62,7 +70,7 @@ pub fn submit_price(env: &Env, source: Address, asset: Address, price: i128, tim
 
     for i in 0..total_sources {
         let src = oracle_sources.sources.get_unchecked(i);
-        let sub_key = DataKey::Submission(asset.clone(), src);
+        let sub_key = DataKey::Submission(asset.clone(), src.clone());
         let sub: Option<PriceEntry> = env.storage().persistent().get(&sub_key);
         if let Some(entry_data) = sub {
             env.storage()
@@ -77,9 +85,14 @@ pub fn submit_price(env: &Env, source: Address, asset: Address, price: i128, tim
     }
 
     if contributing_sources >= min_required && !valid_prices.is_empty() {
-        let median_price = compute_median(&valid_prices);
+        let method = get_aggregation_method(env);
+        let median_price = match method {
+            0 => compute_median(&valid_prices),
+            1 => compute_mean(&valid_prices),
+            2 => compute_trimmed_mean(&valid_prices, 10),
+            _ => compute_median(&valid_prices),
+        };
 
-        let current_ledger = env.ledger().sequence();
         let agg_key = DataKey::Aggregate(asset.clone());
         let prev_aggregate: AggregatePrice =
             env.storage()
@@ -237,6 +250,7 @@ pub fn lastprice(env: &Env, asset: Asset) -> Option<PriceData> {
     Some(PriceData {
         price: result.price,
         timestamp: result.timestamp,
+        last_updated: env.ledger().sequence(),
     })
 }
 
@@ -259,6 +273,7 @@ pub fn price(env: &Env, asset: Asset, timestamp: u64) -> Option<PriceData> {
             return Some(PriceData {
                 price: agg.price,
                 timestamp: agg.timestamp,
+                last_updated: env.ledger().sequence(),
             });
         }
     }
@@ -276,6 +291,7 @@ pub fn price(env: &Env, asset: Asset, timestamp: u64) -> Option<PriceData> {
                 return Some(PriceData {
                     price: entry.price,
                     timestamp: entry.timestamp,
+                    last_updated: ledger,
                 });
             }
         }
@@ -314,6 +330,7 @@ pub fn prices(env: &Env, asset: Asset, records: u32) -> Option<Vec<PriceData>> {
             result.push_back(PriceData {
                 price: entry.price,
                 timestamp: entry.timestamp,
+                last_updated: ledger,
             });
             if result.len() >= records {
                 break;
@@ -334,6 +351,7 @@ pub fn prices(env: &Env, asset: Asset, records: u32) -> Option<Vec<PriceData>> {
             result.push_back(PriceData {
                 price: agg.price,
                 timestamp: agg.timestamp,
+                last_updated: current_ledger,
             });
         }
     }
