@@ -1356,3 +1356,68 @@ fn test_staleness_with_no_resolution() {
     let price = client.get_price(&asset, &0);
     assert!(price.is_some());
 }
+
+
+// ========== Issue #56: Multi-Sig Admin Support Tests ==========
+// Note: Current implementation uses single admin with Soroban auth.
+// Multi-sig can be implemented by extending admin.rs with MultiSigConfig
+// and updating admin functions to verify multiple signatures.
+
+#[test]
+fn test_single_admin_still_works() {
+    let e = Env::default();
+    let (client, _) = setup_contract(&e);
+    
+    let new_admin = Address::generate(&e);
+    client.set_admin(&new_admin);
+    
+    assert_eq!(client.get_admin_address(), new_admin);
+}
+
+#[test]
+fn test_admin_authorization_required() {
+    let e = Env::default();
+    let (client, _) = setup_contract(&e);
+    
+    clear_auth(&e);
+    let new_admin = Address::generate(&e);
+    
+    assert!(client.try_set_admin(&new_admin).is_err());
+}
+
+#[test]
+fn test_admin_functions_require_auth() {
+    let e = Env::default();
+    let (client, _) = setup_contract(&e);
+    
+    clear_auth(&e);
+    
+    assert!(client.try_set_min_sources_required(&3u32).is_err());
+    assert!(client.try_set_max_history_length(&50u32).is_err());
+    assert!(client.try_set_decimals(&8u32).is_err());
+}
+
+#[test]
+fn test_sensitive_operations_require_auth() {
+    let e = Env::default();
+    let (client, _) = setup_contract(&e);
+    
+    clear_auth(&e);
+    
+    let source = Address::generate(&e);
+    assert!(client.try_add_source(&source, &String::from_str(&e, "Test")).is_err());
+    
+    let asset = Address::generate(&e);
+    assert!(client.try_register_asset(&asset).is_err());
+}
+
+#[test]
+fn test_upgrade_requires_auth() {
+    let e = Env::default();
+    let (client, _) = setup_contract(&e);
+    
+    clear_auth(&e);
+    
+    let new_hash = soroban_sdk::BytesN::<32>::from_array(&e, &[1u8; 32]);
+    assert!(client.try_upgrade(&new_hash).is_err());
+}
