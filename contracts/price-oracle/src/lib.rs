@@ -175,8 +175,8 @@ impl PriceOracleContract {
 
     // --- Prices ---
 
-    pub fn submit_price(env: Env, source: Address, asset: Address, price: i128, timestamp: u64) {
-        prices::submit_price(&env, source, asset, price, timestamp);
+    pub fn submit_price(env: Env, source: Address, asset: Address, price: i128, timestamp: u64, nonce: u64) {
+        prices::submit_price(&env, source, asset, price, timestamp, nonce);
     }
 
     pub fn get_price(env: Env, asset: Address, max_age: u64) -> Option<AggregatePrice> {

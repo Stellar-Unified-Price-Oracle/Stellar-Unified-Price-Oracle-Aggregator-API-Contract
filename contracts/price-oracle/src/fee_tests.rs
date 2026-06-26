@@ -95,8 +95,8 @@ fn test_fee_charged_on_price_query() {
     let collector = Address::generate(&e);
     client.set_fee_collector(&collector);
 
-    submit_test_price(&client, &source1, &asset, 100i128, 1234567890);
-    submit_test_price(&client, &source2, &asset, 200i128, 1234567890);
+    submit_test_price(&client, &source1, &asset, 100i128, 1234567890, 1);
+    submit_test_price(&client, &source2, &asset, 200i128, 1234567890, 1);
 
     let price = client.get_price(&asset, &0u64).unwrap();
     assert_eq!(price.price, 150i128);
@@ -117,8 +117,8 @@ fn test_fee_not_charged_with_zero_fee() {
     // Fee is 0 by default
     assert_eq!(client.get_query_fee(), 0i128);
 
-    submit_test_price(&client, &source1, &asset, 100i128, 1234567890);
-    submit_test_price(&client, &source2, &asset, 200i128, 1234567890);
+    submit_test_price(&client, &source1, &asset, 100i128, 1234567890, 1);
+    submit_test_price(&client, &source2, &asset, 200i128, 1234567890, 1);
 
     let price = client.get_price(&asset, &0u64).unwrap();
     assert_eq!(price.price, 150i128);
@@ -138,8 +138,8 @@ fn test_admin_bypasses_fee() {
 
     client.set_query_fee(&50i128);
 
-    submit_test_price(&client, &source1, &asset, 100i128, 1234567890);
-    submit_test_price(&client, &source2, &asset, 200i128, 1234567890);
+    submit_test_price(&client, &source1, &asset, 100i128, 1234567890, 1);
+    submit_test_price(&client, &source2, &asset, 200i128, 1234567890, 1);
 
     let price = client.get_price(&asset, &0u64).unwrap();
     assert_eq!(price.price, 150i128);

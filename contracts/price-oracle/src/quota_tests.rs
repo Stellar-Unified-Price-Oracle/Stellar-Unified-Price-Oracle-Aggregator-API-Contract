@@ -68,7 +68,7 @@ fn test_submissions_within_quota() {
 
     // Submit 5 prices (at quota limit)
     for i in 0..5 {
-        submit_test_price(&client, &source, &asset, 100i128 + i as i128, 1234567890 + i as u64);
+        submit_test_price(&client, &source, &asset, 100i128 + i as i128, 1234567890 + i as u64, i as u64 + 1);
     }
 
     // Verify all submissions were successful
@@ -91,7 +91,7 @@ fn test_submissions_exceed_quota() {
 
     // Try to submit 4 prices (exceeds quota of 3)
     for i in 0..4 {
-        submit_test_price(&client, &source, &asset, 100i128 + i as i128, 1234567890 + i as u64);
+        submit_test_price(&client, &source, &asset, 100i128 + i as i128, 1234567890 + i as u64, i as u64 + 1);
     }
 }
 
@@ -107,13 +107,13 @@ fn test_quota_reset_after_period() {
 
     // Submit at ledger 100
     ledger_default(&e, 100, 1234567890);
-    submit_test_price(&client, &source, &asset, 100i128, 1234567890);
-    submit_test_price(&client, &source, &asset, 110i128, 1234567890);
+    submit_test_price(&client, &source, &asset, 100i128, 1234567890, 1);
+    submit_test_price(&client, &source, &asset, 110i128, 1234567890, 2);
 
     // At ledger 200, quota period has elapsed, quota resets
     ledger_default(&e, 200, 1234567891);
-    submit_test_price(&client, &source, &asset, 120i128, 1234567891);
-    submit_test_price(&client, &source, &asset, 130i128, 1234567891);
+    submit_test_price(&client, &source, &asset, 120i128, 1234567891, 3);
+    submit_test_price(&client, &source, &asset, 130i128, 1234567891, 4);
 
     // All 4 submissions should succeed
     let all_prices = client.get_all_prices(&asset);
@@ -134,7 +134,7 @@ fn test_quota_boundary_exact_at_end() {
 
     // Submit exactly 3
     for i in 0..3 {
-        submit_test_price(&client, &source, &asset, 100i128 + i as i128, 1234567890 + i as u64);
+        submit_test_price(&client, &source, &asset, 100i128 + i as i128, 1234567890 + i as u64, i as u64 + 1);
     }
 
     // Verify 3 were accepted
@@ -157,12 +157,12 @@ fn test_multiple_sources_independent_quotas() {
     ledger_default(&e, 100, 1234567890);
 
     // source1 submits 2
-    submit_test_price(&client, &source1, &asset, 100i128, 1234567890);
-    submit_test_price(&client, &source1, &asset, 110i128, 1234567890);
+    submit_test_price(&client, &source1, &asset, 100i128, 1234567890, 1);
+    submit_test_price(&client, &source1, &asset, 110i128, 1234567890, 2);
 
     // source2 submits 5
     for i in 0..5 {
-        submit_test_price(&client, &source2, &asset, 200i128 + i as i128, 1234567890 + i as u64);
+        submit_test_price(&client, &source2, &asset, 200i128 + i as i128, 1234567890 + i as u64, i as u64 + 1);
     }
 
     let all_prices = client.get_all_prices(&asset);
@@ -183,7 +183,7 @@ fn test_zero_quota_treated_as_unlimited() {
 
     // Submit many more than would fit in a typical quota
     for i in 0..20 {
-        submit_test_price(&client, &source, &asset, 100i128 + i as i128, 1234567890 + i as u64);
+        submit_test_price(&client, &source, &asset, 100i128 + i as i128, 1234567890 + i as u64, i as u64 + 1);
     }
 
     let all_prices = client.get_all_prices(&asset);
@@ -203,9 +203,9 @@ fn test_quota_exceeded_at_first_submission_over_limit() {
 
     ledger_default(&e, 100, 1234567890);
 
-    submit_test_price(&client, &source, &asset, 100i128, 1234567890);
+    submit_test_price(&client, &source, &asset, 100i128, 1234567890, 1);
     // Second submission should fail
-    submit_test_price(&client, &source, &asset, 110i128, 1234567890);
+    submit_test_price(&client, &source, &asset, 110i128, 1234567890, 2);
 }
 
 #[test]

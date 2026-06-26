@@ -34,6 +34,7 @@ pub enum DataKey {
     PendingOpCount,
     PendingOp(u32),
     TimelockDuration,
+    SourceNonce(Address),
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -44,6 +45,7 @@ pub struct PriceEntry {
     pub source: Address,
     pub decimals: u32,
     pub last_updated: u32,
+    pub ledger_timestamp: u64,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -53,6 +55,7 @@ pub struct AggregatePrice {
     pub timestamp: u64,
     pub num_sources: u32,
     pub decimals: u32,
+    pub ledger_timestamp: u64,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
