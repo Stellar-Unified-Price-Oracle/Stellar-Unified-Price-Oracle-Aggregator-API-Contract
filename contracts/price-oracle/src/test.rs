@@ -1103,3 +1103,74 @@ fn test_removed_source_is_no_longer_source() {
     client.remove_source(&source);
     assert!(!client.is_source(&source));
 }
+
+
+// ========== Issue #58: Pausable Contract Tests ==========
+
+#[test]
+fn test_pause_unpause() {
+    let e = Env::default();
+    let (client, _) = setup_contract(&e);
+
+    assert!(!client.is_paused());
+    
+    client.pause();
+    assert!(client.is_paused());
+    
+    client.unpause();
+    assert!(!client.is_paused());
+}
+
+#[test]
+fn test_pause_unauthorized() {
+    let e = Env::default();
+    let (client, _) = setup_contract(&e);
+    
+    clear_auth(&e);
+    assert!(client.try_pause().is_err());
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #12)")]
+fn test_submit_price_when_paused() {
+    let e = Env::default();
+    let (client, _) = setup_contract(&e);
+    let source = register_test_source(&e, &client, "Source");
+    let asset = register_test_asset(&e, &client);
+    
+    client.pause();
+    
+    submit_test_price(&client, &source, &asset, 100, 100);
+}
+
+#[test]
+fn test_get_price_when_paused() {
+    let e = Env::default();
+    let (client, _) = setup_contract(&e);
+    let source = register_test_source(&e, &client, "Source");
+    let asset = register_test_asset(&e, &client);
+    
+    client.set_min_sources_required(&1u32);
+    submit_test_price(&client, &source, &asset, 100, 100);
+    
+    let price_before = client.get_price(&asset, &0);
+    assert!(price_before.is_some());
+    
+    client.pause();
+    let price_paused = client.get_price(&asset, &0);
+    assert!(price_paused.is_some());
+}
+
+#[test]
+fn test_admin_functions_when_paused() {
+    let e = Env::default();
+    let (client, _) = setup_contract(&e);
+    
+    client.pause();
+    
+    client.set_decimals(&8u32);
+    assert_eq!(client.get_decimals(), 8u32);
+    
+    client.unpause();
+    assert!(!client.is_paused());
+}

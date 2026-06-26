@@ -161,3 +161,17 @@ pub fn emit_timestamp_threshold_changed(env: &soroban_sdk::Env, admin: Address, 
     let sym = soroban_sdk::symbol_short!("tthr");
     env.events().publish((sym, admin), (value,));
 }
+
+#[contractevent]
+#[derive(Clone)]
+pub struct ContractPausedEvent {
+    #[topic]
+    pub admin: Address,
+}
+
+#[contractevent]
+#[derive(Clone)]
+pub struct ContractUnpausedEvent {
+    #[topic]
+    pub admin: Address,
+}

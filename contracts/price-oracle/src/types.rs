@@ -21,6 +21,7 @@ pub enum DataKey {
     Decimals,
     Description,
     TimestampThreshold,
+    PauseFlag,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]

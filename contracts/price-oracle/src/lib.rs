@@ -5,6 +5,7 @@ mod assets;
 mod errors;
 mod events;
 mod history;
+mod pause;
 mod prices;
 mod sources;
 mod storage;
@@ -213,6 +214,20 @@ impl PriceOracleContract {
 
     pub fn prices(env: Env, asset: Asset, records: u32) -> Option<Vec<PriceData>> {
         prices::prices(&env, asset, records)
+    }
+
+    // --- Pause ---
+
+    pub fn pause(env: Env) {
+        pause::pause(&env);
+    }
+
+    pub fn unpause(env: Env) {
+        pause::unpause(&env);
+    }
+
+    pub fn is_paused(env: Env) -> bool {
+        pause::is_paused(&env)
     }
 }
 

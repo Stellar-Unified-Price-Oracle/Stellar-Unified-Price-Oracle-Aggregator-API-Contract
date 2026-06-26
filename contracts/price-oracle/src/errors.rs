@@ -1,4 +1,4 @@
-use soroban_sdk::contracterror;
+use soroban_sdk::{contracterror, Address, String};
 
 #[contracterror]
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -15,4 +15,5 @@ pub enum ErrorCode {
     InvalidTimestamp = 9,
     InvalidConfiguration = 10,
     DescriptionTooLong = 11,
+    ContractPaused = 12,
 }

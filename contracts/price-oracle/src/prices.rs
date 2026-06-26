@@ -7,6 +7,7 @@ use crate::admin::{
 use crate::events::{
     HistoryPrunedEvent, PriceAggregatedEvent, PriceSubmittedEvent, SourcesInsufficientEvent,
 };
+use crate::pause::check_not_paused;
 use crate::storage::{
     check_registered_asset, check_source, compute_median, read_oracle_sources, LEDGER_BUMP,
     LEDGER_THRESHOLD,
@@ -17,6 +18,7 @@ use crate::types::{
 };
 
 pub fn submit_price(env: &Env, source: Address, asset: Address, price: i128, timestamp: u64) {
+    check_not_paused(env);
     source.require_auth();
     check_source(env, &source);
     check_registered_asset(env, &asset);
