@@ -9,63 +9,71 @@ A Soroban (Stellar smart contract) **price oracle aggregator** that collects pri
 - **Language:** Rust, compiled to WASM (`wasm32v1-none`)
 - **SDK:** soroban-sdk v26
 - **Testing:** `#[cfg(test)]` with `soroban-sdk/testutils`
+- **Entrypoint:** `contracts/price-oracle/src/lib.rs`
 
 ## Repository Structure
 
 ```
 .
-├── .github/workflows/ci.yml    # CI: frontend / backend / contract
+├── .github/workflows/ci.yml    # CI: contract build, fmt, clippy, tests
 ├── .husky/pre-push              # Pre-push hook: builds + tests contract
 ├── AGENTS.md                    # This file
 ├── Cargo.toml                   # Workspace root
-├── package.json                 # Root scripts + husky devDep
+├── Cargo.lock
+├── Makefile                     # build / test / lint / fmt / check / clean
+├── package.json                 # npm scripts + husky devDep
+├── package-lock.json
+├── rust-toolchain.toml          # Rust channel + wasm32v1-none target
 ├── contracts/
 │   └── price-oracle/
 │       ├── .cargo/config.toml   # WASM link flags
 │       ├── Cargo.toml
 │       └── src/
+│           ├── lib.rs           # Contract struct + all 27 endpoints
+│           ├── types.rs         # DataKey, ErrorCode, all structs
+│           ├── storage.rs       # Storage helpers + median computation
 │           ├── admin.rs         # Admin management functions
 │           ├── assets.rs        # Asset registration and management
 │           ├── errors.rs        # Error types and handling
-│           ├── events.rs        # Contract event definitions
+│           ├── events.rs        # 13 event types + 2 emit helpers
 │           ├── history.rs       # Price history management
-│           ├── lib.rs           # Contract entrypoint + all endpoints
 │           ├── prices.rs        # Price submission and aggregation
-│           ├── prop_tests.rs    # Property-based tests (5 tests)
 │           ├── sources.rs       # Oracle source management
-│           ├── storage.rs       # Storage helpers + median computation
-│           ├── test.rs          # Test suite (71 tests)
+│           ├── test.rs          # 71 unit tests
 │           ├── test_helpers.rs  # Shared test utilities
-│           └── types.rs         # DataKey, error codes, structs
-├── frontend/                    # (not yet created — place frontend here)
-├── backend/                     # (not yet created — place backend here)
+│           └── prop_tests.rs    # 5 property-based tests
 ```
 
 ### Source Code Map
 
 | File | Purpose |
 |---|---|
-| `lib.rs` | Contract struct, all 26 public endpoints, SEP-40 interface. Imports helpers from sibling modules. |
-| `types.rs` | `DataKey` enum (storage keys), `ErrorCode` enum, all data structs (`PriceEntry`, `AggregatePrice`, `PriceHistoryEntry`, `OracleSources`, `Asset`, `PriceData`) |
+| `lib.rs` | Contract struct, 27 public endpoints, SEP-40 interface. Imports helpers from sibling modules. |
+| `types.rs` | `DataKey` enum (storage keys), `ErrorCode` enum, data structs (`PriceEntry`, `AggregatePrice`, `PriceHistoryEntry`, `OracleSources`, `Asset`, `PriceData`) |
 | `storage.rs` | `get_admin`, `check_source`, `check_registered_asset`, median sorting/`compute_median`, `read_*`/`write_*` helpers |
 | `admin.rs` | Admin management functions |
 | `assets.rs` | Asset registration and management |
 | `errors.rs` | Error types and handling |
 | `events.rs` | 13 event types + 2 manual publish functions (`emit_initialized`, `emit_timestamp_threshold_changed`) |
-| `test.rs` | 76 unit tests covering admin, sources, assets, submissions, queries, history, SEP-40, auth, upgrades |
+| `history.rs` | Price history management |
+| `prices.rs` | Price submission and aggregation |
+| `sources.rs` | Oracle source management |
+| `test.rs` | 71 unit tests covering admin, sources, assets, submissions, queries, history, SEP-40, auth, upgrades |
+| `test_helpers.rs` | Shared test utilities |
+| `prop_tests.rs` | 5 property-based tests |
 
 ## What NOT to Push
 
-- **Never commit** files under `target/`, `node_modules/`, `test_snapshots/`, or `.kiro/` (they are gitignored)
+- **Never commit** files under `target/`, `node_modules/`, `test_snapshots/`, or `.kiro/` (gitignored)
 - **Never commit** API keys, secrets, or identity files
 - **Never commit** `.env` files or wallet keypairs
-- **Never commit** WASM binaries (they are build artifacts — `*.wasm` is gitignored)
+- **Never commit** WASM binaries (`*.wasm` is gitignored)
 
 ## What to Push
 
 - Rust source code (`.rs` files under `contracts/`)
-- `Cargo.toml` / `Cargo.lock` (lockfile should be committed for deterministic builds)
-- `package.json` / `package-lock.json` (if frontend/backend are added)
+- `Cargo.toml` / `Cargo.lock` (lockfile for deterministic builds)
+- `package.json` / `package-lock.json`
 - `AGENTS.md`, `CONTRIBUTING.md`, `README.md`, `LICENSE`
 - `.github/` workflows, issue templates, PR templates
 - `.husky/` hooks and config
@@ -85,13 +93,9 @@ cargo test -p price-oracle --lib
 # 3. Check for lint/style issues
 cargo clippy -p price-oracle -- -D warnings
 cargo fmt --manifest-path contracts/price-oracle/Cargo.toml -- --check
-
-# 4. If frontend/backend exist, also build them
-[ -d frontend ] && cd frontend && npm ci && npm run build
-[ -d backend ] && { [ -f backend/Cargo.toml ] && cargo build --manifest-path backend/Cargo.toml || [ -f backend/package.json ] && cd backend && npm ci && npm run build; }
 ```
 
-All 76 tests must pass with zero compiler warnings and zero clippy warnings.
+All **76 tests** must pass with zero compiler warnings and zero clippy warnings.
 
 ## Key Constraints
 

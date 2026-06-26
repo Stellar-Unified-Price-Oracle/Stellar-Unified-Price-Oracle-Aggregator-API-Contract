@@ -8,46 +8,6 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  frontend:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: Check frontend exists
-        id: check
-        run: |
-          if [ -d frontend ]; then echo "exists=true" >> "$GITHUB_OUTPUT"; else echo "exists=false" >> "$GITHUB_OUTPUT"; fi
-      - name: Setup Node
-        if: steps.check.outputs.exists == 'true'
-        uses: actions/setup-node@v4
-        with:
-          node-version: 20
-      - name: Install dependencies
-        if: steps.check.outputs.exists == 'true'
-        run: npm ci
-        working-directory: frontend
-      - name: Build
-        if: steps.check.outputs.exists == 'true'
-        run: npm run build
-        working-directory: frontend
-
-  backend:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: Check backend exists
-        id: check
-        run: |
-          if [ -d backend ]; then echo "exists=true" >> "$GITHUB_OUTPUT"; else echo "exists=false" >> "$GITHUB_OUTPUT"; fi
-      - name: Build backend (Cargo)
-        if: steps.check.outputs.exists == 'true'
-        run: cargo build --manifest-path backend/Cargo.toml --verbose
-      - name: Build backend (npm)
-        if: steps.check.outputs.exists == 'true'
-        run: |
-          if [ -f backend/package.json ]; then
-            cd backend && npm ci && npm run build
-          fi
-
   contract:
     runs-on: ubuntu-latest
     steps:
