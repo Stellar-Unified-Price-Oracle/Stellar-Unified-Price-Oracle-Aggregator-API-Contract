@@ -1230,3 +1230,135 @@ fn test_asset_expiry_at_boundary_ledger() {
     ledger_default(&e, 151, 1051);
     assert!(client.get_price(&asset, &0u64).is_none());
 }
+
+
+// ---- Feature #45: Volume-Weighted Average Price (VWAP) ----
+
+#[test]
+fn test_get_vwap_basic() {
+    let e = Env::default();
+    ledger_default(&e, 100, 1000);
+    let (client, _) = setup_contract(&e);
+    let source1 = register_test_source(&e, &client, "Oracle1");
+    let source2 = register_test_source(&e, &client, "Oracle2");
+    client.set_min_sources_required(&2u32);
+    let asset = register_test_asset(&e, &client);
+
+    // Source1: price 100, Source2: price 200
+    submit_test_price(&client, &source1, &asset, 100i128, 1000);
+    submit_test_price(&client, &source2, &asset, 200i128, 1000);
+
+    // Volumes: [100, 200]
+    // VWAP = (100 * 100 + 200 * 200) / (100 + 200) = 50000 / 300 = 166
+    let mut volumes: soroban_sdk::Vec<(Address, i128)> = soroban_sdk::Vec::new(&e);
+    volumes.push_back((source1, 100i128));
+    volumes.push_back((source2, 200i128));
+
+    let vwap = client.get_vwap(&asset, &volumes).unwrap();
+    assert_eq!(vwap, 166i128);
+}
+
+#[test]
+fn test_vwap_single_source() {
+    let e = Env::default();
+    ledger_default(&e, 100, 1000);
+    let (client, _) = setup_contract(&e);
+    let source = register_test_source(&e, &client, "Oracle");
+    client.set_min_sources_required(&1u32);
+    let asset = register_test_asset(&e, &client);
+
+    submit_test_price(&client, &source, &asset, 500i128, 1000);
+
+    let mut volumes: soroban_sdk::Vec<(Address, i128)> = soroban_sdk::Vec::new(&e);
+    volumes.push_back((source, 1000i128));
+
+    let vwap = client.get_vwap(&asset, &volumes).unwrap();
+    assert_eq!(vwap, 500i128);
+}
+
+#[test]
+fn test_vwap_equal_weights() {
+    let e = Env::default();
+    ledger_default(&e, 100, 1000);
+    let (client, _) = setup_contract(&e);
+    let source1 = register_test_source(&e, &client, "Oracle1");
+    let source2 = register_test_source(&e, &client, "Oracle2");
+    client.set_min_sources_required(&2u32);
+    let asset = register_test_asset(&e, &client);
+
+    submit_test_price(&client, &source1, &asset, 100i128, 1000);
+    submit_test_price(&client, &source2, &asset, 200i128, 1000);
+
+    // Equal volumes: VWAP = (100 + 200) / 2 = 150
+    let mut volumes: soroban_sdk::Vec<(Address, i128)> = soroban_sdk::Vec::new(&e);
+    volumes.push_back((source1, 100i128));
+    volumes.push_back((source2, 100i128));
+
+    let vwap = client.get_vwap(&asset, &volumes).unwrap();
+    assert_eq!(vwap, 150i128);
+}
+
+#[test]
+#[should_panic]
+fn test_vwap_invalid_source() {
+    let e = Env::default();
+    ledger_default(&e, 100, 1000);
+    let (client, _) = setup_contract(&e);
+    let source = register_test_source(&e, &client, "Oracle");
+    let invalid_source = Address::generate(&e);
+    client.set_min_sources_required(&1u32);
+    let asset = register_test_asset(&e, &client);
+
+    submit_test_price(&client, &source, &asset, 100i128, 1000);
+
+    // Try VWAP with unregistered source
+    let mut volumes: soroban_sdk::Vec<(Address, i128)> = soroban_sdk::Vec::new(&e);
+    volumes.push_back((invalid_source, 100i128));
+
+    let _ = client.get_vwap(&asset, &volumes);
+}
+
+#[test]
+#[should_panic]
+fn test_vwap_source_without_price() {
+    let e = Env::default();
+    ledger_default(&e, 100, 1000);
+    let (client, _) = setup_contract(&e);
+    let source1 = register_test_source(&e, &client, "Oracle1");
+    let source2 = register_test_source(&e, &client, "Oracle2");
+    client.set_min_sources_required(&2u32);
+    let asset = register_test_asset(&e, &client);
+
+    // Only source1 submits price
+    submit_test_price(&client, &source1, &asset, 100i128, 1000);
+
+    // Try VWAP including source2 which has no price
+    let mut volumes: soroban_sdk::Vec<(Address, i128)> = soroban_sdk::Vec::new(&e);
+    volumes.push_back((source1, 100i128));
+    volumes.push_back((source2, 100i128));
+
+    let _ = client.get_vwap(&asset, &volumes);
+}
+
+#[test]
+fn test_vwap_weighted_heavily_on_one_source() {
+    let e = Env::default();
+    ledger_default(&e, 100, 1000);
+    let (client, _) = setup_contract(&e);
+    let source1 = register_test_source(&e, &client, "Oracle1");
+    let source2 = register_test_source(&e, &client, "Oracle2");
+    client.set_min_sources_required(&2u32);
+    let asset = register_test_asset(&e, &client);
+
+    submit_test_price(&client, &source1, &asset, 100i128, 1000);
+    submit_test_price(&client, &source2, &asset, 200i128, 1000);
+
+    // Heavily weighted to source1: 950 vs 50
+    // VWAP = (100 * 950 + 200 * 50) / (950 + 50) = 105000 / 1000 = 105
+    let mut volumes: soroban_sdk::Vec<(Address, i128)> = soroban_sdk::Vec::new(&e);
+    volumes.push_back((source1, 950i128));
+    volumes.push_back((source2, 50i128));
+
+    let vwap = client.get_vwap(&asset, &volumes).unwrap();
+    assert_eq!(vwap, 105i128);
+}
