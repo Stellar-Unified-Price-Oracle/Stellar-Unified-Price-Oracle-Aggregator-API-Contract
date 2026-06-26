@@ -1,8 +1,8 @@
 use soroban_sdk::{panic_with_error, Address, Env, Vec};
 
 use crate::admin::{
-    get_decimals, get_max_history_length, get_min_sources_required, get_resolution,
-    get_timestamp_threshold, get_aggregation_method,
+    get_aggregation_method, get_decimals, get_max_history_length, get_min_sources_required,
+    get_resolution, get_timestamp_threshold,
 };
 use crate::events::{
     HistoryPrunedEvent, PriceAggregatedEvent, PriceStaleEvent, PriceSubmittedEvent,
@@ -10,11 +10,11 @@ use crate::events::{
 };
 use crate::pause::check_not_paused;
 use crate::storage::{
-    check_registered_asset, check_source, compute_median, compute_mean, compute_trimmed_median, compute_trimmed_mean, read_oracle_sources, LEDGER_BUMP,
-    LEDGER_THRESHOLD,
+    check_registered_asset, check_source, compute_mean, compute_median, compute_trimmed_mean,
+    read_oracle_sources, LEDGER_BUMP, LEDGER_THRESHOLD,
 };
 use crate::types::{
-    AggregatePrice, Asset, AggregationMethod, DataKey, ErrorCode, OracleSources, PriceData, PriceEntry,
+    AggregatePrice, Asset, DataKey, ErrorCode, OracleSources, PriceData, PriceEntry,
     PriceHistoryEntry,
 };
 
@@ -23,7 +23,7 @@ pub fn submit_price(env: &Env, source: Address, asset: Address, price: i128, tim
     source.require_auth();
     check_source(env, &source);
     check_registered_asset(env, &asset);
-    
+
     if crate::sources::is_source_suspended(env, source.clone()) {
         panic_with_error!(env, ErrorCode::NotAuthorized);
     }
@@ -188,7 +188,7 @@ pub fn get_price(env: &Env, asset: Address, max_age: u64) -> Option<AggregatePri
     let key = DataKey::Aggregate(asset.clone());
     let result: AggregatePrice = env.storage().persistent().get(&key)?;
     let current_ledger = env.ledger().sequence();
-    
+
     if max_age > 0 {
         let ledger_time = env.ledger().timestamp();
         if result.timestamp + max_age < ledger_time {
@@ -380,6 +380,7 @@ pub fn prices(env: &Env, asset: Asset, records: u32) -> Option<Vec<PriceData>> {
     Some(result)
 }
 
+#[allow(dead_code)]
 pub fn get_prices(env: &Env, assets: Vec<Address>) -> Vec<Option<AggregatePrice>> {
     let mut results: Vec<Option<AggregatePrice>> = Vec::new(env);
     for i in 0..assets.len() {
@@ -390,30 +391,31 @@ pub fn get_prices(env: &Env, assets: Vec<Address>) -> Vec<Option<AggregatePrice>
     results
 }
 
+#[allow(dead_code)]
 pub fn get_price_change(env: &Env, asset: Address, ledgers_back: u32) -> Option<i128> {
     check_registered_asset(env, &asset);
-    
+
     let current_price = get_price(env, asset.clone(), 0)?;
-    
+
     if current_price.price == 0 {
         return None;
     }
 
     let current_ledger = env.ledger().sequence();
     let target_ledger = current_ledger.saturating_sub(ledgers_back);
-    
+
     let hist_key = DataKey::PriceHistory(asset.clone(), target_ledger);
     let historical_entry: Option<PriceHistoryEntry> = env.storage().temporary().get(&hist_key);
-    
+
     let old_price = match historical_entry {
         Some(entry) => entry.price,
         None => return None,
     };
-    
+
     if old_price == 0 {
         return None;
     }
-    
+
     let change_percent = ((current_price.price - old_price) * 100) / old_price;
     Some(change_percent)
 }

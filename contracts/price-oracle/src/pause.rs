@@ -7,9 +7,9 @@ use crate::types::{DataKey, ErrorCode};
 pub fn pause(env: &Env) {
     let admin = get_admin(env);
     admin.require_auth();
-    
+
     env.storage().persistent().set(&DataKey::PauseFlag, &true);
-    
+
     ContractPausedEvent {
         admin: admin.clone(),
     }
@@ -19,9 +19,9 @@ pub fn pause(env: &Env) {
 pub fn unpause(env: &Env) {
     let admin = get_admin(env);
     admin.require_auth();
-    
+
     env.storage().persistent().set(&DataKey::PauseFlag, &false);
-    
+
     ContractUnpausedEvent {
         admin: admin.clone(),
     }

@@ -16,8 +16,8 @@ mod types;
 mod prop_tests;
 
 pub use types::{
-    AggregatePrice, Asset, AggregationMethod, DataKey, ErrorCode, OracleSources, PriceData, PriceEntry,
-    PriceHistoryEntry,
+    AggregatePrice, AggregationMethod, Asset, DataKey, ErrorCode, OracleSources, PriceData,
+    PriceEntry, PriceHistoryEntry,
 };
 
 use soroban_sdk::{contract, contractimpl, Address, Env, String, Symbol, Vec};

@@ -1,7 +1,7 @@
 use soroban_sdk::{panic_with_error, Address, Env, String};
 
 use crate::events::{
-    emit_initialized, emit_timestamp_threshold_changed, emit_max_price_deviation_changed,
+    emit_initialized, emit_max_price_deviation_changed, emit_timestamp_threshold_changed,
     AdminChangedEvent, ContractUpgradedEvent, DecimalsChangedEvent, DescriptionChangedEvent,
     HeartbeatIntervalChangedEvent, MaxHistoryChangedEvent, MinSourcesChangedEvent,
     ResolutionChangedEvent,
@@ -17,6 +17,7 @@ pub const DEFAULT_TIMESTAMP_THRESHOLD: u64 = 300; // 5 minutes
 const MAX_DESCRIPTION_LENGTH: u32 = 256;
 pub const DEFAULT_MAX_PRICE_DEVIATION: u32 = 500; // 5% in basis points
 pub const DEFAULT_HEARTBEAT_INTERVAL: u64 = 3600; // 1 hour
+pub const DEFAULT_MAX_INVALID_SUBMISSIONS: u32 = 5;
 
 pub fn initialize(
     env: &Env,
@@ -254,6 +255,19 @@ pub fn get_description(env: &Env) -> String {
         .persistent()
         .get(&key)
         .unwrap_or(String::from_str(env, "Stellar Price Oracle"))
+}
+
+pub fn get_aggregation_method(env: &Env) -> u32 {
+    let key = DataKey::AggregationMethod;
+    if env.storage().persistent().has(&key) {
+        env.storage()
+            .persistent()
+            .extend_ttl(&key, LEDGER_THRESHOLD, LEDGER_BUMP);
+    }
+    env.storage()
+        .persistent()
+        .get(&key)
+        .unwrap_or(AggregationMethod::Median as u32)
 }
 
 pub fn set_timestamp_threshold(env: &Env, threshold: u64) {

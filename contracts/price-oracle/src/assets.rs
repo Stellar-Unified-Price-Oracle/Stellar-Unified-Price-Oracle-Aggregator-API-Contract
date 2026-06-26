@@ -66,6 +66,7 @@ pub fn is_asset_registered(env: &Env, asset: Address) -> bool {
     exists
 }
 
+#[allow(dead_code)]
 pub fn set_asset_metadata(env: &Env, asset: Address, metadata: AssetMetadata) {
     let admin = get_admin(env);
     admin.require_auth();
@@ -75,6 +76,7 @@ pub fn set_asset_metadata(env: &Env, asset: Address, metadata: AssetMetadata) {
         .set(&DataKey::AssetMetadata(asset.clone()), &metadata);
 }
 
+#[allow(dead_code)]
 pub fn get_asset_metadata(env: &Env, asset: Address) -> Option<AssetMetadata> {
     crate::storage::check_registered_asset(env, &asset);
     let key = DataKey::AssetMetadata(asset.clone());
@@ -86,6 +88,7 @@ pub fn get_asset_metadata(env: &Env, asset: Address) -> Option<AssetMetadata> {
     env.storage().persistent().get(&key)
 }
 
+#[allow(dead_code)]
 pub fn set_min_price(env: &Env, asset: Address, min_price: i128) {
     let admin = get_admin(env);
     admin.require_auth();

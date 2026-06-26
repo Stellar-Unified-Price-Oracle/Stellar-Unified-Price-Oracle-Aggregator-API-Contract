@@ -26,6 +26,14 @@ pub enum DataKey {
     SourceHeartbeat(Address),
     HeartbeatInterval,
     InactiveSource(Address),
+    MaxInvalidSubmissions,
+    AggregationMethod,
+    AssetMetadata(Address),
+    AssetMinPrice(Address),
+    PauseFlag,
+    PendingOpCount,
+    PendingOp(u32),
+    TimelockDuration,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]

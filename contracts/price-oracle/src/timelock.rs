@@ -4,11 +4,7 @@ use crate::events::{OperationCancelledEvent, OperationExecutedEvent, OperationPr
 use crate::storage::{get_admin, LEDGER_BUMP, LEDGER_THRESHOLD};
 use crate::types::{DataKey, ErrorCode, OperationType, PendingOperation};
 
-pub fn propose_operation(
-    env: &Env,
-    op_type: OperationType,
-    data: &Bytes,
-) -> u32 {
+pub fn propose_operation(env: &Env, op_type: OperationType, data: &Bytes) -> u32 {
     let admin = get_admin(env);
     admin.require_auth();
 
@@ -152,8 +148,5 @@ pub fn get_timelock_duration(env: &Env) -> u32 {
             .persistent()
             .extend_ttl(&key, LEDGER_THRESHOLD, LEDGER_BUMP);
     }
-    env.storage()
-        .persistent()
-        .get(&key)
-        .unwrap_or(10)
+    env.storage().persistent().get(&key).unwrap_or(10)
 }

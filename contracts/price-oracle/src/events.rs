@@ -162,6 +162,7 @@ pub fn emit_timestamp_threshold_changed(env: &soroban_sdk::Env, admin: Address, 
     env.events().publish((sym, admin), (value,));
 }
 
+#[allow(dead_code)]
 #[contractevent]
 #[derive(Clone)]
 pub struct PriceDeviationFlaggedEvent {
@@ -208,4 +209,55 @@ pub struct SourceActiveAgainEvent {
     #[topic]
     pub source: Address,
     pub timestamp: u64,
+}
+
+#[contractevent]
+#[derive(Clone)]
+pub struct ContractPausedEvent {
+    #[topic]
+    pub admin: Address,
+}
+
+#[contractevent]
+#[derive(Clone)]
+pub struct ContractUnpausedEvent {
+    #[topic]
+    pub admin: Address,
+}
+
+#[contractevent]
+#[derive(Clone)]
+pub struct PriceStaleEvent {
+    #[topic]
+    pub asset: Address,
+    pub last_update_ledger: u32,
+    pub current_ledger: u32,
+}
+
+#[contractevent]
+#[derive(Clone)]
+pub struct OperationProposedEvent {
+    pub operation_id: u32,
+    pub op_type: u32,
+    #[topic]
+    pub proposed_by: Address,
+    pub proposed_ledger: u32,
+}
+
+#[contractevent]
+#[derive(Clone)]
+pub struct OperationExecutedEvent {
+    pub operation_id: u32,
+    pub op_type: u32,
+    #[topic]
+    pub executed_by: Address,
+}
+
+#[contractevent]
+#[derive(Clone)]
+pub struct OperationCancelledEvent {
+    pub operation_id: u32,
+    pub op_type: u32,
+    #[topic]
+    pub cancelled_by: Address,
 }

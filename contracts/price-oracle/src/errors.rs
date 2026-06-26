@@ -1,4 +1,4 @@
-use soroban_sdk::{contracterror, Address, String};
+use soroban_sdk::contracterror;
 
 #[contracterror]
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -18,4 +18,5 @@ pub enum ErrorCode {
     ContractPaused = 12,
     TimelockNotReady = 13,
     OperationNotFound = 14,
+    PriceBelowMinimum = 15,
 }

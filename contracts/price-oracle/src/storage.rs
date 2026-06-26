@@ -84,6 +84,7 @@ pub fn compute_median(prices: &soroban_sdk::Vec<i128>) -> i128 {
     }
 }
 
+#[allow(dead_code)]
 pub fn compute_trimmed_median(prices: &soroban_sdk::Vec<i128>, trim_percent: u32) -> i128 {
     let n = prices.len();
     if n == 0 {
@@ -92,24 +93,24 @@ pub fn compute_trimmed_median(prices: &soroban_sdk::Vec<i128>, trim_percent: u32
     if trim_percent == 0 {
         return compute_median(prices);
     }
-    
+
     let mut sorted = prices.clone();
     sort_prices(&mut sorted);
-    
-    let trim_count = ((n as u32 * trim_percent / 100) / 2).min(n as u32 - 1);
+
+    let trim_count = ((n * trim_percent / 100) / 2).min(n - 1);
     if trim_count == 0 {
         return compute_median(&sorted);
     }
-    
+
     let mut trimmed: soroban_sdk::Vec<i128> = soroban_sdk::Vec::new(prices.env());
-    for i in (trim_count as u32)..(n as u32 - trim_count as u32) {
+    for i in trim_count..(n - trim_count) {
         trimmed.push_back(sorted.get_unchecked(i));
     }
-    
+
     if trimmed.is_empty() {
-        return sorted.get_unchecked(n as u32 / 2);
+        return sorted.get_unchecked(n / 2);
     }
-    
+
     compute_median(&trimmed)
 }
 
@@ -133,24 +134,24 @@ pub fn compute_trimmed_mean(prices: &soroban_sdk::Vec<i128>, trim_percent: u32) 
     if trim_percent == 0 {
         return compute_mean(prices);
     }
-    
+
     let mut sorted = prices.clone();
     sort_prices(&mut sorted);
-    
-    let trim_count = ((n as u32 * trim_percent / 100) / 2).min(n as u32 - 1);
+
+    let trim_count = ((n * trim_percent / 100) / 2).min(n - 1);
     if trim_count == 0 {
         return compute_mean(&sorted);
     }
-    
+
     let mut trimmed: soroban_sdk::Vec<i128> = soroban_sdk::Vec::new(prices.env());
-    for i in (trim_count as u32)..(n as u32 - trim_count as u32) {
+    for i in trim_count..(n - trim_count) {
         trimmed.push_back(sorted.get_unchecked(i));
     }
-    
+
     if trimmed.is_empty() {
-        return sorted.get_unchecked(n as u32 / 2);
+        return sorted.get_unchecked(n / 2);
     }
-    
+
     compute_mean(&trimmed)
 }
 
