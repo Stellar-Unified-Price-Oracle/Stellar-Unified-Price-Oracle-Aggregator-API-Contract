@@ -161,3 +161,51 @@ pub fn emit_timestamp_threshold_changed(env: &soroban_sdk::Env, admin: Address, 
     let sym = soroban_sdk::symbol_short!("tthr");
     env.events().publish((sym, admin), (value,));
 }
+
+#[contractevent]
+#[derive(Clone)]
+pub struct PriceDeviationFlaggedEvent {
+    #[topic]
+    pub asset: Address,
+    #[topic]
+    pub source: Address,
+    pub price: i128,
+    pub median_price: i128,
+    pub deviation_percent: u32,
+}
+
+#[allow(deprecated)]
+pub fn emit_max_price_deviation_changed(env: &soroban_sdk::Env, admin: Address, value: u32) {
+    let sym = soroban_sdk::symbol_short!("devn");
+    env.events().publish((sym, admin), (value,));
+}
+
+#[contractevent]
+#[derive(Clone)]
+pub struct SourceHeartbeatEvent {
+    #[topic]
+    pub source: Address,
+    pub timestamp: u64,
+}
+
+#[contractevent]
+#[derive(Clone)]
+pub struct SourceInactiveEvent {
+    #[topic]
+    pub source: Address,
+    pub last_heartbeat: u64,
+}
+
+#[contractevent]
+#[derive(Clone)]
+pub struct HeartbeatIntervalChangedEvent {
+    pub value: u64,
+}
+
+#[contractevent]
+#[derive(Clone)]
+pub struct SourceActiveAgainEvent {
+    #[topic]
+    pub source: Address,
+    pub timestamp: u64,
+}

@@ -5,16 +5,18 @@ mod assets;
 mod errors;
 mod events;
 mod history;
+mod pause;
 mod prices;
 mod sources;
 mod storage;
+mod timelock;
 mod types;
 
 #[cfg(test)]
 mod prop_tests;
 
 pub use types::{
-    AggregatePrice, Asset, AssetMetadata, DataKey, ErrorCode, OracleSources, PriceData, PriceEntry,
+    AggregatePrice, Asset, AggregationMethod, DataKey, ErrorCode, OracleSources, PriceData, PriceEntry,
     PriceHistoryEntry,
 };
 
@@ -107,6 +109,22 @@ impl PriceOracleContract {
         admin::get_timestamp_threshold(&env)
     }
 
+    pub fn set_max_price_deviation(env: Env, deviation_basis_points: u32) {
+        admin::set_max_price_deviation(&env, deviation_basis_points);
+    }
+
+    pub fn get_max_price_deviation(env: Env) -> u32 {
+        admin::get_max_price_deviation(&env)
+    }
+
+    pub fn set_heartbeat_interval(env: Env, interval: u64) {
+        admin::set_heartbeat_interval(&env, interval);
+    }
+
+    pub fn get_heartbeat_interval(env: Env) -> u64 {
+        admin::get_heartbeat_interval(&env)
+    }
+
     // --- Sources ---
 
     pub fn add_source(env: Env, source: Address, name: String) {
@@ -123,6 +141,22 @@ impl PriceOracleContract {
 
     pub fn get_oracle_sources(env: Env) -> OracleSources {
         sources::get_oracle_sources(&env)
+    }
+
+    pub fn submit_heartbeat(env: Env, source: Address) {
+        sources::submit_heartbeat(&env, source);
+    }
+
+    pub fn is_source_inactive(env: Env, source: Address) -> bool {
+        sources::is_source_inactive(&env, source)
+    }
+
+    pub fn get_inactive_sources(env: Env) -> u32 {
+        sources::get_inactive_sources(&env)
+    }
+
+    pub fn get_source_last_heartbeat(env: Env, source: Address) -> u64 {
+        sources::get_source_last_heartbeat(&env, source)
     }
 
     // --- Assets ---
@@ -215,36 +249,51 @@ impl PriceOracleContract {
         prices::prices(&env, asset, records)
     }
 
-    // --- Asset Metadata ---
+    // --- Pause ---
 
-    pub fn set_asset_metadata(env: Env, asset: Address, metadata: AssetMetadata) {
-        assets::set_asset_metadata(&env, asset, metadata);
+    pub fn pause(env: Env) {
+        pause::pause(&env);
     }
 
-    pub fn get_asset_metadata(env: Env, asset: Address) -> Option<AssetMetadata> {
-        assets::get_asset_metadata(&env, asset)
+    pub fn unpause(env: Env) {
+        pause::unpause(&env);
     }
 
-    // --- Minimum Price Threshold ---
-
-    pub fn set_min_price(env: Env, asset: Address, min_price: i128) {
-        assets::set_min_price(&env, asset, min_price);
+    pub fn is_paused(env: Env) -> bool {
+        pause::is_paused(&env)
     }
 
-    pub fn get_min_price(env: Env, asset: Address) -> i128 {
-        assets::get_min_price(&env, asset)
+    // --- Timelock ---
+
+    pub fn propose_operation(env: Env, op_type: u32, data: soroban_sdk::Bytes) -> u32 {
+        let op_enum = match op_type {
+            0 => types::OperationType::Upgrade,
+            1 => types::OperationType::SetAdmin,
+            2 => types::OperationType::SetMinSources,
+            3 => types::OperationType::SetMaxHistory,
+            4 => types::OperationType::SetResolution,
+            5 => types::OperationType::SetDecimals,
+            6 => types::OperationType::SetDescription,
+            7 => types::OperationType::SetTimestampThreshold,
+            _ => panic!("Invalid operation type"),
+        };
+        timelock::propose_operation(&env, op_enum, &data)
     }
 
-    // --- Batch Price Query ---
-
-    pub fn get_prices(env: Env, assets: Vec<Address>) -> Vec<Option<AggregatePrice>> {
-        prices::get_prices(&env, assets)
+    pub fn execute_operation(env: Env, op_id: u32) {
+        timelock::execute_operation(&env, op_id);
     }
 
-    // --- Price Change Monitoring ---
+    pub fn cancel_operation(env: Env, op_id: u32) {
+        timelock::cancel_operation(&env, op_id);
+    }
 
-    pub fn get_price_change(env: Env, asset: Address, ledgers_back: u32) -> Option<i128> {
-        prices::get_price_change(&env, asset, ledgers_back)
+    pub fn get_timelock_duration(env: Env) -> u32 {
+        timelock::get_timelock_duration(&env)
+    }
+
+    pub fn set_timelock_duration(env: Env, duration: u32) {
+        timelock::set_timelock_duration(&env, duration);
     }
 }
 
