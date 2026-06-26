@@ -9,7 +9,7 @@
 #   check   - check formatting without modifying files
 #   clean   - remove build artifacts
 
-.PHONY: all build test lint fmt check clean
+.PHONY: all build test lint fmt check clean watch
 
 all: build test
 
@@ -32,6 +32,11 @@ fmt:
 # Check formatting without modifying files
 check:
 	cargo fmt --manifest-path contracts/price-oracle/Cargo.toml -- --check
+
+# Watch for changes and re-run cargo check + tests
+# Requires: cargo install cargo-watch
+watch:
+	cargo watch -x "check -p price-oracle" -x "test -p price-oracle --lib" -x "clippy -p price-oracle -- -D warnings"
 
 # Remove build artifacts
 clean:

@@ -118,3 +118,18 @@ pub fn read_oracle_sources(env: &Env) -> OracleSources {
             metadata: soroban_sdk::Map::new(env),
         })
 }
+
+pub fn is_source_inactive(env: &Env, source: &Address) -> bool {
+    let key = DataKey::InactiveSource(source.clone());
+    env.storage().persistent().get(&key).unwrap_or(false)
+}
+
+pub fn mark_source_inactive(env: &Env, source: &Address) {
+    let key = DataKey::InactiveSource(source.clone());
+    env.storage().persistent().set(&key, &true);
+}
+
+pub fn mark_source_active(env: &Env, source: &Address) {
+    let key = DataKey::InactiveSource(source.clone());
+    env.storage().persistent().remove(&key);
+}

@@ -107,6 +107,22 @@ impl PriceOracleContract {
         admin::get_timestamp_threshold(&env)
     }
 
+    pub fn set_max_price_deviation(env: Env, deviation_basis_points: u32) {
+        admin::set_max_price_deviation(&env, deviation_basis_points);
+    }
+
+    pub fn get_max_price_deviation(env: Env) -> u32 {
+        admin::get_max_price_deviation(&env)
+    }
+
+    pub fn set_heartbeat_interval(env: Env, interval: u64) {
+        admin::set_heartbeat_interval(&env, interval);
+    }
+
+    pub fn get_heartbeat_interval(env: Env) -> u64 {
+        admin::get_heartbeat_interval(&env)
+    }
+
     // --- Sources ---
 
     pub fn add_source(env: Env, source: Address, name: String) {
@@ -123,6 +139,22 @@ impl PriceOracleContract {
 
     pub fn get_oracle_sources(env: Env) -> OracleSources {
         sources::get_oracle_sources(&env)
+    }
+
+    pub fn submit_heartbeat(env: Env, source: Address) {
+        sources::submit_heartbeat(&env, source);
+    }
+
+    pub fn is_source_inactive(env: Env, source: Address) -> bool {
+        sources::is_source_inactive(&env, source)
+    }
+
+    pub fn get_inactive_sources(env: Env) -> u32 {
+        sources::get_inactive_sources(&env)
+    }
+
+    pub fn get_source_last_heartbeat(env: Env, source: Address) -> u64 {
+        sources::get_source_last_heartbeat(&env, source)
     }
 
     // --- Assets ---
