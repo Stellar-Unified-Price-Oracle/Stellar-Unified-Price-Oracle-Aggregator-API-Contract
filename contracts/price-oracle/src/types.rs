@@ -108,3 +108,11 @@ pub struct PendingOperation {
     pub proposed_ledger: u32,
     pub data: Bytes,
 }
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct AssetMetadata {
+    pub name: String,
+    pub symbol: String,
+    pub decimals: Option<u32>,
+}
