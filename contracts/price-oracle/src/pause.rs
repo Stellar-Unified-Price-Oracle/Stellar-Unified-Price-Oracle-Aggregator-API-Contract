@@ -1,6 +1,6 @@
-use soroban_sdk::{panic_with_error, Env};
+use soroban_sdk::{panic_with_error, symbol_short, Bytes, Env};
 
-use crate::events::{ContractPausedEvent, ContractUnpausedEvent};
+use crate::events::{emit_admin_action, ContractPausedEvent, ContractUnpausedEvent};
 use crate::storage::get_admin;
 use crate::types::{DataKey, ErrorCode};
 
@@ -14,6 +14,7 @@ pub fn pause(env: &Env) {
         admin: admin.clone(),
     }
     .publish(env);
+    emit_admin_action(env, symbol_short!("pause"), admin, Bytes::new(env));
 }
 
 pub fn unpause(env: &Env) {
@@ -26,6 +27,7 @@ pub fn unpause(env: &Env) {
         admin: admin.clone(),
     }
     .publish(env);
+    emit_admin_action(env, symbol_short!("unpause"), admin, Bytes::new(env));
 }
 
 pub fn is_paused(env: &Env) -> bool {

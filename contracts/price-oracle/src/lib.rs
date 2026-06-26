@@ -13,6 +13,9 @@ mod timelock;
 mod types;
 
 #[cfg(test)]
+mod audit_tests;
+
+#[cfg(test)]
 mod prop_tests;
 
 pub use types::{

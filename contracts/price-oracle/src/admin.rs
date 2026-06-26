@@ -1,10 +1,10 @@
-use soroban_sdk::{panic_with_error, Address, Env, String};
+use soroban_sdk::{panic_with_error, symbol_short, Address, Bytes, Env, String};
 
 use crate::events::{
-    emit_initialized, emit_max_price_deviation_changed, emit_timestamp_threshold_changed,
-    AdminChangedEvent, ContractUpgradedEvent, DecimalsChangedEvent, DescriptionChangedEvent,
-    HeartbeatIntervalChangedEvent, MaxHistoryChangedEvent, MinSourcesChangedEvent,
-    ResolutionChangedEvent,
+    emit_admin_action, emit_initialized, emit_max_price_deviation_changed,
+    emit_timestamp_threshold_changed, AdminChangedEvent, ContractUpgradedEvent,
+    DecimalsChangedEvent, DescriptionChangedEvent, HeartbeatIntervalChangedEvent,
+    MaxHistoryChangedEvent, MinSourcesChangedEvent, ResolutionChangedEvent,
 };
 use crate::storage::{get_admin, read_oracle_sources, LEDGER_BUMP, LEDGER_THRESHOLD};
 use crate::types::{AggregationMethod, DataKey, ErrorCode, OracleSources};
@@ -79,9 +79,10 @@ pub fn initialize(
         &DataKey::AggregationMethod,
         &(AggregationMethod::Median as u32),
     );
+    let init_admin: Address = env.storage().persistent().get(&DataKey::Admin).unwrap();
     emit_initialized(
         env,
-        admin,
+        init_admin.clone(),
         if min_sources_required > 0 {
             min_sources_required
         } else {
@@ -95,6 +96,7 @@ pub fn initialize(
         decimals,
         description,
     );
+    emit_admin_action(env, symbol_short!("init"), init_admin, Bytes::new(env));
 }
 
 pub fn upgrade(env: &Env, new_wasm_hash: soroban_sdk::BytesN<32>) {
@@ -104,6 +106,12 @@ pub fn upgrade(env: &Env, new_wasm_hash: soroban_sdk::BytesN<32>) {
         new_wasm_hash: new_wasm_hash.clone(),
     }
     .publish(env);
+    emit_admin_action(
+        env,
+        symbol_short!("upgrade"),
+        admin.clone(),
+        Bytes::new(env),
+    );
     env.deployer().update_current_contract_wasm(new_wasm_hash);
 }
 
@@ -112,10 +120,11 @@ pub fn set_admin(env: &Env, new_admin: Address) {
     admin.require_auth();
     env.storage().persistent().set(&DataKey::Admin, &new_admin);
     AdminChangedEvent {
-        old_admin: admin,
+        old_admin: admin.clone(),
         new_admin: new_admin.clone(),
     }
     .publish(env);
+    emit_admin_action(env, symbol_short!("set_admin"), admin, Bytes::new(env));
 }
 
 pub fn get_admin_address(env: &Env) -> Address {
@@ -142,6 +151,7 @@ pub fn set_min_sources_required(env: &Env, new_min: u32) {
         .persistent()
         .set(&DataKey::MinSourcesRequired, &new_min);
     MinSourcesChangedEvent { value: new_min }.publish(env);
+    emit_admin_action(env, symbol_short!("set_min"), admin, Bytes::new(env));
 }
 
 pub fn get_min_sources_required(env: &Env) -> u32 {
@@ -164,6 +174,7 @@ pub fn set_max_history_length(env: &Env, new_max: u32) {
         .persistent()
         .set(&DataKey::MaxHistoryLength, &new_max);
     MaxHistoryChangedEvent { value: new_max }.publish(env);
+    emit_admin_action(env, symbol_short!("set_max"), admin, Bytes::new(env));
 }
 
 pub fn get_max_history_length(env: &Env) -> u32 {
@@ -189,6 +200,7 @@ pub fn set_resolution(env: &Env, new_resolution: u32) {
         value: new_resolution,
     }
     .publish(env);
+    emit_admin_action(env, symbol_short!("set_res"), admin, Bytes::new(env));
 }
 
 pub fn get_resolution(env: &Env) -> u32 {
@@ -214,6 +226,7 @@ pub fn set_decimals(env: &Env, new_decimals: u32) {
         value: new_decimals,
     }
     .publish(env);
+    emit_admin_action(env, symbol_short!("set_dec"), admin, Bytes::new(env));
 }
 
 pub fn get_decimals(env: &Env) -> u32 {
@@ -242,6 +255,7 @@ pub fn set_description(env: &Env, new_description: String) {
         description: new_description.clone(),
     }
     .publish(env);
+    emit_admin_action(env, symbol_short!("set_desc"), admin, Bytes::new(env));
 }
 
 pub fn get_description(env: &Env) -> String {
@@ -276,7 +290,8 @@ pub fn set_timestamp_threshold(env: &Env, threshold: u64) {
     env.storage()
         .persistent()
         .set(&DataKey::TimestampThreshold, &threshold);
-    emit_timestamp_threshold_changed(env, admin, threshold);
+    emit_timestamp_threshold_changed(env, admin.clone(), threshold);
+    emit_admin_action(env, symbol_short!("set_ts"), admin, Bytes::new(env));
 }
 
 pub fn get_timestamp_threshold(env: &Env) -> u64 {
@@ -301,7 +316,8 @@ pub fn set_max_price_deviation(env: &Env, deviation_basis_points: u32) {
     env.storage()
         .persistent()
         .set(&DataKey::MaxPriceDeviation, &deviation_basis_points);
-    emit_max_price_deviation_changed(env, admin, deviation_basis_points);
+    emit_max_price_deviation_changed(env, admin.clone(), deviation_basis_points);
+    emit_admin_action(env, symbol_short!("set_dev"), admin, Bytes::new(env));
 }
 
 pub fn get_max_price_deviation(env: &Env) -> u32 {
@@ -327,6 +343,7 @@ pub fn set_heartbeat_interval(env: &Env, interval: u64) {
         .persistent()
         .set(&DataKey::HeartbeatInterval, &interval);
     HeartbeatIntervalChangedEvent { value: interval }.publish(env);
+    emit_admin_action(env, symbol_short!("set_hb"), admin, Bytes::new(env));
 }
 
 pub fn get_heartbeat_interval(env: &Env) -> u64 {

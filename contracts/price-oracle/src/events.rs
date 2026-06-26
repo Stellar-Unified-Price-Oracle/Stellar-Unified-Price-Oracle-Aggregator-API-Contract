@@ -1,4 +1,4 @@
-use soroban_sdk::{contractevent, Address, String};
+use soroban_sdk::{contractevent, symbol_short, Address, Bytes, String, Symbol};
 
 // ContractInitializedEvent uses manual publishing due to String field
 // limitations with the macro in soroban-sdk 26.
@@ -260,4 +260,14 @@ pub struct OperationCancelledEvent {
     pub op_type: u32,
     #[topic]
     pub cancelled_by: Address,
+}
+
+/// Emitted by every admin function to provide a comprehensive audit trail.
+/// `action` identifies the operation; `params` carries optional encoded data.
+#[allow(deprecated)]
+pub fn emit_admin_action(env: &soroban_sdk::Env, action: Symbol, caller: Address, params: Bytes) {
+    let ledger = env.ledger().sequence();
+    let sym = symbol_short!("adm_act");
+    env.events()
+        .publish((sym, action, caller), (ledger, params));
 }
