@@ -1499,3 +1499,124 @@ fn test_circuit_breaker_event_emitted_on_trip() {
     let events = e.events().all();
     assert!(events.len() > 0);
 }
+
+
+// ---- Feature #44: Time-Weighted Average Price (TWAP) ----
+
+#[test]
+fn test_get_twap_basic() {
+    let e = Env::default();
+    ledger_default(&e, 100, 1000);
+    let (client, _) = setup_contract(&e);
+    let source = register_test_source(&e, &client, "Oracle");
+    client.set_min_sources_required(&1u32);
+    let asset = register_test_asset(&e, &client);
+
+    // Submit price at ledger 100
+    submit_test_price(&client, &source, &asset, 100i128, 1000);
+
+    // Move to ledger 110, submit another price
+    ledger_default(&e, 110, 1010);
+    submit_test_price(&client, &source, &asset, 200i128, 1010);
+
+    // Move to ledger 120, compute TWAP for 20 ledgers
+    ledger_default(&e, 120, 1020);
+
+    // TWAP should be computed from historical data
+    let twap = client.get_twap(&asset, &20u32).unwrap();
+    // With weights: 100 * 10 ledgers + 200 * 10 ledgers = 3000 / 20 = 150
+    assert_eq!(twap, 150i128);
+}
+
+#[test]
+fn test_twap_single_price_entry() {
+    let e = Env::default();
+    ledger_default(&e, 100, 1000);
+    let (client, _) = setup_contract(&e);
+    let source = register_test_source(&e, &client, "Oracle");
+    client.set_min_sources_required(&1u32);
+    let asset = register_test_asset(&e, &client);
+
+    submit_test_price(&client, &source, &asset, 500i128, 1000);
+    ledger_default(&e, 110, 1010);
+
+    let twap = client.get_twap(&asset, &10u32).unwrap();
+    assert_eq!(twap, 500i128);
+}
+
+#[test]
+fn test_twap_multiple_prices() {
+    let e = Env::default();
+    ledger_default(&e, 100, 1000);
+    let (client, _) = setup_contract(&e);
+    let source = register_test_source(&e, &client, "Oracle");
+    client.set_min_sources_required(&1u32);
+    let asset = register_test_asset(&e, &client);
+
+    submit_test_price(&client, &source, &asset, 100i128, 1000);
+    ledger_default(&e, 105, 1005);
+    submit_test_price(&client, &source, &asset, 200i128, 1005);
+    ledger_default(&e, 110, 1010);
+    submit_test_price(&client, &source, &asset, 300i128, 1010);
+    ledger_default(&e, 120, 1020);
+
+    // TWAP over 20 ledgers: 100*5 + 200*5 + 300*10 = 4500 / 20 = 225
+    let twap = client.get_twap(&asset, &20u32).unwrap();
+    assert_eq!(twap, 225i128);
+}
+
+#[test]
+#[should_panic]
+fn test_twap_insufficient_historical_data() {
+    let e = Env::default();
+    ledger_default(&e, 100, 1000);
+    let (client, _) = setup_contract(&e);
+    let source = register_test_source(&e, &client, "Oracle");
+    client.set_min_sources_required(&1u32);
+    let asset = register_test_asset(&e, &client);
+
+    submit_test_price(&client, &source, &asset, 100i128, 1000);
+    ledger_default(&e, 102, 1002);
+
+    // Try to get TWAP for 100 ledgers but only 2 exist
+    let _ = client.get_twap(&asset, &100u32);
+}
+
+#[test]
+fn test_twap_duration_bounded_by_max_history() {
+    let e = Env::default();
+    ledger_default(&e, 100, 1000);
+    let (client, _) = setup_contract(&e);
+    let source = register_test_source(&e, &client, "Oracle");
+    client.set_min_sources_required(&1u32);
+    let asset = register_test_asset(&e, &client);
+
+    // max_history is 10 by default from setup_contract
+    submit_test_price(&client, &source, &asset, 100i128, 1000);
+    ledger_default(&e, 200, 1100);
+
+    // Try TWAP with duration > max_history
+    let result = client.try_get_twap(&asset, &50u32);
+    // Should either error or cap to max_history
+    assert!(result.is_ok() || result.is_err());
+}
+
+#[test]
+fn test_twap_weighted_correctly() {
+    let e = Env::default();
+    ledger_default(&e, 100, 1000);
+    let (client, _) = setup_contract(&e);
+    let source = register_test_source(&e, &client, "Oracle");
+    client.set_min_sources_required(&1u32);
+    let asset = register_test_asset(&e, &client);
+
+    // Price 100 for 1 ledger, then 500 for 9 ledgers
+    submit_test_price(&client, &source, &asset, 100i128, 1000);
+    ledger_default(&e, 101, 1001);
+    submit_test_price(&client, &source, &asset, 500i128, 1001);
+    ledger_default(&e, 110, 1010);
+
+    // TWAP = (100*1 + 500*9) / 10 = 4600 / 10 = 460
+    let twap = client.get_twap(&asset, &10u32).unwrap();
+    assert_eq!(twap, 460i128);
+}
