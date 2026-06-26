@@ -27,3 +27,13 @@ jobs:
         run: make lint
       - name: Run tests
         run: make test
+
+  deny:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check dependencies (licenses, advisories, duplicates, sources)
+        uses: EmbarkStudios/cargo-deny-action@v2
+        with:
+          command: check
+          arguments: --config deny.toml
