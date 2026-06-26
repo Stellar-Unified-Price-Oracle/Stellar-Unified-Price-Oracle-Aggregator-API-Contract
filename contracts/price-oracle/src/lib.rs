@@ -14,7 +14,7 @@ mod types;
 mod prop_tests;
 
 pub use types::{
-    AggregatePrice, Asset, DataKey, ErrorCode, OracleSources, PriceData, PriceEntry,
+    AggregatePrice, Asset, AssetMetadata, DataKey, ErrorCode, OracleSources, PriceData, PriceEntry,
     PriceHistoryEntry,
 };
 
@@ -213,6 +213,16 @@ impl PriceOracleContract {
 
     pub fn prices(env: Env, asset: Asset, records: u32) -> Option<Vec<PriceData>> {
         prices::prices(&env, asset, records)
+    }
+
+    // --- Asset Metadata ---
+
+    pub fn set_asset_metadata(env: Env, asset: Address, metadata: AssetMetadata) {
+        assets::set_asset_metadata(&env, asset, metadata);
+    }
+
+    pub fn get_asset_metadata(env: Env, asset: Address) -> Option<AssetMetadata> {
+        assets::get_asset_metadata(&env, asset)
     }
 }
 

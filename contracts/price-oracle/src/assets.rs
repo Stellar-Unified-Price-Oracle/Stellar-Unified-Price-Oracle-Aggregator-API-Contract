@@ -4,7 +4,7 @@ use crate::events::{AssetRegisteredEvent, AssetUnregisteredEvent};
 use crate::storage::{
     get_admin, read_registered_assets, write_registered_assets, LEDGER_BUMP, LEDGER_THRESHOLD,
 };
-use crate::types::{DataKey, ErrorCode};
+use crate::types::{AssetMetadata, DataKey, ErrorCode};
 
 pub fn register_asset(env: &Env, asset: Address) {
     let admin = get_admin(env);
@@ -64,4 +64,24 @@ pub fn is_asset_registered(env: &Env, asset: Address) -> bool {
             .extend_ttl(&key, LEDGER_THRESHOLD, LEDGER_BUMP);
     }
     exists
+}
+
+pub fn set_asset_metadata(env: &Env, asset: Address, metadata: AssetMetadata) {
+    let admin = get_admin(env);
+    admin.require_auth();
+    crate::storage::check_registered_asset(env, &asset);
+    env.storage()
+        .persistent()
+        .set(&DataKey::AssetMetadata(asset.clone()), &metadata);
+}
+
+pub fn get_asset_metadata(env: &Env, asset: Address) -> Option<AssetMetadata> {
+    crate::storage::check_registered_asset(env, &asset);
+    let key = DataKey::AssetMetadata(asset.clone());
+    if env.storage().persistent().has(&key) {
+        env.storage()
+            .persistent()
+            .extend_ttl(&key, LEDGER_THRESHOLD, LEDGER_BUMP);
+    }
+    env.storage().persistent().get(&key)
 }

@@ -21,6 +21,8 @@ pub enum DataKey {
     Decimals,
     Description,
     TimestampThreshold,
+    AssetMetadata(Address),
+    AssetMinPrice(Address),
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -69,4 +71,12 @@ pub enum Asset {
 pub struct PriceData {
     pub price: i128,
     pub timestamp: u64,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct AssetMetadata {
+    pub name: String,
+    pub symbol: String,
+    pub decimals: Option<u32>,
 }
