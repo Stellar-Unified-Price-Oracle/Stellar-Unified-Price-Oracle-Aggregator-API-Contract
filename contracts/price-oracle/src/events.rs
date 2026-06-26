@@ -206,3 +206,12 @@ pub struct OperationCancelledEvent {
     #[topic]
     pub cancelled_by: Address,
 }
+
+#[contractevent]
+#[derive(Clone)]
+pub struct PriceStaleEvent {
+    #[topic]
+    pub asset: Address,
+    pub last_update_ledger: u32,
+    pub current_ledger: u32,
+}

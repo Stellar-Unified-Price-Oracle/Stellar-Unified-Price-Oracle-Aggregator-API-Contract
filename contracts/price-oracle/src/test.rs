@@ -1299,3 +1299,60 @@ fn test_execute_operation_twice() {
     
     client.execute_operation(&op_id);
 }
+
+
+// ========== Issue #55: Price Staleness Tests ==========
+
+#[test]
+fn test_price_staleness_detection() {
+    let e = Env::default();
+    let (client, _) = setup_contract(&e);
+    let source = register_test_source(&e, &client, "Source");
+    let asset = register_test_asset(&e, &client);
+    
+    client.set_min_sources_required(&1u32);
+    client.set_resolution(&100u32);
+    
+    ledger_default(&e, 100, 1000);
+    submit_test_price(&client, &source, &asset, 100, 100);
+    
+    ledger_default(&e, 200, 2000);
+    let price = client.get_price(&asset, &0);
+    assert!(price.is_none());
+}
+
+#[test]
+fn test_fresh_price_available() {
+    let e = Env::default();
+    let (client, _) = setup_contract(&e);
+    let source = register_test_source(&e, &client, "Source");
+    let asset = register_test_asset(&e, &client);
+    
+    client.set_min_sources_required(&1u32);
+    client.set_resolution(&1000u32);
+    
+    ledger_default(&e, 100, 1000);
+    submit_test_price(&client, &source, &asset, 100, 1000);
+    
+    ledger_default(&e, 200, 1500);
+    let price = client.get_price(&asset, &0);
+    assert!(price.is_some());
+}
+
+#[test]
+fn test_staleness_with_no_resolution() {
+    let e = Env::default();
+    let (client, _) = setup_contract(&e);
+    let source = register_test_source(&e, &client, "Source");
+    let asset = register_test_asset(&e, &client);
+    
+    client.set_min_sources_required(&1u32);
+    client.set_resolution(&0u32);
+    
+    ledger_default(&e, 100, 1000);
+    submit_test_price(&client, &source, &asset, 100, 100);
+    
+    ledger_default(&e, 1000000, 9999999);
+    let price = client.get_price(&asset, &0);
+    assert!(price.is_some());
+}
