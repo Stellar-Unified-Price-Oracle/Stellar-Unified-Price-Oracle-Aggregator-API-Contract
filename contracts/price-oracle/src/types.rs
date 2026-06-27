@@ -225,6 +225,29 @@ pub struct PendingOperation {
     pub data: Bytes,
 }
 
+/// A snapshot of the oracle's overall health, returned by `health_check()`.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct HealthReport {
+    /// Total number of registered oracle sources.
+    pub total_sources: u32,
+    /// Number of sources that are currently active (not inactive/suspended).
+    pub active_sources: u32,
+    /// Total number of registered assets.
+    pub total_assets: u32,
+    /// Number of assets that have at least one aggregate price recorded.
+    pub assets_with_prices: u32,
+    /// Whether the contract is currently paused (aggregation suspended).
+    pub is_aggregation_paused: bool,
+    /// Ledger sequence number of the most recent price aggregation, or 0 if none.
+    pub last_aggregation_ledger: u32,
+    /// Number of assets whose latest price is stale (older than `resolution` seconds).
+    /// Always 0 when `resolution` is 0 (staleness checking disabled).
+    pub stale_price_count: u32,
+    /// Number of sources currently marked as suspended or inactive.
+    pub suspended_source_count: u32,
+}
+
 /// Optional metadata that can be attached to a registered asset.
 ///
 /// Stored under [`DataKey::AssetMetadata`] and managed via `set_asset_metadata`.

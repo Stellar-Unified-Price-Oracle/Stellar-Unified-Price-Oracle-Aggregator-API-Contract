@@ -4,6 +4,7 @@ mod admin;
 mod assets;
 mod errors;
 mod events;
+mod health;
 mod history;
 mod pause;
 mod prices;
@@ -19,8 +20,8 @@ mod override_tests;
 mod prop_tests;
 
 pub use types::{
-    AggregatePrice, AggregationMethod, Asset, DataKey, ErrorCode, OracleSources, PriceData,
-    PriceEntry, PriceHistoryEntry, PriceOverrideEntry,
+    AggregatePrice, AggregationMethod, Asset, DataKey, ErrorCode, HealthReport, OracleSources,
+    PriceData, PriceEntry, PriceHistoryEntry, PriceOverrideEntry,
 };
 
 use soroban_sdk::{contract, contractimpl, Address, Env, String, Symbol, Vec};
@@ -907,6 +908,25 @@ impl PriceOracleContract {
     /// `true` if paused; `false` otherwise.
     pub fn is_paused(env: Env) -> bool {
         pause::is_paused(&env)
+    }
+
+    /// Returns a snapshot of the oracle's current health status.
+    ///
+    /// Aggregates information about registered sources, active sources, registered
+    /// assets, assets with live prices, pause state, last aggregation ledger, stale
+    /// price count, and suspended source count into a single [`HealthReport`].
+    ///
+    /// This is a read-only endpoint — no authentication required.
+    ///
+    /// # Arguments
+    ///
+    /// * `env` - The Soroban execution environment.
+    ///
+    /// # Returns
+    ///
+    /// A [`HealthReport`] reflecting current oracle state.
+    pub fn health_check(env: Env) -> HealthReport {
+        health::health_check(&env)
     }
 
     // --- Timelock ---

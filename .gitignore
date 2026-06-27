@@ -1,5 +1,33 @@
+# Build artifacts
 /target
 **/*.wasm
+
+# Test snapshots
 test_snapshots/
+
+# Kiro AI agent working directory
 .kiro/
+
+# Node dependencies
 node_modules/
+
+# Environment and secrets
+.env
+.env.*
+*.pem
+*.key
+identity.json
+wallet-keypair.json
+
+# Soroban CLI cache and config
+.soroban/
+
+# OS-specific
+.DS_Store
+Thumbs.db
+
+# Editor/IDE
+.idea/
+.vscode/
+*.swp
+*.swo
