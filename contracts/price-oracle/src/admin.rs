@@ -11,6 +11,8 @@ use crate::types::{AggregationMethod, DataKey, ErrorCode, OracleSources};
 
 const DEFAULT_MAX_HISTORY: u32 = 100;
 const DEFAULT_MIN_SOURCES: u32 = 1;
+const DEFAULT_MAX_ASSETS: u32 = 100;
+
 const DEFAULT_DECIMALS: u32 = 18;
 pub const DEFAULT_RESOLUTION: u32 = 0;
 pub const DEFAULT_TIMESTAMP_THRESHOLD: u64 = 300; // 5 minutes
@@ -22,6 +24,7 @@ pub const DEFAULT_MAX_INVALID_SUBMISSIONS: u32 = 5;
 pub fn initialize(
     env: &Env,
     admin: Address,
+
     min_sources_required: u32,
     max_history_length: u32,
     decimals: u32,
@@ -75,6 +78,9 @@ pub fn initialize(
         &DataKey::MaxInvalidSubmissions,
         &DEFAULT_MAX_INVALID_SUBMISSIONS,
     );
+    env.storage()
+        .persistent()
+        .set(&DataKey::MaxAssets, &DEFAULT_MAX_ASSETS);
     env.storage().persistent().set(
         &DataKey::AggregationMethod,
         &(AggregationMethod::Median as u32),
@@ -340,4 +346,25 @@ pub fn get_heartbeat_interval(env: &Env) -> u64 {
         .persistent()
         .get(&key)
         .unwrap_or(DEFAULT_HEARTBEAT_INTERVAL)
+}
+
+pub fn set_max_assets(env: &Env, new_max: u32) {
+    let admin = get_admin(env);
+    admin.require_auth();
+    env.storage()
+        .persistent()
+        .set(&DataKey::MaxAssets, &new_max);
+}
+
+pub fn get_max_assets(env: &Env) -> u32 {
+    let key = DataKey::MaxAssets;
+    if env.storage().persistent().has(&key) {
+        env.storage()
+            .persistent()
+            .extend_ttl(&key, LEDGER_THRESHOLD, LEDGER_BUMP);
+    }
+    env.storage()
+        .persistent()
+        .get(&key)
+        .unwrap_or(DEFAULT_MAX_ASSETS)
 }

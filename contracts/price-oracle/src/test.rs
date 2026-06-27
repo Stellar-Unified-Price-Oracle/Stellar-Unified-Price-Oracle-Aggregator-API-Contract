@@ -115,6 +115,31 @@ fn test_register_asset_twice() {
 }
 
 #[test]
+#[should_panic(expected = "Error(Contract, #16)")]
+fn test_register_asset_max_assets_reached() {
+    let e = Env::default();
+    let (client, _) = setup_contract(&e);
+
+    client.set_max_assets(&2u32);
+
+    let asset1 = register_test_asset(&e, &client);
+    assert!(client.is_asset_registered(&asset1));
+
+    let asset2 = register_test_asset(&e, &client);
+    assert!(client.is_asset_registered(&asset2));
+
+    // Third registration should fail
+    let _asset3 = register_test_asset(&e, &client);
+}
+
+#[test]
+fn test_default_max_assets() {
+    let e = Env::default();
+    let (client, _) = setup_contract(&e);
+    assert_eq!(client.get_max_assets(), 100u32);
+}
+
+#[test]
 fn test_unregister_asset() {
     let e = Env::default();
     let (client, _) = setup_contract(&e);
@@ -468,6 +493,13 @@ fn test_has_historical_price_unregistered_asset() {
 
 #[test]
 fn test_upgrade() {
+    // Included wasm upgrade test requires a pre-built artifact.
+    // Skip in environments where `target/wasm32v1-none/release/price_oracle.wasm` is missing.
+    #[cfg(feature = "skip_wasm_upgrade_tests")]
+    {
+        return;
+    }
+
     let e = Env::default();
     let (client, _) = setup_contract(&e);
 
@@ -480,6 +512,13 @@ fn test_upgrade() {
 
 #[test]
 fn test_upgrade_unauthorized() {
+    // Included wasm upgrade test requires a pre-built artifact.
+    // Skip in environments where `target/wasm32v1-none/release/price_oracle.wasm` is missing.
+    #[cfg(feature = "skip_wasm_upgrade_tests")]
+    {
+        return;
+    }
+
     let e = Env::default();
     let (client, _) = setup_contract(&e);
 
