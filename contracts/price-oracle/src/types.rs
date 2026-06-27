@@ -34,7 +34,7 @@ pub enum DataKey {
     PendingOpCount,
     PendingOp(u32),
     TimelockDuration,
-    SourceNonce(Address),
+    PriceOverride(Address),
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -55,7 +55,16 @@ pub struct AggregatePrice {
     pub timestamp: u64,
     pub num_sources: u32,
     pub decimals: u32,
-    pub ledger_timestamp: u64,
+    pub is_override: bool,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct PriceOverrideEntry {
+    pub price: i128,
+    pub reason: String,
+    pub expiry_ledger: u32,
+    pub set_ledger: u32,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
