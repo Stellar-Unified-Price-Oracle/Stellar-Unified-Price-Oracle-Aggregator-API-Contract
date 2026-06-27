@@ -204,3 +204,20 @@ pub fn mark_source_active(env: &Env, source: &Address) {
     let key = DataKey::InactiveSource(source.clone());
     env.storage().persistent().remove(&key);
 }
+
+pub fn enter_reentrancy_guard(env: &Env) {
+    let key = DataKey::ReentrancyGuard;
+    if env
+        .storage()
+        .temporary()
+        .get::<DataKey, bool>(&key)
+        .unwrap_or(false)
+    {
+        panic_with_error!(env, ErrorCode::Reentrancy);
+    }
+    env.storage().temporary().set(&key, &true);
+}
+
+pub fn exit_reentrancy_guard(env: &Env) {
+    env.storage().temporary().remove(&DataKey::ReentrancyGuard);
+}

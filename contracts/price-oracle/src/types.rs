@@ -34,6 +34,7 @@ pub enum DataKey {
     PendingOpCount,
     PendingOp(u32),
     TimelockDuration,
+    ReentrancyGuard,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]

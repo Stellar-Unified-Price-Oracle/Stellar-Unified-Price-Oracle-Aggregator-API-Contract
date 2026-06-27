@@ -1103,3 +1103,77 @@ fn test_removed_source_is_no_longer_source() {
     client.remove_source(&source);
     assert!(!client.is_source(&source));
 }
+
+// --- Reentrancy Guard Tests ---
+
+#[test]
+fn test_reentrancy_guard_clears_after_normal_call() {
+    // Guard must be cleared after a normal successful call so subsequent calls work.
+    let e = Env::default();
+    let (client, _) = setup_contract(&e);
+
+    // First call succeeds
+    client.set_min_sources_required(&3u32);
+    assert_eq!(client.get_min_sources_required(), 3u32);
+
+    // Second call also succeeds (guard was cleared)
+    client.set_min_sources_required(&5u32);
+    assert_eq!(client.get_min_sources_required(), 5u32);
+}
+
+#[test]
+fn test_reentrancy_guard_clears_after_add_source() {
+    // Verify guard releases after add_source so remove_source can run next.
+    let e = Env::default();
+    let (client, _) = setup_contract(&e);
+
+    let source = register_test_source(&e, &client, "S1");
+    assert!(client.is_source(&source));
+
+    client.remove_source(&source);
+    assert!(!client.is_source(&source));
+}
+
+#[test]
+fn test_reentrancy_guard_clears_after_submit_price() {
+    // Guard must release after submit_price so a second submission works.
+    let e = Env::default();
+    let (client, _) = setup_contract(&e);
+    client.set_min_sources_required(&1u32);
+    let source = register_test_source(&e, &client, "S1");
+    let asset = register_test_asset(&e, &client);
+
+    ledger_default(&e, 100, 5000);
+    client.submit_price(&source, &asset, &100i128, &1000u64);
+    client.submit_price(&source, &asset, &200i128, &2000u64);
+
+    // Both went through — last price is 200
+    let entry = client.get_source_price(&asset, &source);
+    assert_eq!(entry.price, 200i128);
+}
+
+#[test]
+fn test_reentrancy_guard_clears_after_register_asset() {
+    // Guard releases after register_asset so unregister can run.
+    let e = Env::default();
+    let (client, _) = setup_contract(&e);
+
+    let asset = register_test_asset(&e, &client);
+    assert!(client.is_asset_registered(&asset));
+
+    client.unregister_asset(&asset);
+    assert!(!client.is_asset_registered(&asset));
+}
+
+#[test]
+fn test_reentrancy_guard_initial_state_not_locked() {
+    // Calling a mutating function on a fresh contract (before initialize)
+    // for guard checking: simply ensure initialize itself works, meaning guard starts unlocked.
+    let e = Env::default();
+    let admin = Address::generate(&e);
+    let client = create_contract(&e);
+
+    // initialize is guarded — should succeed from a clean state
+    client.initialize(&admin, &1u32, &10u32, &18u32, &String::from_str(&e, "Test"));
+    assert_eq!(client.get_admin_address(), admin);
+}

@@ -19,4 +19,5 @@ pub enum ErrorCode {
     TimelockNotReady = 13,
     OperationNotFound = 14,
     PriceBelowMinimum = 15,
+    Reentrancy = 16,
 }

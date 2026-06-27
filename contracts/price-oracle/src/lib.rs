@@ -22,7 +22,7 @@ pub use types::{
 
 use soroban_sdk::{contract, contractimpl, Address, Env, String, Symbol, Vec};
 
-use crate::storage::read_registered_assets;
+use crate::storage::{enter_reentrancy_guard, exit_reentrancy_guard, read_registered_assets};
 
 #[contract]
 pub struct PriceOracleContract;
@@ -39,6 +39,7 @@ impl PriceOracleContract {
         decimals: u32,
         description: String,
     ) {
+        enter_reentrancy_guard(&env);
         admin::initialize(
             &env,
             admin,
@@ -47,14 +48,19 @@ impl PriceOracleContract {
             decimals,
             description,
         );
+        exit_reentrancy_guard(&env);
     }
 
     pub fn upgrade(env: Env, new_wasm_hash: soroban_sdk::BytesN<32>) {
+        enter_reentrancy_guard(&env);
         admin::upgrade(&env, new_wasm_hash);
+        exit_reentrancy_guard(&env);
     }
 
     pub fn set_admin(env: Env, new_admin: Address) {
+        enter_reentrancy_guard(&env);
         admin::set_admin(&env, new_admin);
+        exit_reentrancy_guard(&env);
     }
 
     pub fn get_admin_address(env: Env) -> Address {
@@ -62,7 +68,9 @@ impl PriceOracleContract {
     }
 
     pub fn set_min_sources_required(env: Env, new_min: u32) {
+        enter_reentrancy_guard(&env);
         admin::set_min_sources_required(&env, new_min);
+        exit_reentrancy_guard(&env);
     }
 
     pub fn get_min_sources_required(env: Env) -> u32 {
@@ -70,7 +78,9 @@ impl PriceOracleContract {
     }
 
     pub fn set_max_history_length(env: Env, new_max: u32) {
+        enter_reentrancy_guard(&env);
         admin::set_max_history_length(&env, new_max);
+        exit_reentrancy_guard(&env);
     }
 
     pub fn get_max_history_length(env: Env) -> u32 {
@@ -78,7 +88,9 @@ impl PriceOracleContract {
     }
 
     pub fn set_resolution(env: Env, new_resolution: u32) {
+        enter_reentrancy_guard(&env);
         admin::set_resolution(&env, new_resolution);
+        exit_reentrancy_guard(&env);
     }
 
     pub fn get_resolution(env: Env) -> u32 {
@@ -86,7 +98,9 @@ impl PriceOracleContract {
     }
 
     pub fn set_decimals(env: Env, new_decimals: u32) {
+        enter_reentrancy_guard(&env);
         admin::set_decimals(&env, new_decimals);
+        exit_reentrancy_guard(&env);
     }
 
     pub fn get_decimals(env: Env) -> u32 {
@@ -94,7 +108,9 @@ impl PriceOracleContract {
     }
 
     pub fn set_description(env: Env, new_description: String) {
+        enter_reentrancy_guard(&env);
         admin::set_description(&env, new_description);
+        exit_reentrancy_guard(&env);
     }
 
     pub fn get_description(env: Env) -> String {
@@ -102,7 +118,9 @@ impl PriceOracleContract {
     }
 
     pub fn set_timestamp_threshold(env: Env, threshold: u64) {
+        enter_reentrancy_guard(&env);
         admin::set_timestamp_threshold(&env, threshold);
+        exit_reentrancy_guard(&env);
     }
 
     pub fn get_timestamp_threshold(env: Env) -> u64 {
@@ -110,7 +128,9 @@ impl PriceOracleContract {
     }
 
     pub fn set_max_price_deviation(env: Env, deviation_basis_points: u32) {
+        enter_reentrancy_guard(&env);
         admin::set_max_price_deviation(&env, deviation_basis_points);
+        exit_reentrancy_guard(&env);
     }
 
     pub fn get_max_price_deviation(env: Env) -> u32 {
@@ -118,7 +138,9 @@ impl PriceOracleContract {
     }
 
     pub fn set_heartbeat_interval(env: Env, interval: u64) {
+        enter_reentrancy_guard(&env);
         admin::set_heartbeat_interval(&env, interval);
+        exit_reentrancy_guard(&env);
     }
 
     pub fn get_heartbeat_interval(env: Env) -> u64 {
@@ -128,11 +150,15 @@ impl PriceOracleContract {
     // --- Sources ---
 
     pub fn add_source(env: Env, source: Address, name: String) {
+        enter_reentrancy_guard(&env);
         sources::add_source(&env, source, name);
+        exit_reentrancy_guard(&env);
     }
 
     pub fn remove_source(env: Env, source: Address) {
+        enter_reentrancy_guard(&env);
         sources::remove_source(&env, source);
+        exit_reentrancy_guard(&env);
     }
 
     pub fn is_source(env: Env, source: Address) -> bool {
@@ -144,7 +170,9 @@ impl PriceOracleContract {
     }
 
     pub fn submit_heartbeat(env: Env, source: Address) {
+        enter_reentrancy_guard(&env);
         sources::submit_heartbeat(&env, source);
+        exit_reentrancy_guard(&env);
     }
 
     pub fn is_source_inactive(env: Env, source: Address) -> bool {
@@ -162,11 +190,15 @@ impl PriceOracleContract {
     // --- Assets ---
 
     pub fn register_asset(env: Env, asset: Address) {
+        enter_reentrancy_guard(&env);
         assets::register_asset(&env, asset);
+        exit_reentrancy_guard(&env);
     }
 
     pub fn unregister_asset(env: Env, asset: Address) {
+        enter_reentrancy_guard(&env);
         assets::unregister_asset(&env, asset);
+        exit_reentrancy_guard(&env);
     }
 
     pub fn is_asset_registered(env: Env, asset: Address) -> bool {
@@ -176,7 +208,9 @@ impl PriceOracleContract {
     // --- Prices ---
 
     pub fn submit_price(env: Env, source: Address, asset: Address, price: i128, timestamp: u64) {
+        enter_reentrancy_guard(&env);
         prices::submit_price(&env, source, asset, price, timestamp);
+        exit_reentrancy_guard(&env);
     }
 
     pub fn get_price(env: Env, asset: Address, max_age: u64) -> Option<AggregatePrice> {
@@ -252,11 +286,15 @@ impl PriceOracleContract {
     // --- Pause ---
 
     pub fn pause(env: Env) {
+        enter_reentrancy_guard(&env);
         pause::pause(&env);
+        exit_reentrancy_guard(&env);
     }
 
     pub fn unpause(env: Env) {
+        enter_reentrancy_guard(&env);
         pause::unpause(&env);
+        exit_reentrancy_guard(&env);
     }
 
     pub fn is_paused(env: Env) -> bool {
@@ -266,6 +304,7 @@ impl PriceOracleContract {
     // --- Timelock ---
 
     pub fn propose_operation(env: Env, op_type: u32, data: soroban_sdk::Bytes) -> u32 {
+        enter_reentrancy_guard(&env);
         let op_enum = match op_type {
             0 => types::OperationType::Upgrade,
             1 => types::OperationType::SetAdmin,
@@ -277,15 +316,21 @@ impl PriceOracleContract {
             7 => types::OperationType::SetTimestampThreshold,
             _ => panic!("Invalid operation type"),
         };
-        timelock::propose_operation(&env, op_enum, &data)
+        let result = timelock::propose_operation(&env, op_enum, &data);
+        exit_reentrancy_guard(&env);
+        result
     }
 
     pub fn execute_operation(env: Env, op_id: u32) {
+        enter_reentrancy_guard(&env);
         timelock::execute_operation(&env, op_id);
+        exit_reentrancy_guard(&env);
     }
 
     pub fn cancel_operation(env: Env, op_id: u32) {
+        enter_reentrancy_guard(&env);
         timelock::cancel_operation(&env, op_id);
+        exit_reentrancy_guard(&env);
     }
 
     pub fn get_timelock_duration(env: Env) -> u32 {
@@ -293,7 +338,9 @@ impl PriceOracleContract {
     }
 
     pub fn set_timelock_duration(env: Env, duration: u32) {
+        enter_reentrancy_guard(&env);
         timelock::set_timelock_duration(&env, duration);
+        exit_reentrancy_guard(&env);
     }
 }
 
