@@ -455,3 +455,90 @@ pub struct PriceOverrideExpiredEvent {
     pub expiry_ledger: u32,
     pub current_ledger: u32,
 }
+
+// --- #67: Per-asset resolution ---
+
+/// Emitted when the per-asset resolution is set or cleared.
+#[contractevent]
+#[derive(Clone)]
+pub struct AssetResolutionSetEvent {
+    #[topic]
+    pub asset: Address,
+    #[topic]
+    pub admin: Address,
+    /// Resolution in seconds (0 = cleared, falls back to contract-wide).
+    pub resolution: u32,
+}
+
+// --- #69: Periodic aggregation trigger ---
+
+/// Emitted when trigger_aggregation is called and aggregation succeeds.
+#[contractevent]
+#[derive(Clone)]
+pub struct AggregationTriggeredEvent {
+    #[topic]
+    pub asset: Address,
+    pub price: i128,
+    pub num_sources: u32,
+    pub triggered_at_ledger: u32,
+}
+
+/// Emitted when the aggregation cooldown is updated.
+#[contractevent]
+#[derive(Clone)]
+pub struct AggregationCooldownChangedEvent {
+    pub cooldown_ledgers: u32,
+}
+
+// --- #70: Min submission interval ---
+
+/// Emitted when the minimum submission interval is updated.
+#[contractevent]
+#[derive(Clone)]
+pub struct MinSubmissionIntervalChangedEvent {
+    pub interval_ledgers: u32,
+}
+
+/// Emitted when a source is flagged as non-compliant for an asset.
+#[contractevent]
+#[derive(Clone)]
+pub struct SourceNonCompliantEvent {
+    #[topic]
+    pub source: Address,
+    #[topic]
+    pub asset: Address,
+    pub last_submission_ledger: u32,
+    pub required_interval: u32,
+}
+
+// --- #68: Batch operations ---
+
+/// Emitted when an admin proposes a new batch of operations.
+#[contractevent]
+#[derive(Clone)]
+pub struct BatchProposedEvent {
+    pub batch_id: u32,
+    pub num_operations: u32,
+    #[topic]
+    pub proposed_by: Address,
+    pub proposed_ledger: u32,
+}
+
+/// Emitted when a batch is successfully executed.
+#[contractevent]
+#[derive(Clone)]
+pub struct BatchExecutedEvent {
+    pub batch_id: u32,
+    pub num_operations: u32,
+    #[topic]
+    pub executed_by: Address,
+}
+
+/// Emitted when a pending batch is cancelled.
+#[contractevent]
+#[derive(Clone)]
+pub struct BatchCancelledEvent {
+    pub batch_id: u32,
+    #[topic]
+    pub cancelled_by: Address,
+}

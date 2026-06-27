@@ -341,3 +341,74 @@ pub fn get_heartbeat_interval(env: &Env) -> u64 {
         .get(&key)
         .unwrap_or(DEFAULT_HEARTBEAT_INTERVAL)
 }
+
+// --- #67: Per-asset resolution ---
+
+pub fn set_asset_resolution(env: &Env, asset: Address, resolution: u32) {
+    let admin = get_admin(env);
+    admin.require_auth();
+    crate::storage::check_registered_asset(env, &asset);
+    env.storage()
+        .persistent()
+        .set(&DataKey::AssetResolution(asset.clone()), &resolution);
+    crate::events::AssetResolutionSetEvent {
+        asset,
+        admin,
+        resolution,
+    }
+    .publish(env);
+}
+
+pub fn get_asset_resolution(env: &Env, asset: Address) -> u32 {
+    let key = DataKey::AssetResolution(asset);
+    if env.storage().persistent().has(&key) {
+        env.storage()
+            .persistent()
+            .extend_ttl(&key, LEDGER_THRESHOLD, LEDGER_BUMP);
+        env.storage().persistent().get(&key).unwrap_or(0)
+    } else {
+        get_resolution(env)
+    }
+}
+
+// --- #69: Aggregation cooldown ---
+
+pub fn set_aggregation_cooldown(env: &Env, cooldown_ledgers: u32) {
+    let admin = get_admin(env);
+    admin.require_auth();
+    env.storage()
+        .persistent()
+        .set(&DataKey::AggregationCooldown, &cooldown_ledgers);
+    crate::events::AggregationCooldownChangedEvent { cooldown_ledgers }.publish(env);
+}
+
+pub fn get_aggregation_cooldown(env: &Env) -> u32 {
+    let key = DataKey::AggregationCooldown;
+    if env.storage().persistent().has(&key) {
+        env.storage()
+            .persistent()
+            .extend_ttl(&key, LEDGER_THRESHOLD, LEDGER_BUMP);
+    }
+    env.storage().persistent().get(&key).unwrap_or(10)
+}
+
+// --- #70: Min submission interval ---
+
+pub fn set_min_submission_interval(env: &Env, interval_ledgers: u32) {
+    let admin = get_admin(env);
+    admin.require_auth();
+    env.storage()
+        .persistent()
+        .set(&DataKey::MinSubmissionInterval, &interval_ledgers);
+    crate::events::MinSubmissionIntervalChangedEvent { interval_ledgers }.publish(env);
+}
+
+pub fn get_min_submission_interval(env: &Env) -> u32 {
+    let key = DataKey::MinSubmissionInterval;
+    if env.storage().persistent().has(&key) {
+        env.storage()
+            .persistent()
+            .extend_ttl(&key, LEDGER_THRESHOLD, LEDGER_BUMP);
+    }
+    env.storage().persistent().get(&key).unwrap_or(0)
+}

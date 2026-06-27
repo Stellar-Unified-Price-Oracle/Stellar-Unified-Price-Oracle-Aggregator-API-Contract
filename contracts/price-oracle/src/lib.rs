@@ -19,8 +19,8 @@ mod override_tests;
 mod prop_tests;
 
 pub use types::{
-    AggregatePrice, AggregationMethod, Asset, DataKey, ErrorCode, OracleSources, PriceData,
-    PriceEntry, PriceHistoryEntry, PriceOverrideEntry,
+    AggregatePrice, AggregationMethod, Asset, BatchOperation, DataKey, ErrorCode, OracleSources,
+    PendingBatch, PriceData, PriceEntry, PriceHistoryEntry, PriceOverrideEntry,
 };
 
 use soroban_sdk::{contract, contractimpl, Address, Env, String, Symbol, Vec};
@@ -363,6 +363,88 @@ impl PriceOracleContract {
     /// Heartbeat interval in seconds. Defaults to `3600` (1 hour).
     pub fn get_heartbeat_interval(env: Env) -> u64 {
         admin::get_heartbeat_interval(&env)
+    }
+
+    // --- #67: Per-asset resolution ---
+
+    /// Sets a per-asset resolution override in seconds.
+    ///
+    /// When set, `get_price` and SEP-40 `lastprice` use this value instead of the
+    /// contract-wide resolution for the given asset. Pass `0` to clear the override
+    /// (reverts to contract-wide resolution).
+    pub fn set_asset_resolution(env: Env, asset: Address, resolution: u32) {
+        admin::set_asset_resolution(&env, asset, resolution);
+    }
+
+    /// Returns the effective resolution in seconds for an asset.
+    ///
+    /// Returns the per-asset override if set, otherwise the contract-wide resolution.
+    pub fn get_asset_resolution(env: Env, asset: Address) -> u32 {
+        admin::get_asset_resolution(&env, asset)
+    }
+
+    // --- #69: Periodic aggregation trigger ---
+
+    /// Triggers a price aggregation re-computation for an asset.
+    ///
+    /// Callable by anyone. Subject to the configured aggregation cooldown.
+    /// Panics with [`ErrorCode::InvalidConfiguration`] if called within the cooldown,
+    /// or [`ErrorCode::InsufficientSources`] if too few compliant sources exist.
+    pub fn trigger_aggregation(env: Env, asset: Address) {
+        prices::trigger_aggregation(&env, asset);
+    }
+
+    /// Sets the minimum number of ledgers that must elapse between `trigger_aggregation` calls.
+    pub fn set_aggregation_cooldown(env: Env, cooldown_ledgers: u32) {
+        admin::set_aggregation_cooldown(&env, cooldown_ledgers);
+    }
+
+    /// Returns the current aggregation cooldown in ledgers. Defaults to `10`.
+    pub fn get_aggregation_cooldown(env: Env) -> u32 {
+        admin::get_aggregation_cooldown(&env)
+    }
+
+    // --- #70: Min submission interval ---
+
+    /// Sets the minimum submission interval in ledgers.
+    ///
+    /// Sources that have not submitted within this many ledgers since their last
+    /// submission are excluded from aggregation and flagged as non-compliant.
+    /// Set to `0` to disable enforcement (default).
+    pub fn set_min_submission_interval(env: Env, interval_ledgers: u32) {
+        admin::set_min_submission_interval(&env, interval_ledgers);
+    }
+
+    /// Returns the current minimum submission interval in ledgers. Defaults to `0` (disabled).
+    pub fn get_min_submission_interval(env: Env) -> u32 {
+        admin::get_min_submission_interval(&env)
+    }
+
+    /// Returns the list of sources currently compliant with the submission interval for an asset.
+    pub fn get_compliant_sources(env: Env, asset: Address) -> Vec<Address> {
+        prices::get_compliant_sources(&env, asset)
+    }
+
+    // --- #68: Batch operations ---
+
+    /// Proposes a batch of admin operations to be executed atomically after the timelock delay.
+    ///
+    /// Returns the unique batch ID. Each `BatchOperation` carries an `op_type` (0–7) and
+    /// encoded `data` matching the same format as `propose_operation`.
+    pub fn propose_batch(env: Env, operations: Vec<BatchOperation>) -> u32 {
+        timelock::propose_batch(&env, operations)
+    }
+
+    /// Executes a proposed batch after its timelock delay has elapsed.
+    ///
+    /// All operations run sequentially. Any failure rolls back the entire transaction.
+    pub fn execute_batch(env: Env, batch_id: u32) {
+        timelock::execute_batch(&env, batch_id);
+    }
+
+    /// Cancels a pending batch operation without executing it.
+    pub fn cancel_batch(env: Env, batch_id: u32) {
+        timelock::cancel_batch(&env, batch_id);
     }
 
     // --- Sources ---
