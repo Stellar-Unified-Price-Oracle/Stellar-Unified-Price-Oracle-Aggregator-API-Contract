@@ -1,21 +1,21 @@
-use soroban_sdk::{panic_with_error, Address, Env, Vec};
+use soroban_sdk::{panic_with_error, Address, Env, String, Vec};
 
 use crate::admin::{
     get_aggregation_method, get_decimals, get_max_history_length, get_min_sources_required,
     get_resolution, get_timestamp_threshold,
 };
 use crate::events::{
-    HistoryPrunedEvent, PriceAggregatedEvent, PriceStaleEvent, PriceSubmittedEvent,
-    SourcesInsufficientEvent,
+    HistoryPrunedEvent, PriceAggregatedEvent, PriceOverrideExpiredEvent, PriceOverrideRemovedEvent,
+    PriceOverrideSetEvent, PriceStaleEvent, PriceSubmittedEvent, SourcesInsufficientEvent,
 };
 use crate::pause::check_not_paused;
 use crate::storage::{
     check_registered_asset, check_source, compute_mean, compute_median, compute_trimmed_mean,
-    read_oracle_sources, LEDGER_BUMP, LEDGER_THRESHOLD,
+    get_admin, read_oracle_sources, LEDGER_BUMP, LEDGER_THRESHOLD,
 };
 use crate::types::{
     AggregatePrice, Asset, DataKey, ErrorCode, OracleSources, PriceData, PriceEntry,
-    PriceHistoryEntry,
+    PriceHistoryEntry, PriceOverrideEntry,
 };
 
 pub fn submit_price(env: &Env, source: Address, asset: Address, price: i128, timestamp: u64) {
@@ -111,6 +111,7 @@ pub fn submit_price(env: &Env, source: Address, asset: Address, price: i128, tim
                     timestamp: 0,
                     num_sources: 0,
                     decimals,
+                    is_override: false,
                 });
 
         let aggregate = AggregatePrice {
@@ -118,6 +119,7 @@ pub fn submit_price(env: &Env, source: Address, asset: Address, price: i128, tim
             timestamp: latest_timestamp,
             num_sources: contributing_sources,
             decimals,
+            is_override: false,
         };
         env.storage()
             .persistent()
@@ -185,9 +187,41 @@ pub fn submit_price(env: &Env, source: Address, asset: Address, price: i128, tim
 
 pub fn get_price(env: &Env, asset: Address, max_age: u64) -> Option<AggregatePrice> {
     check_registered_asset(env, &asset);
+    let current_ledger = env.ledger().sequence();
+
+    // Check for active price override
+    let override_key = DataKey::PriceOverride(asset.clone());
+    if let Some(ovr) = env
+        .storage()
+        .persistent()
+        .get::<_, PriceOverrideEntry>(&override_key)
+    {
+        if current_ledger <= ovr.expiry_ledger {
+            env.storage()
+                .persistent()
+                .extend_ttl(&override_key, LEDGER_THRESHOLD, LEDGER_BUMP);
+            let decimals = get_decimals(env);
+            return Some(AggregatePrice {
+                price: ovr.price,
+                timestamp: env.ledger().timestamp(),
+                num_sources: 0,
+                decimals,
+                is_override: true,
+            });
+        } else {
+            // Override has expired
+            PriceOverrideExpiredEvent {
+                asset: asset.clone(),
+                expiry_ledger: ovr.expiry_ledger,
+                current_ledger,
+            }
+            .publish(env);
+            env.storage().persistent().remove(&override_key);
+        }
+    }
+
     let key = DataKey::Aggregate(asset.clone());
     let result: AggregatePrice = env.storage().persistent().get(&key)?;
-    let current_ledger = env.ledger().sequence();
 
     if max_age > 0 {
         let ledger_time = env.ledger().timestamp();
@@ -389,6 +423,73 @@ pub fn get_prices(env: &Env, assets: Vec<Address>) -> Vec<Option<AggregatePrice>
         results.push_back(price);
     }
     results
+}
+
+pub fn override_price(env: &Env, asset: Address, price: i128, reason: String, expiry_ledger: u32) {
+    let admin = get_admin(env);
+    admin.require_auth();
+    check_registered_asset(env, &asset);
+
+    let current_ledger = env.ledger().sequence();
+    if price <= 0 {
+        panic_with_error!(env, ErrorCode::InvalidPrice);
+    }
+    if expiry_ledger <= current_ledger {
+        panic_with_error!(env, ErrorCode::InvalidConfiguration);
+    }
+
+    let entry = PriceOverrideEntry {
+        price,
+        reason: reason.clone(),
+        expiry_ledger,
+        set_ledger: current_ledger,
+    };
+    env.storage()
+        .persistent()
+        .set(&DataKey::PriceOverride(asset.clone()), &entry);
+    env.storage().persistent().extend_ttl(
+        &DataKey::PriceOverride(asset.clone()),
+        LEDGER_THRESHOLD,
+        LEDGER_BUMP,
+    );
+
+    PriceOverrideSetEvent {
+        asset: asset.clone(),
+        admin: admin.clone(),
+        price,
+        reason,
+        expiry_ledger,
+    }
+    .publish(env);
+}
+
+pub fn remove_price_override(env: &Env, asset: Address) {
+    let admin = get_admin(env);
+    admin.require_auth();
+    check_registered_asset(env, &asset);
+
+    let override_key = DataKey::PriceOverride(asset.clone());
+    if !env.storage().persistent().has(&override_key) {
+        panic_with_error!(env, ErrorCode::NoData);
+    }
+    env.storage().persistent().remove(&override_key);
+
+    PriceOverrideRemovedEvent {
+        asset: asset.clone(),
+        admin: admin.clone(),
+    }
+    .publish(env);
+}
+
+pub fn get_price_override(env: &Env, asset: Address) -> Option<PriceOverrideEntry> {
+    check_registered_asset(env, &asset);
+    let override_key = DataKey::PriceOverride(asset);
+    if env.storage().persistent().has(&override_key) {
+        env.storage()
+            .persistent()
+            .extend_ttl(&override_key, LEDGER_THRESHOLD, LEDGER_BUMP);
+    }
+    env.storage().persistent().get(&override_key)
 }
 
 #[allow(dead_code)]

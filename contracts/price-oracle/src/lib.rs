@@ -13,11 +13,14 @@ mod timelock;
 mod types;
 
 #[cfg(test)]
+mod override_tests;
+
+#[cfg(test)]
 mod prop_tests;
 
 pub use types::{
     AggregatePrice, AggregationMethod, Asset, DataKey, ErrorCode, OracleSources, PriceData,
-    PriceEntry, PriceHistoryEntry,
+    PriceEntry, PriceHistoryEntry, PriceOverrideEntry,
 };
 
 use soroban_sdk::{contract, contractimpl, Address, Env, String, Symbol, Vec};
@@ -641,15 +644,24 @@ impl PriceOracleContract {
         prices::get_all_prices(&env, asset)
     }
 
-    /// Returns the current ledger sequence number.
-    ///
-    /// # Arguments
-    ///
-    /// * `env` - The Soroban execution environment.
-    ///
-    /// # Returns
-    ///
-    /// The sequence number of the most recently closed ledger.
+    pub fn override_price(
+        env: Env,
+        asset: Address,
+        price: i128,
+        reason: String,
+        expiry_ledger: u32,
+    ) {
+        prices::override_price(&env, asset, price, reason, expiry_ledger);
+    }
+
+    pub fn remove_price_override(env: Env, asset: Address) {
+        prices::remove_price_override(&env, asset);
+    }
+
+    pub fn get_price_override(env: Env, asset: Address) -> Option<PriceOverrideEntry> {
+        prices::get_price_override(&env, asset)
+    }
+
     pub fn get_latest_ledger(env: Env) -> u32 {
         env.ledger().sequence()
     }

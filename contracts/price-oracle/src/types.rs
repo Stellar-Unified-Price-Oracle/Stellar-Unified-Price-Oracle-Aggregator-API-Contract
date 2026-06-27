@@ -67,6 +67,7 @@ pub enum DataKey {
     PendingOp(u32),
     /// Number of ledgers that must pass between proposing and executing a timelock operation.
     TimelockDuration,
+    PriceOverride(Address),
 }
 
 /// A price submission from a single oracle source for a specific asset.
@@ -102,6 +103,16 @@ pub struct AggregatePrice {
     pub num_sources: u32,
     /// Decimal precision applied to `price`.
     pub decimals: u32,
+    pub is_override: bool,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct PriceOverrideEntry {
+    pub price: i128,
+    pub reason: String,
+    pub expiry_ledger: u32,
+    pub set_ledger: u32,
 }
 
 /// A snapshot of the aggregate price recorded at a particular ledger.
