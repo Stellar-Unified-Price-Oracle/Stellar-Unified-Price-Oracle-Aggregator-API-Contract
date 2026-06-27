@@ -86,6 +86,7 @@ pub struct PriceEntry {
     pub decimals: u32,
     /// Ledger sequence number when this entry was last written.
     pub last_updated: u32,
+    pub ledger_timestamp: u64,
 }
 
 /// An aggregated price computed from multiple oracle sources for a specific asset.

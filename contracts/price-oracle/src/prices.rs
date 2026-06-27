@@ -18,7 +18,7 @@ use crate::types::{
     PriceHistoryEntry, PriceOverrideEntry,
 };
 
-pub fn submit_price(env: &Env, source: Address, asset: Address, price: i128, timestamp: u64) {
+pub fn submit_price(env: &Env, source: Address, asset: Address, price: i128, timestamp: u64, nonce: u64) {
     check_not_paused(env);
     source.require_auth();
     check_source(env, &source);
@@ -27,6 +27,14 @@ pub fn submit_price(env: &Env, source: Address, asset: Address, price: i128, tim
     if crate::sources::is_source_suspended(env, source.clone()) {
         panic_with_error!(env, ErrorCode::NotAuthorized);
     }
+
+    // Nonce validation: must be strictly greater than last nonce
+    let nonce_key = DataKey::SourceNonce(source.clone());
+    let last_nonce: u64 = env.storage().persistent().get(&nonce_key).unwrap_or(0);
+    if nonce <= last_nonce {
+        panic_with_error!(env, ErrorCode::InvalidNonce);
+    }
+    env.storage().persistent().set(&nonce_key, &nonce);
 
     if price <= 0 {
         crate::sources::record_invalid_submission(env, source.clone());
@@ -54,6 +62,7 @@ pub fn submit_price(env: &Env, source: Address, asset: Address, price: i128, tim
         source: source.clone(),
         decimals,
         last_updated: current_ledger,
+        ledger_timestamp: ledger_time,
     };
 
     env.storage()
@@ -223,30 +232,24 @@ pub fn get_price(env: &Env, asset: Address, max_age: u64) -> Option<AggregatePri
     let key = DataKey::Aggregate(asset.clone());
     let result: AggregatePrice = env.storage().persistent().get(&key)?;
 
-    if max_age > 0 {
-        let ledger_time = env.ledger().timestamp();
-        if result.timestamp + max_age < ledger_time {
-            PriceStaleEvent {
-                asset: asset.clone(),
-                last_update_ledger: 0,
-                current_ledger,
-            }
-            .publish(env);
-            return None;
+    if max_age > 0 && result.ledger_timestamp + max_age < ledger_time {
+        PriceStaleEvent {
+            asset: asset.clone(),
+            last_update_ledger: 0,
+            current_ledger,
         }
+        .publish(env);
+        return None;
     }
     let resolution = get_resolution(env);
-    if resolution > 0 {
-        let ledger_time = env.ledger().timestamp();
-        if result.timestamp + (resolution as u64) < ledger_time {
-            PriceStaleEvent {
-                asset: asset.clone(),
-                last_update_ledger: 0,
-                current_ledger,
-            }
-            .publish(env);
-            return None;
+    if resolution > 0 && result.ledger_timestamp + (resolution as u64) < ledger_time {
+        PriceStaleEvent {
+            asset: asset.clone(),
+            last_update_ledger: 0,
+            current_ledger,
         }
+        .publish(env);
+        return None;
     }
     env.storage()
         .persistent()
@@ -296,7 +299,7 @@ pub fn lastprice(env: &Env, asset: Asset) -> Option<PriceData> {
     let resolution = get_resolution(env);
     if resolution > 0 {
         let ledger_time = env.ledger().timestamp();
-        if result.timestamp + (resolution as u64) < ledger_time {
+        if result.ledger_timestamp + (resolution as u64) < ledger_time {
             return None;
         }
     }
