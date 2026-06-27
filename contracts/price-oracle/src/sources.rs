@@ -133,7 +133,7 @@ pub fn is_source_inactive(env: &Env, source: Address) -> bool {
     if let Some(hb_time) = last_heartbeat {
         let interval = get_heartbeat_interval(env);
         let current_time = env.ledger().timestamp();
-        if current_time > hb_time + interval {
+        if current_time > hb_time.saturating_add(interval) {
             // Mark as inactive
             mark_source_inactive(env, &source);
             SourceInactiveEvent {

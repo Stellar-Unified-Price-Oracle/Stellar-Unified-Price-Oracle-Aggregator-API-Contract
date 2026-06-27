@@ -39,7 +39,7 @@ pub fn get_historical_prices(
 ) -> Vec<PriceHistoryEntry> {
     check_registered_asset(env, &asset);
     let max_range = get_max_history_length(env);
-    if end_ledger - start_ledger > max_range {
+    if end_ledger < start_ledger || end_ledger - start_ledger > max_range {
         panic_with_error!(env, ErrorCode::NoData);
     }
     let mut entries: Vec<PriceHistoryEntry> = Vec::new(env);
