@@ -261,3 +261,33 @@ pub struct OperationCancelledEvent {
     #[topic]
     pub cancelled_by: Address,
 }
+
+#[contractevent]
+#[derive(Clone)]
+pub struct PriceOverrideSetEvent {
+    #[topic]
+    pub asset: Address,
+    #[topic]
+    pub admin: Address,
+    pub price: i128,
+    pub reason: String,
+    pub expiry_ledger: u32,
+}
+
+#[contractevent]
+#[derive(Clone)]
+pub struct PriceOverrideRemovedEvent {
+    #[topic]
+    pub asset: Address,
+    #[topic]
+    pub admin: Address,
+}
+
+#[contractevent]
+#[derive(Clone)]
+pub struct PriceOverrideExpiredEvent {
+    #[topic]
+    pub asset: Address,
+    pub expiry_ledger: u32,
+    pub current_ledger: u32,
+}
