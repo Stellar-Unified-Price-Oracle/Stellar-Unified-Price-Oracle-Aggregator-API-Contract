@@ -42,4 +42,14 @@ pub enum ErrorCode {
     OperationNotFound = 14,
     /// The submitted price is below the asset's configured minimum price floor.
     PriceBelowMinimum = 15,
+    /// An oracle source name is empty.
+    SourceNameEmpty = 16,
+    /// An oracle source name exceeds the maximum allowed length.
+    SourceNameTooLong = 17,
+    /// The `op_type` discriminant passed to `propose_operation` is not a valid `OperationType`.
+    InvalidOperationType = 18,
+    /// The `records` parameter passed to the SEP-40 `prices` endpoint exceeds the allowed cap.
+    RecordsLimitExceeded = 19,
+    /// The override reason string exceeds the maximum allowed length.
+    ReasonTooLong = 20,
 }

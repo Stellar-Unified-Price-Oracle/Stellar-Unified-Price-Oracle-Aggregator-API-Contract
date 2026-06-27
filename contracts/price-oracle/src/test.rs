@@ -1206,3 +1206,164 @@ fn test_mean_saturating_sum_large_prices() {
     assert!(price.is_some());
     assert_eq!(price.unwrap().price, i128::MAX / 2 + 1);
 }
+
+// ===== Issue #85: Strict Input Validation Tests =====
+
+// --- add_source name validation ---
+
+#[test]
+#[should_panic(expected = "Error(Contract, #16)")]
+fn test_add_source_empty_name_rejected() {
+    let e = Env::default();
+    let (client, _) = setup_contract(&e);
+    let source = soroban_sdk::Address::generate(&e);
+    client.add_source(&source, &String::from_str(&e, ""));
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #17)")]
+fn test_add_source_name_too_long_rejected() {
+    let e = Env::default();
+    let (client, _) = setup_contract(&e);
+    let source = soroban_sdk::Address::generate(&e);
+    // 65-character name (max is 64)
+    let long_name = String::from_str(&e, "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+    client.add_source(&source, &long_name);
+}
+
+#[test]
+fn test_add_source_name_exactly_64_chars_accepted() {
+    let e = Env::default();
+    let (client, _) = setup_contract(&e);
+    let source = soroban_sdk::Address::generate(&e);
+    // exactly 64 characters
+    let name = String::from_str(&e, "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+    client.add_source(&source, &name);
+    assert!(client.is_source(&source));
+}
+
+// --- set_max_history_length zero validation ---
+
+#[test]
+#[should_panic(expected = "Error(Contract, #10)")]
+fn test_set_max_history_length_zero_rejected() {
+    let e = Env::default();
+    let (client, _) = setup_contract(&e);
+    client.set_max_history_length(&0u32);
+}
+
+#[test]
+fn test_set_max_history_length_one_accepted() {
+    let e = Env::default();
+    let (client, _) = setup_contract(&e);
+    client.set_max_history_length(&1u32);
+    assert_eq!(client.get_max_history_length(), 1u32);
+}
+
+// --- set_decimals upper bound validation ---
+
+#[test]
+#[should_panic(expected = "Error(Contract, #10)")]
+fn test_set_decimals_above_18_rejected() {
+    let e = Env::default();
+    let (client, _) = setup_contract(&e);
+    client.set_decimals(&19u32);
+}
+
+#[test]
+fn test_set_decimals_18_accepted() {
+    let e = Env::default();
+    let (client, _) = setup_contract(&e);
+    client.set_decimals(&18u32);
+    assert_eq!(client.get_decimals(), 18u32);
+}
+
+// --- initialize decimals upper bound validation ---
+
+#[test]
+#[should_panic(expected = "Error(Contract, #10)")]
+fn test_initialize_decimals_above_18_rejected() {
+    let e = Env::default();
+    let admin = soroban_sdk::Address::generate(&e);
+    let client = create_contract(&e);
+    client.initialize(&admin, &1u32, &10u32, &19u32, &String::from_str(&e, "Test"));
+}
+
+// --- override_price reason length validation ---
+
+#[test]
+#[should_panic(expected = "Error(Contract, #20)")]
+fn test_override_price_reason_too_long_rejected() {
+    let e = Env::default();
+    ledger_default(&e, 100, 1234567890);
+    let (client, _) = setup_contract(&e);
+    let asset = register_test_asset(&e, &client);
+    // 257-char reason string (max is 256)
+    let reason = String::from_str(
+        &e,
+        "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    );
+    client.override_price(&asset, &1000i128, &reason, &300u32);
+}
+
+#[test]
+fn test_override_price_reason_exactly_256_chars_accepted() {
+    let e = Env::default();
+    ledger_default(&e, 100, 1234567890);
+    let (client, _) = setup_contract(&e);
+    let asset = register_test_asset(&e, &client);
+    // exactly 256 characters
+    let reason = String::from_str(
+        &e,
+        "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    );
+    client.override_price(&asset, &1000i128, &reason, &300u32);
+    assert!(client.get_price_override(&asset).is_some());
+}
+
+// --- prices SEP-40 records cap validation ---
+
+#[test]
+#[should_panic(expected = "Error(Contract, #19)")]
+fn test_prices_records_exceeds_max_history_rejected() {
+    let e = Env::default();
+    ledger_default(&e, 100, 1234567890);
+    let (client, _) = setup_contract(&e);
+    // max_history is 10 (from setup_contract), requesting 11 should fail
+    let asset = register_test_asset(&e, &client);
+    client.prices(&crate::Asset::Stellar(asset), &11u32);
+}
+
+#[test]
+fn test_prices_records_at_max_history_accepted() {
+    let e = Env::default();
+    ledger_default(&e, 100, 1234567890);
+    let (client, _) = setup_contract(&e);
+    // Reduce max_history to 3 so the ledger scan (3*10=30) stays within footprint limits
+    client.set_max_history_length(&3u32);
+    let asset = register_test_asset(&e, &client);
+    let result = client.prices(&crate::Asset::Stellar(asset), &3u32);
+    assert!(result.is_some());
+}
+
+// --- propose_operation invalid op_type validation ---
+
+#[test]
+#[should_panic(expected = "Error(Contract, #18)")]
+fn test_propose_operation_invalid_type_rejected() {
+    let e = Env::default();
+    let (client, _) = setup_contract(&e);
+    let data = soroban_sdk::Bytes::new(&e);
+    client.propose_operation(&99u32, &data);
+}
+
+#[test]
+fn test_propose_operation_valid_types_accepted() {
+    let e = Env::default();
+    let (client, _) = setup_contract(&e);
+    let data = soroban_sdk::Bytes::new(&e);
+    // op_type 0..=7 are all valid
+    for op in 0u32..=7 {
+        client.propose_operation(&op, &data);
+    }
+}

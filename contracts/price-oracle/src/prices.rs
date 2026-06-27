@@ -371,6 +371,10 @@ pub fn prices(env: &Env, asset: Asset, records: u32) -> Option<Vec<PriceData>> {
     if records == 0 {
         return Some(Vec::new(env));
     }
+    let max_history = get_max_history_length(env);
+    if records > max_history {
+        panic_with_error!(env, ErrorCode::RecordsLimitExceeded);
+    }
     let mut result: Vec<PriceData> = Vec::new(env);
     let current_ledger = env.ledger().sequence();
     let max_to_check = (records * 10).min(10000);
@@ -429,6 +433,11 @@ pub fn override_price(env: &Env, asset: Address, price: i128, reason: String, ex
     let admin = get_admin(env);
     admin.require_auth();
     check_registered_asset(env, &asset);
+
+    const MAX_REASON_LENGTH: u32 = 256;
+    if reason.len() > MAX_REASON_LENGTH {
+        panic_with_error!(env, ErrorCode::ReasonTooLong);
+    }
 
     let current_ledger = env.ledger().sequence();
     if price <= 0 {

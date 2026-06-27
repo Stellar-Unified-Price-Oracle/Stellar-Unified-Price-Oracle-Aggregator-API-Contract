@@ -23,7 +23,7 @@ pub use types::{
     PriceEntry, PriceHistoryEntry, PriceOverrideEntry,
 };
 
-use soroban_sdk::{contract, contractimpl, Address, Env, String, Symbol, Vec};
+use soroban_sdk::{contract, contractimpl, panic_with_error, Address, Env, String, Symbol, Vec};
 
 use crate::storage::read_registered_assets;
 
@@ -952,7 +952,7 @@ impl PriceOracleContract {
             5 => types::OperationType::SetDecimals,
             6 => types::OperationType::SetDescription,
             7 => types::OperationType::SetTimestampThreshold,
-            _ => panic!("Invalid operation type"),
+            _ => panic_with_error!(&env, ErrorCode::InvalidOperationType),
         };
         timelock::propose_operation(&env, op_enum, &data)
     }
