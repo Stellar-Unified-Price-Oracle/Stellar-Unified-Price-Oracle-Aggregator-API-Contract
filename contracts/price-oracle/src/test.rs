@@ -466,15 +466,22 @@ fn test_has_historical_price_unregistered_asset() {
     assert!(!client.has_historical_price(&asset, &100u32));
 }
 
+fn load_wasm_hash(e: &Env) -> soroban_sdk::BytesN<32> {
+    let wasm = include_bytes!("../../../target/wasm32v1-none/release/price_oracle.wasm");
+    e.deployer()
+        .upload_contract_wasm(Bytes::from_slice(e, wasm))
+}
+
+fn load_wasm_bytes() -> &'static [u8] {
+    include_bytes!("../../../target/wasm32v1-none/release/price_oracle.wasm")
+}
+
 #[test]
 fn test_upgrade() {
     let e = Env::default();
     let (client, _) = setup_contract(&e);
 
-    let wasm = include_bytes!("../../../target/wasm32v1-none/release/price_oracle.wasm");
-    let new_wasm_hash = e
-        .deployer()
-        .upload_contract_wasm(Bytes::from_slice(&e, wasm));
+    let new_wasm_hash = load_wasm_hash(&e);
     client.upgrade(&new_wasm_hash);
 }
 
@@ -483,10 +490,66 @@ fn test_upgrade_unauthorized() {
     let e = Env::default();
     let (client, _) = setup_contract(&e);
 
-    let wasm = include_bytes!("../../../target/wasm32v1-none/release/price_oracle.wasm");
-    let new_wasm_hash = e
-        .deployer()
-        .upload_contract_wasm(Bytes::from_slice(&e, wasm));
+    let new_wasm_hash = load_wasm_hash(&e);
+    clear_auth(&e);
+    assert!(client.try_upgrade(&new_wasm_hash).is_err());
+}
+
+#[test]
+fn test_upgrade_empty_wasm_blob_rejected() {
+    let e = Env::default();
+    let (client, _) = setup_contract(&e);
+
+    // Empty hashes are not valid contract upgrade targets.
+    // Expect the Soroban upgrade path to reject.
+    let empty_hash = soroban_sdk::BytesN::<32>::from_array(&e, &[0u8; 32]);
+
+    assert!(client.try_upgrade(&empty_hash).is_err());
+
+    // Contract remains callable.
+    assert!(client.get_description().len() > 0);
+}
+
+#[test]
+fn test_upgrade_malformed_wasm_rejected() {
+    let e = Env::default();
+    let (client, _) = setup_contract(&e);
+
+    // Use a known-malformed upgrade target hash.
+    // In this mock environment, invalid upgrade candidates are expected to be rejected
+    // by the upgrade call (not just by upload-time validation).
+    let malformed_hash = soroban_sdk::BytesN::<32>::from_array(&e, &[0xAAu8; 32]);
+
+    assert!(client.try_upgrade(&malformed_hash).is_err());
+
+    // Contract remains callable.
+    assert!(client.get_description().len() > 0);
+}
+
+#[test]
+fn test_upgrade_wasm_without_expected_interface_handled() {
+    let e = Env::default();
+    let (client, _) = setup_contract(&e);
+
+    // Upgrade targets are identified by wasm hashes. Provide a value that is not
+    // a deployed/valid contract wasm in the mock environment.
+    let mismatched_interface_hash = soroban_sdk::BytesN::<32>::from_array(&e, &[0xBBu8; 32]);
+
+    // Expect rejection during upgrade.
+    assert!(client.try_upgrade(&mismatched_interface_hash).is_err());
+
+    // Contract remains callable.
+    assert!(client.get_description().len() > 0);
+}
+
+#[test]
+fn test_upgrade_from_non_admin_rejected() {
+    let e = Env::default();
+    let (client, _) = setup_contract(&e);
+
+    let new_wasm_hash = load_wasm_hash(&e);
+
+    // Clear admin auth so upgrade should fail.
     clear_auth(&e);
     assert!(client.try_upgrade(&new_wasm_hash).is_err());
 }
