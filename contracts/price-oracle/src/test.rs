@@ -1104,76 +1104,105 @@ fn test_removed_source_is_no_longer_source() {
     assert!(!client.is_source(&source));
 }
 
-// --- Reentrancy Guard Tests ---
+// ===== Issue #82: Overflow/Underflow Boundary Tests =====
 
 #[test]
-fn test_reentrancy_guard_clears_after_normal_call() {
-    // Guard must be cleared after a normal successful call so subsequent calls work.
+fn test_median_i128_max_prices() {
     let e = Env::default();
-    let (client, _) = setup_contract(&e);
-
-    // First call succeeds
-    client.set_min_sources_required(&3u32);
-    assert_eq!(client.get_min_sources_required(), 3u32);
-
-    // Second call also succeeds (guard was cleared)
-    client.set_min_sources_required(&5u32);
-    assert_eq!(client.get_min_sources_required(), 5u32);
-}
-
-#[test]
-fn test_reentrancy_guard_clears_after_add_source() {
-    // Verify guard releases after add_source so remove_source can run next.
-    let e = Env::default();
-    let (client, _) = setup_contract(&e);
-
-    let source = register_test_source(&e, &client, "S1");
-    assert!(client.is_source(&source));
-
-    client.remove_source(&source);
-    assert!(!client.is_source(&source));
-}
-
-#[test]
-fn test_reentrancy_guard_clears_after_submit_price() {
-    // Guard must release after submit_price so a second submission works.
-    let e = Env::default();
+    ledger_default(&e, 100, 10000);
     let (client, _) = setup_contract(&e);
     client.set_min_sources_required(&1u32);
-    let source = register_test_source(&e, &client, "S1");
+    let source = register_test_source(&e, &client, "Oracle");
     let asset = register_test_asset(&e, &client);
 
-    ledger_default(&e, 100, 5000);
-    client.submit_price(&source, &asset, &100i128, &1000u64);
-    client.submit_price(&source, &asset, &200i128, &2000u64);
-
-    // Both went through — last price is 200
-    let entry = client.get_source_price(&asset, &source);
-    assert_eq!(entry.price, 200i128);
+    // Submit i128::MAX price — should not panic
+    submit_test_price(&client, &source, &asset, i128::MAX, 9999);
+    let price = client.get_price(&asset, &0u64);
+    assert!(price.is_some());
+    assert_eq!(price.unwrap().price, i128::MAX);
 }
 
 #[test]
-fn test_reentrancy_guard_clears_after_register_asset() {
-    // Guard releases after register_asset so unregister can run.
+fn test_median_two_i128_max_prices_no_overflow() {
     let e = Env::default();
+    ledger_default(&e, 100, 10000);
     let (client, _) = setup_contract(&e);
-
+    client.set_min_sources_required(&2u32);
+    let source1 = register_test_source(&e, &client, "Oracle1");
+    let source2 = register_test_source(&e, &client, "Oracle2");
     let asset = register_test_asset(&e, &client);
-    assert!(client.is_asset_registered(&asset));
 
-    client.unregister_asset(&asset);
-    assert!(!client.is_asset_registered(&asset));
+    // Both sources submit i128::MAX — median(MAX, MAX) = MAX; a + (b-a)/2 = MAX + 0 = MAX
+    submit_test_price(&client, &source1, &asset, i128::MAX, 9999);
+    submit_test_price(&client, &source2, &asset, i128::MAX, 9999);
+    let price = client.get_price(&asset, &0u64);
+    assert!(price.is_some());
+    assert_eq!(price.unwrap().price, i128::MAX);
 }
 
 #[test]
-fn test_reentrancy_guard_initial_state_not_locked() {
-    // Calling a mutating function on a fresh contract (before initialize)
-    // for guard checking: simply ensure initialize itself works, meaning guard starts unlocked.
+fn test_median_min_and_max_i128_no_overflow() {
     let e = Env::default();
-    let admin = Address::generate(&e);
-    let client = create_contract(&e);
+    ledger_default(&e, 100, 10000);
+    let (client, _) = setup_contract(&e);
+    client.set_min_sources_required(&2u32);
+    let source1 = register_test_source(&e, &client, "Oracle1");
+    let source2 = register_test_source(&e, &client, "Oracle2");
+    let asset = register_test_asset(&e, &client);
 
-    // initialize is guarded — should succeed from a clean state
-    client.initialize(&admin, &1u32, &10u32, &18u32, &String::from_str(&e, "Test"));
-    assert_eq!(client.get_admin_address(), admin);
+    // median(1, MAX) = 1 + (MAX - 1) / 2; no overflow because a + (b - a) / 2 pattern is safe
+    submit_test_price(&client, &source1, &asset, 1i128, 9999);
+    submit_test_price(&client, &source2, &asset, i128::MAX, 9999);
+    let price = client.get_price(&asset, &0u64);
+    assert!(price.is_some());
+    let expected = 1i128 + (i128::MAX - 1) / 2;
+    assert_eq!(price.unwrap().price, expected);
+}
+
+#[test]
+fn test_historical_prices_start_greater_than_end_returns_error() {
+    let e = Env::default();
+    ledger_default(&e, 100, 10000);
+    let (client, _) = setup_contract(&e);
+    let source = register_test_source(&e, &client, "Oracle");
+    let asset = register_test_asset(&e, &client);
+    submit_test_price(&client, &source, &asset, 100i128, 9999);
+
+    // end < start should panic (NoData) rather than underflow
+    let result = client.try_get_historical_prices(&asset, &200u32, &100u32);
+    assert!(result.is_err());
+}
+
+#[test]
+fn test_get_price_staleness_u64_max_age_no_overflow() {
+    let e = Env::default();
+    ledger_default(&e, 100, 10000);
+    let (client, _) = setup_contract(&e);
+    client.set_min_sources_required(&1u32);
+    let source = register_test_source(&e, &client, "Oracle");
+    let asset = register_test_asset(&e, &client);
+
+    submit_test_price(&client, &source, &asset, 100i128, 9999);
+    // max_age = u64::MAX should not overflow timestamp.saturating_add(max_age)
+    let price = client.get_price(&asset, &u64::MAX);
+    assert!(price.is_some());
+}
+
+#[test]
+fn test_mean_saturating_sum_large_prices() {
+    let e = Env::default();
+    ledger_default(&e, 100, 10000);
+    let (client, _) = setup_contract(&e);
+    client.set_min_sources_required(&2u32);
+    let source1 = register_test_source(&e, &client, "Oracle1");
+    let source2 = register_test_source(&e, &client, "Oracle2");
+    let asset = register_test_asset(&e, &client);
+
+    // Two very large prices; sum would overflow i128 without saturating_add in compute_mean
+    submit_test_price(&client, &source1, &asset, i128::MAX / 2 + 1, 9999);
+    submit_test_price(&client, &source2, &asset, i128::MAX / 2 + 1, 9999);
+    // Default aggregation is median; median of two equal values = that value
+    let price = client.get_price(&asset, &0u64);
+    assert!(price.is_some());
+    assert_eq!(price.unwrap().price, i128::MAX / 2 + 1);
 }

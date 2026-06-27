@@ -40,7 +40,7 @@ pub fn submit_price(env: &Env, source: Address, asset: Address, price: i128, tim
 
     let ledger_time = env.ledger().timestamp();
     let threshold = get_timestamp_threshold(env);
-    if timestamp > ledger_time + threshold {
+    if timestamp > ledger_time.saturating_add(threshold) {
         crate::sources::record_invalid_submission(env, source.clone());
         panic_with_error!(env, ErrorCode::InvalidTimestamp);
     }
@@ -225,7 +225,7 @@ pub fn get_price(env: &Env, asset: Address, max_age: u64) -> Option<AggregatePri
 
     if max_age > 0 {
         let ledger_time = env.ledger().timestamp();
-        if result.timestamp + max_age < ledger_time {
+        if result.timestamp.saturating_add(max_age) < ledger_time {
             PriceStaleEvent {
                 asset: asset.clone(),
                 last_update_ledger: 0,
@@ -238,7 +238,7 @@ pub fn get_price(env: &Env, asset: Address, max_age: u64) -> Option<AggregatePri
     let resolution = get_resolution(env);
     if resolution > 0 {
         let ledger_time = env.ledger().timestamp();
-        if result.timestamp + (resolution as u64) < ledger_time {
+        if result.timestamp.saturating_add(resolution as u64) < ledger_time {
             PriceStaleEvent {
                 asset: asset.clone(),
                 last_update_ledger: 0,
@@ -296,7 +296,7 @@ pub fn lastprice(env: &Env, asset: Asset) -> Option<PriceData> {
     let resolution = get_resolution(env);
     if resolution > 0 {
         let ledger_time = env.ledger().timestamp();
-        if result.timestamp + (resolution as u64) < ledger_time {
+        if result.timestamp.saturating_add(resolution as u64) < ledger_time {
             return None;
         }
     }
@@ -517,6 +517,7 @@ pub fn get_price_change(env: &Env, asset: Address, ledgers_back: u32) -> Option<
         return None;
     }
 
-    let change_percent = ((current_price.price - old_price) * 100) / old_price;
+    let diff = current_price.price.saturating_sub(old_price);
+    let change_percent = diff.saturating_mul(100) / old_price;
     Some(change_percent)
 }

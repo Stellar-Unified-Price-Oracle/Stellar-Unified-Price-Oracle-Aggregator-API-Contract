@@ -1,1 +1,2 @@
+. "$HOME/.cargo/env" 2>/dev/null || true
 npm run prepush

@@ -97,7 +97,7 @@ pub fn compute_trimmed_median(prices: &soroban_sdk::Vec<i128>, trim_percent: u32
     let mut sorted = prices.clone();
     sort_prices(&mut sorted);
 
-    let trim_count = ((n * trim_percent / 100) / 2).min(n - 1);
+    let trim_count = ((n.saturating_mul(trim_percent) / 100) / 2).min(n - 1);
     if trim_count == 0 {
         return compute_median(&sorted);
     }
@@ -138,7 +138,7 @@ pub fn compute_trimmed_mean(prices: &soroban_sdk::Vec<i128>, trim_percent: u32) 
     let mut sorted = prices.clone();
     sort_prices(&mut sorted);
 
-    let trim_count = ((n * trim_percent / 100) / 2).min(n - 1);
+    let trim_count = ((n.saturating_mul(trim_percent) / 100) / 2).min(n - 1);
     if trim_count == 0 {
         return compute_mean(&sorted);
     }
