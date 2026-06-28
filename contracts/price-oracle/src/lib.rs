@@ -18,6 +18,12 @@ mod override_tests;
 #[cfg(test)]
 mod prop_tests;
 
+#[cfg(test)]
+mod sep40_integration_tests;
+
+#[cfg(test)]
+mod load_tests;
+
 pub use types::{
     AggregatePrice, AggregationMethod, Asset, DataKey, ErrorCode, OracleSources, PriceData,
     PriceEntry, PriceHistoryEntry, PriceOverrideEntry,

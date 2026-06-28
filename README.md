@@ -166,6 +166,13 @@ contracts/price-oracle/
 | 7 | `InvalidPrice` | Price is zero or negative |
 | 8 | `NoData` | No price data available |
 
+## Documentation
+
+- [Price Submission Bot Design](docs/price-submission-bot.md) — off-chain bot architecture for automated price submissions
+- [Disaster Recovery Plan](docs/disaster-recovery.md) — failure scenario playbooks and recovery procedures
+- [Architecture](docs/ARCHITECTURE.md) — contract design and data flow
+- [Monitoring](docs/monitoring/README.md) — Grafana dashboard and alerting setup
+
 ## License
 
 MIT

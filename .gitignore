@@ -1,5 +1,37 @@
+# Rust build artifacts
 /target
+**/target/
+
+# WebAssembly binaries
 **/*.wasm
+
+# Test snapshots
 test_snapshots/
+**/test_snapshots/
+
+# Kiro agent workspace
 .kiro/
+
+# Node.js
 node_modules/
+
+# Environment and secrets
+.env
+.env.*
+*.pem
+*.key
+*.keypair
+
+# Editor / OS
+.DS_Store
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Soroban CLI identity files
+.soroban/
+
+# Log files
+*.log
