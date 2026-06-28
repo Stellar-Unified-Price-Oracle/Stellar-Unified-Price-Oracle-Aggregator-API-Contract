@@ -42,8 +42,5 @@ pub enum ErrorCode {
     OperationNotFound = 14,
     /// The submitted price is below the asset's configured minimum price floor.
     PriceBelowMinimum = 15,
-    /// The caller is not a registered and approved relayer.
-    RelayerNotAuthorized = 16,
-    /// `add_relayer` was called for an address that is already an approved relayer.
-    RelayerAlreadyExists = 17,
+    Reentrant = 16,
 }

@@ -1,0 +1,2 @@
+cargo fmt --manifest-path contracts/price-oracle/Cargo.toml -- --check
+cargo clippy -p price-oracle -- -D warnings

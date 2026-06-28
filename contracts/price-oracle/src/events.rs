@@ -1,4 +1,4 @@
-use soroban_sdk::{contractevent, Address, String};
+use soroban_sdk::{contractevent, symbol_short, Address, Bytes, String, Symbol};
 
 // ContractInitializedEvent uses manual publishing due to String field
 // limitations with the macro in soroban-sdk 26.
@@ -456,92 +456,89 @@ pub struct PriceOverrideExpiredEvent {
     pub current_ledger: u32,
 }
 
-/// Emitted when the admin approves a new relayer.
-///
-/// Topics: `relayer`, `admin`
-#[contractevent]
-#[derive(Clone)]
-pub struct RelayerAddedEvent {
-    /// Address of the newly approved relayer.
-    #[topic]
-    pub relayer: Address,
-    /// Address of the admin who approved the relayer.
-    #[topic]
-    pub admin: Address,
-    /// Human-readable display name for the relayer.
-    pub name: String,
-}
+// --- #67: Per-asset resolution ---
 
-/// Emitted when the admin revokes a relayer's approval.
-///
-/// Topics: `relayer`, `admin`
+/// Emitted when the per-asset resolution is set or cleared.
 #[contractevent]
 #[derive(Clone)]
-pub struct RelayerRemovedEvent {
-    /// Address of the relayer whose approval was revoked.
-    #[topic]
-    pub relayer: Address,
-    /// Address of the admin who performed the revocation.
-    #[topic]
-    pub admin: Address,
-}
-
-/// Emitted when an approved relayer successfully submits a price on behalf of a source.
-///
-/// Topics: `asset`, `source`, `relayer`
-#[contractevent]
-#[derive(Clone)]
-pub struct PriceRelayedEvent {
-    /// Address of the asset being priced.
+pub struct AssetResolutionSetEvent {
     #[topic]
     pub asset: Address,
-    /// Address of the oracle source whose price data was relayed.
+    #[topic]
+    pub admin: Address,
+    /// Resolution in seconds (0 = cleared, falls back to contract-wide).
+    pub resolution: u32,
+}
+
+// --- #69: Periodic aggregation trigger ---
+
+/// Emitted when trigger_aggregation is called and aggregation succeeds.
+#[contractevent]
+#[derive(Clone)]
+pub struct AggregationTriggeredEvent {
+    #[topic]
+    pub asset: Address,
+    pub price: i128,
+    pub num_sources: u32,
+    pub triggered_at_ledger: u32,
+}
+
+/// Emitted when the aggregation cooldown is updated.
+#[contractevent]
+#[derive(Clone)]
+pub struct AggregationCooldownChangedEvent {
+    pub cooldown_ledgers: u32,
+}
+
+// --- #70: Min submission interval ---
+
+/// Emitted when the minimum submission interval is updated.
+#[contractevent]
+#[derive(Clone)]
+pub struct MinSubmissionIntervalChangedEvent {
+    pub interval_ledgers: u32,
+}
+
+/// Emitted when a source is flagged as non-compliant for an asset.
+#[contractevent]
+#[derive(Clone)]
+pub struct SourceNonCompliantEvent {
     #[topic]
     pub source: Address,
-    /// Address of the relayer that submitted the transaction.
-    #[topic]
-    pub relayer: Address,
-    /// Raw price value scaled by `10^decimals`.
-    pub price: i128,
-    /// Unix timestamp (seconds) of the price observation.
-    pub timestamp: u64,
-}
-
-/// Publishes the relayer-fee-changed event.
-///
-/// Uses manual event publishing because `i128` fields in `#[contractevent]` may
-/// trigger edge cases in some tooling.
-///
-/// # Arguments
-///
-/// * `env` - The Soroban execution environment.
-/// * `admin` - Address of the admin who set the new fee.
-/// * `fee` - New fee per submission in stroops.
-#[allow(deprecated)]
-pub fn emit_relayer_fee_set(env: &soroban_sdk::Env, admin: Address, fee: i128) {
-    let sym = soroban_sdk::symbol_short!("rfee");
-    env.events().publish((sym, admin), (fee,));
-}
-
-/// Emitted when a cross-reference check detects that our price deviates from a reference
-/// oracle's price by more than the configured threshold.
-///
-/// Topics: `asset`, `ref_contract`
-#[contractevent]
-#[derive(Clone)]
-pub struct CrossRefDeviationEvent {
-    /// Address of the asset for which the deviation was detected.
     #[topic]
     pub asset: Address,
-    /// Contract address of the reference oracle that reported the diverging price.
+    pub last_submission_ledger: u32,
+    pub required_interval: u32,
+}
+
+// --- #68: Batch operations ---
+
+/// Emitted when an admin proposes a new batch of operations.
+#[contractevent]
+#[derive(Clone)]
+pub struct BatchProposedEvent {
+    pub batch_id: u32,
+    pub num_operations: u32,
     #[topic]
-    pub ref_contract: Address,
-    /// Our current aggregated price for the asset.
-    pub our_price: i128,
-    /// Price reported by the reference oracle.
-    pub ref_price: i128,
-    /// Absolute deviation between the two prices in basis points (1 % = 100 bps).
-    pub deviation_bps: u32,
-    /// Configured deviation threshold (in basis points) that was exceeded.
-    pub threshold_bps: u32,
+    pub proposed_by: Address,
+    pub proposed_ledger: u32,
+}
+
+/// Emitted when a batch is successfully executed.
+#[contractevent]
+#[derive(Clone)]
+pub struct BatchExecutedEvent {
+    pub batch_id: u32,
+    pub num_operations: u32,
+    #[topic]
+    pub executed_by: Address,
+}
+
+/// Emitted when a pending batch is cancelled.
+#[contractevent]
+#[derive(Clone)]
+pub struct BatchCancelledEvent {
+    pub batch_id: u32,
+    #[topic]
+    pub cancelled_by: Address,
 }
