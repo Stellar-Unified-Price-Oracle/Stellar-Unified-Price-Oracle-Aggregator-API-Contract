@@ -29,11 +29,18 @@ pub fn add_source(env: &Env, source: Address, name: String) {
     {
         panic_with_error!(env, ErrorCode::SourceAlreadyExists);
     }
+
+    let oracle_sources: OracleSources = read_oracle_sources(env);
+    let max_sources = crate::admin::get_max_sources(env);
+    if oracle_sources.sources.len() >= max_sources {
+        panic_with_error!(env, ErrorCode::MaxSourcesReached);
+    }
+
     env.storage()
         .persistent()
         .set(&DataKey::SrcActive(source.clone()), &true);
 
-    let mut oracle_sources: OracleSources = read_oracle_sources(env);
+    let mut oracle_sources: OracleSources = oracle_sources;
     oracle_sources.sources.push_back(source.clone());
     let source_name = name.clone();
     oracle_sources.metadata.set(source.clone(), name);

@@ -92,6 +92,45 @@ fn test_admin_functions() {
         client.get_description(),
         String::from_str(&e, "Updated Description")
     );
+
+    assert_eq!(client.get_max_sources(), 50u32);
+    client.set_max_sources(&10u32);
+    assert_eq!(client.get_max_sources(), 10u32);
+}
+
+#[test]
+fn test_max_sources_enforced() {
+    let e = Env::default();
+    let (client, _) = setup_contract(&e);
+
+    client.set_max_sources(&3u32);
+
+    let s1 = register_test_source(&e, &client, "S1");
+    let s2 = register_test_source(&e, &client, "S2");
+    let s3 = register_test_source(&e, &client, "S3");
+
+    assert!(client.is_source(&s1));
+    assert!(client.is_source(&s2));
+    assert!(client.is_source(&s3));
+
+    let s4 = Address::generate(&e);
+    let result = client.try_add_source(&s4, &String::from_str(&e, "S4"));
+    assert!(result.is_err());
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #16)")]
+fn test_max_sources_enforced_exact_limit() {
+    let e = Env::default();
+    let (client, _) = setup_contract(&e);
+
+    client.set_max_sources(&2u32);
+
+    register_test_source(&e, &client, "S1");
+    register_test_source(&e, &client, "S2");
+
+    let s3 = Address::generate(&e);
+    client.add_source(&s3, &String::from_str(&e, "S3"));
 }
 
 #[test]
