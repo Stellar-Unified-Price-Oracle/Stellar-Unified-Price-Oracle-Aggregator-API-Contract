@@ -7,6 +7,7 @@
 
 # Test snapshots
 test_snapshots/
+**/test_snapshots/
 
 # Kiro AI agent state
 .kiro/
@@ -28,3 +29,15 @@ npm-debug.log*
 # OS
 .DS_Store
 Thumbs.db
+
+# Rust incremental compilation cache
+**/*.rs.bk
+*.pdb
+
+# Soroban / Stellar CLI
+.soroban/
+*.stellar
+
+# Logs
+*.log
+logs/

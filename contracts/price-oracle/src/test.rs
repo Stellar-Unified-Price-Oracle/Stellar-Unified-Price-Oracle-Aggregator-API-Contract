@@ -1508,3 +1508,94 @@ fn test_propose_operation_valid_types_accepted() {
         client.propose_operation(&op, &data);
     }
 }
+
+// --- #112: Storage migration tests ---
+
+#[test]
+fn test_get_storage_version_default() {
+    // A freshly initialized contract returns version 1 (no version key written yet).
+    let e = Env::default();
+    let (client, _) = setup_contract(&e);
+    assert_eq!(client.get_storage_version(), 1u32);
+}
+
+#[test]
+fn test_migrate_storage_no_op_when_current() {
+    // If the on-chain version already equals CURRENT_VERSION, migrate_storage is a no-op.
+    let e = Env::default();
+    let (client, _) = setup_contract(&e);
+    // Run migration (v1 → v2) to completion.
+    client.migrate_storage(&0u32);
+    // Version is now 2.
+    assert_eq!(client.get_storage_version(), 2u32);
+    // No active migration state.
+    assert!(client.get_migration_state().is_none());
+    // Calling again when already at CURRENT_VERSION is a no-op (should not panic).
+    client.migrate_storage(&0u32);
+    assert_eq!(client.get_storage_version(), 2u32);
+}
+
+#[test]
+fn test_migrate_v1_to_v2_completes_empty_contract() {
+    // With no assets, the migration processes zero items and completes immediately.
+    let e = Env::default();
+    let (client, _) = setup_contract(&e);
+    assert_eq!(client.get_storage_version(), 1u32);
+    client.migrate_storage(&0u32);
+    assert_eq!(client.get_storage_version(), 2u32);
+    assert!(client.get_migration_state().is_none());
+}
+
+#[test]
+fn test_migrate_v1_to_v2_with_assets() {
+    // Migration runs over registered assets and completes in one batch.
+    let e = Env::default();
+    let (client, _) = setup_contract(&e);
+    let asset1 = register_test_asset(&e, &client);
+    let asset2 = register_test_asset(&e, &client);
+
+    assert_eq!(client.get_storage_version(), 1u32);
+    client.migrate_storage(&0u32);
+    assert_eq!(client.get_storage_version(), 2u32);
+    assert!(client.get_migration_state().is_none());
+
+    // Assets remain registered after migration.
+    assert!(client.is_asset_registered(&asset1));
+    assert!(client.is_asset_registered(&asset2));
+}
+
+#[test]
+fn test_migrate_pause_and_resume() {
+    // With batch_size=1 and 3 assets, the migration pauses twice before completing.
+    let e = Env::default();
+    let (client, _) = setup_contract(&e);
+    register_test_asset(&e, &client);
+    register_test_asset(&e, &client);
+    register_test_asset(&e, &client);
+
+    // First call: processes asset[0], pauses (cursor=1).
+    client.migrate_storage(&1u32);
+    assert_eq!(client.get_storage_version(), 1u32); // not done yet
+    let state = client.get_migration_state().expect("state should exist after pause");
+    assert_eq!(state.cursor, 1u32);
+    assert_eq!(state.from_version, 1u32);
+    assert_eq!(state.to_version, 2u32);
+
+    // Second call: processes asset[1], pauses (cursor=2).
+    client.migrate_storage(&1u32);
+    assert_eq!(client.get_storage_version(), 1u32);
+    let state2 = client.get_migration_state().expect("state should still exist");
+    assert_eq!(state2.cursor, 2u32);
+
+    // Third call: processes asset[2], completes.
+    client.migrate_storage(&1u32);
+    assert_eq!(client.get_storage_version(), 2u32);
+    assert!(client.get_migration_state().is_none());
+}
+
+#[test]
+fn test_get_migration_state_none_before_migration() {
+    let e = Env::default();
+    let (client, _) = setup_contract(&e);
+    assert!(client.get_migration_state().is_none());
+}
