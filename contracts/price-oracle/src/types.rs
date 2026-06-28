@@ -11,6 +11,7 @@ pub use crate::errors::ErrorCode;
 pub enum DataKey {
     /// The contract administrator's address.
     Admin,
+    ReentrancyGuard,
     /// Existence flag for a registered oracle source (`true` when present).
     Source(Address),
     /// Existence flag for a registered asset (`true` when present).
