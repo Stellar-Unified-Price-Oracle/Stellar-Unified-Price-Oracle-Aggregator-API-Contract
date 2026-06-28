@@ -5,9 +5,11 @@ mod assets;
 mod cross_reference;
 mod errors;
 mod events;
+mod health;
 mod history;
 mod pause;
 mod prices;
+mod reentrancy;
 mod sources;
 mod storage;
 mod timelock;
@@ -22,13 +24,15 @@ mod override_tests;
 #[cfg(test)]
 mod prop_tests;
 
+#[cfg(test)]
+mod string_boundary_tests;
+
 pub use types::{
-    AggregatePrice, AggregationMethod, Asset, CrossReferenceResult, DataKey, ErrorCode,
-    OracleSources, PriceData, PriceEntry, PriceHistoryEntry, PriceOverrideEntry,
-    ReferenceOracleEntry,
+    AggregatePrice, AggregationMethod, Asset, BatchOperation, DataKey, ErrorCode, OracleSources,
+    PendingBatch, PriceData, PriceEntry, PriceHistoryEntry, PriceOverrideEntry,
 };
 
-use soroban_sdk::{contract, contractimpl, Address, Env, Map, String, Symbol, Vec};
+use soroban_sdk::{contract, contractimpl, panic_with_error, Address, Env, String, Symbol, Vec};
 
 use crate::storage::read_registered_assets;
 
@@ -73,6 +77,7 @@ impl PriceOracleContract {
         decimals: u32,
         description: String,
     ) {
+        reentrancy::enter(&env);
         admin::initialize(
             &env,
             admin,
@@ -81,6 +86,7 @@ impl PriceOracleContract {
             decimals,
             description,
         );
+        reentrancy::exit(&env);
     }
 
     /// Replaces the contract's WASM with a new hash, upgrading the on-chain logic.
@@ -94,7 +100,9 @@ impl PriceOracleContract {
     ///
     /// * [`ErrorCode::NotAuthorized`] — if the caller is not the current admin.
     pub fn upgrade(env: Env, new_wasm_hash: soroban_sdk::BytesN<32>) {
+        reentrancy::enter(&env);
         admin::upgrade(&env, new_wasm_hash);
+        reentrancy::exit(&env);
     }
 
     /// Transfers administrator privileges to a new address.
@@ -110,7 +118,9 @@ impl PriceOracleContract {
     ///
     /// * [`ErrorCode::NotAuthorized`] — if the caller is not the current admin.
     pub fn set_admin(env: Env, new_admin: Address) {
+        reentrancy::enter(&env);
         admin::set_admin(&env, new_admin);
+        reentrancy::exit(&env);
     }
 
     /// Returns the current administrator's address.
@@ -142,7 +152,9 @@ impl PriceOracleContract {
     /// * [`ErrorCode::InvalidConfiguration`] — if `new_min` is `0` or exceeds the
     ///   number of currently registered sources.
     pub fn set_min_sources_required(env: Env, new_min: u32) {
+        reentrancy::enter(&env);
         admin::set_min_sources_required(&env, new_min);
+        reentrancy::exit(&env);
     }
 
     /// Returns the current minimum-sources threshold.
@@ -172,7 +184,9 @@ impl PriceOracleContract {
     ///
     /// * [`ErrorCode::NotAuthorized`] — if the caller is not the current admin.
     pub fn set_max_history_length(env: Env, new_max: u32) {
+        reentrancy::enter(&env);
         admin::set_max_history_length(&env, new_max);
+        reentrancy::exit(&env);
     }
 
     /// Returns the current maximum history length.
@@ -203,7 +217,9 @@ impl PriceOracleContract {
     ///
     /// * [`ErrorCode::NotAuthorized`] — if the caller is not the current admin.
     pub fn set_resolution(env: Env, new_resolution: u32) {
+        reentrancy::enter(&env);
         admin::set_resolution(&env, new_resolution);
+        reentrancy::exit(&env);
     }
 
     /// Returns the current price resolution window in seconds.
@@ -233,7 +249,9 @@ impl PriceOracleContract {
     ///
     /// * [`ErrorCode::NotAuthorized`] — if the caller is not the current admin.
     pub fn set_decimals(env: Env, new_decimals: u32) {
+        reentrancy::enter(&env);
         admin::set_decimals(&env, new_decimals);
+        reentrancy::exit(&env);
     }
 
     /// Returns the contract-wide decimal precision.
@@ -261,7 +279,9 @@ impl PriceOracleContract {
     /// * [`ErrorCode::NotAuthorized`] — if the caller is not the current admin.
     /// * [`ErrorCode::DescriptionTooLong`] — if the string exceeds 256 characters.
     pub fn set_description(env: Env, new_description: String) {
+        reentrancy::enter(&env);
         admin::set_description(&env, new_description);
+        reentrancy::exit(&env);
     }
 
     /// Returns the current oracle description string.
@@ -292,7 +312,9 @@ impl PriceOracleContract {
     ///
     /// * [`ErrorCode::NotAuthorized`] — if the caller is not the current admin.
     pub fn set_timestamp_threshold(env: Env, threshold: u64) {
+        reentrancy::enter(&env);
         admin::set_timestamp_threshold(&env, threshold);
+        reentrancy::exit(&env);
     }
 
     /// Returns the current timestamp validity threshold in seconds.
@@ -323,7 +345,9 @@ impl PriceOracleContract {
     /// * [`ErrorCode::NotAuthorized`] — if the caller is not the current admin.
     /// * [`ErrorCode::InvalidConfiguration`] — if `deviation_basis_points > 100_000`.
     pub fn set_max_price_deviation(env: Env, deviation_basis_points: u32) {
+        reentrancy::enter(&env);
         admin::set_max_price_deviation(&env, deviation_basis_points);
+        reentrancy::exit(&env);
     }
 
     /// Returns the current maximum price deviation in basis points.
@@ -354,7 +378,9 @@ impl PriceOracleContract {
     /// * [`ErrorCode::NotAuthorized`] — if the caller is not the current admin.
     /// * [`ErrorCode::InvalidConfiguration`] — if `interval` is `0`.
     pub fn set_heartbeat_interval(env: Env, interval: u64) {
+        reentrancy::enter(&env);
         admin::set_heartbeat_interval(&env, interval);
+        reentrancy::exit(&env);
     }
 
     /// Returns the current heartbeat interval in seconds.
@@ -368,6 +394,88 @@ impl PriceOracleContract {
     /// Heartbeat interval in seconds. Defaults to `3600` (1 hour).
     pub fn get_heartbeat_interval(env: Env) -> u64 {
         admin::get_heartbeat_interval(&env)
+    }
+
+    // --- #67: Per-asset resolution ---
+
+    /// Sets a per-asset resolution override in seconds.
+    ///
+    /// When set, `get_price` and SEP-40 `lastprice` use this value instead of the
+    /// contract-wide resolution for the given asset. Pass `0` to clear the override
+    /// (reverts to contract-wide resolution).
+    pub fn set_asset_resolution(env: Env, asset: Address, resolution: u32) {
+        admin::set_asset_resolution(&env, asset, resolution);
+    }
+
+    /// Returns the effective resolution in seconds for an asset.
+    ///
+    /// Returns the per-asset override if set, otherwise the contract-wide resolution.
+    pub fn get_asset_resolution(env: Env, asset: Address) -> u32 {
+        admin::get_asset_resolution(&env, asset)
+    }
+
+    // --- #69: Periodic aggregation trigger ---
+
+    /// Triggers a price aggregation re-computation for an asset.
+    ///
+    /// Callable by anyone. Subject to the configured aggregation cooldown.
+    /// Panics with [`ErrorCode::InvalidConfiguration`] if called within the cooldown,
+    /// or [`ErrorCode::InsufficientSources`] if too few compliant sources exist.
+    pub fn trigger_aggregation(env: Env, asset: Address) {
+        prices::trigger_aggregation(&env, asset);
+    }
+
+    /// Sets the minimum number of ledgers that must elapse between `trigger_aggregation` calls.
+    pub fn set_aggregation_cooldown(env: Env, cooldown_ledgers: u32) {
+        admin::set_aggregation_cooldown(&env, cooldown_ledgers);
+    }
+
+    /// Returns the current aggregation cooldown in ledgers. Defaults to `10`.
+    pub fn get_aggregation_cooldown(env: Env) -> u32 {
+        admin::get_aggregation_cooldown(&env)
+    }
+
+    // --- #70: Min submission interval ---
+
+    /// Sets the minimum submission interval in ledgers.
+    ///
+    /// Sources that have not submitted within this many ledgers since their last
+    /// submission are excluded from aggregation and flagged as non-compliant.
+    /// Set to `0` to disable enforcement (default).
+    pub fn set_min_submission_interval(env: Env, interval_ledgers: u32) {
+        admin::set_min_submission_interval(&env, interval_ledgers);
+    }
+
+    /// Returns the current minimum submission interval in ledgers. Defaults to `0` (disabled).
+    pub fn get_min_submission_interval(env: Env) -> u32 {
+        admin::get_min_submission_interval(&env)
+    }
+
+    /// Returns the list of sources currently compliant with the submission interval for an asset.
+    pub fn get_compliant_sources(env: Env, asset: Address) -> Vec<Address> {
+        prices::get_compliant_sources(&env, asset)
+    }
+
+    // --- #68: Batch operations ---
+
+    /// Proposes a batch of admin operations to be executed atomically after the timelock delay.
+    ///
+    /// Returns the unique batch ID. Each `BatchOperation` carries an `op_type` (0–7) and
+    /// encoded `data` matching the same format as `propose_operation`.
+    pub fn propose_batch(env: Env, operations: Vec<BatchOperation>) -> u32 {
+        timelock::propose_batch(&env, operations)
+    }
+
+    /// Executes a proposed batch after its timelock delay has elapsed.
+    ///
+    /// All operations run sequentially. Any failure rolls back the entire transaction.
+    pub fn execute_batch(env: Env, batch_id: u32) {
+        timelock::execute_batch(&env, batch_id);
+    }
+
+    /// Cancels a pending batch operation without executing it.
+    pub fn cancel_batch(env: Env, batch_id: u32) {
+        timelock::cancel_batch(&env, batch_id);
     }
 
     // --- Sources ---
@@ -387,7 +495,9 @@ impl PriceOracleContract {
     /// * [`ErrorCode::NotAuthorized`] — if the caller is not the current admin.
     /// * [`ErrorCode::SourceAlreadyExists`] — if `source` is already registered.
     pub fn add_source(env: Env, source: Address, name: String) {
+        reentrancy::enter(&env);
         sources::add_source(&env, source, name);
+        reentrancy::exit(&env);
     }
 
     /// Removes an oracle source from the authorized set.
@@ -405,7 +515,9 @@ impl PriceOracleContract {
     /// * [`ErrorCode::NotAuthorized`] — if the caller is not the current admin.
     /// * [`ErrorCode::SourceNotFound`] — if `source` is not currently registered.
     pub fn remove_source(env: Env, source: Address) {
+        reentrancy::enter(&env);
         sources::remove_source(&env, source);
+        reentrancy::exit(&env);
     }
 
     /// Returns whether the given address is a registered oracle source.
@@ -450,7 +562,9 @@ impl PriceOracleContract {
     ///
     /// * [`ErrorCode::SourceNotFound`] — if `source` is not a registered oracle source.
     pub fn submit_heartbeat(env: Env, source: Address) {
+        reentrancy::enter(&env);
         sources::submit_heartbeat(&env, source);
+        reentrancy::exit(&env);
     }
 
     /// Returns whether the given source is currently considered inactive.
@@ -499,10 +613,30 @@ impl PriceOracleContract {
 
     // --- Assets ---
 
+    /// Sets the maximum number of assets that can be registered.
+    ///
+    /// Admin must authorize this call.
+    ///
+    /// # Errors
+    ///
+    /// * [`ErrorCode::NotAuthorized`] — if the caller is not the current admin.
+    /// * [`ErrorCode::InvalidConfiguration`] — if `count` is `0`.
+    pub fn set_max_assets(env: Env, count: u32) {
+        admin::set_max_assets(&env, count);
+    }
+
+    /// Returns the configured maximum number of assets that can be registered.
+    ///
+    /// Defaults to `100`.
+    pub fn get_max_assets(env: Env) -> u32 {
+        admin::get_max_assets(&env)
+    }
+
     /// Registers an asset so it can receive price submissions.
     ///
     /// The admin must authorize this call. An asset cannot receive prices until it is
     /// registered.
+
     ///
     /// # Arguments
     ///
@@ -514,7 +648,9 @@ impl PriceOracleContract {
     /// * [`ErrorCode::NotAuthorized`] — if the caller is not the current admin.
     /// * [`ErrorCode::AssetAlreadyRegistered`] — if the asset is already registered.
     pub fn register_asset(env: Env, asset: Address) {
+        reentrancy::enter(&env);
         assets::register_asset(&env, asset);
+        reentrancy::exit(&env);
     }
 
     /// Removes an asset from the registry and deletes its aggregate price entry.
@@ -532,7 +668,9 @@ impl PriceOracleContract {
     /// * [`ErrorCode::NotAuthorized`] — if the caller is not the current admin.
     /// * [`ErrorCode::AssetNotRegistered`] — if the asset is not currently registered.
     pub fn unregister_asset(env: Env, asset: Address) {
+        reentrancy::enter(&env);
         assets::unregister_asset(&env, asset);
+        reentrancy::exit(&env);
     }
 
     /// Returns whether the given asset contract address is currently registered.
@@ -577,7 +715,28 @@ impl PriceOracleContract {
     /// * [`ErrorCode::PriceBelowMinimum`] — if `price` is below the asset's minimum price.
     /// * [`ErrorCode::InvalidTimestamp`] — if `timestamp` is too far in the future.
     pub fn submit_price(env: Env, source: Address, asset: Address, price: i128, timestamp: u64) {
+        reentrancy::enter(&env);
         prices::submit_price(&env, source, asset, price, timestamp);
+        reentrancy::exit(&env);
+    }
+
+    /// Submits prices for multiple assets in a single atomic transaction.
+    ///
+    /// Authorization is checked once for `source`. All entries are validated before any
+    /// are written — if any entry fails validation the entire call panics (all-or-nothing).
+    /// Aggregation is triggered for each asset after all submissions are stored.
+    ///
+    /// # Arguments
+    ///
+    /// * `env` - The Soroban execution environment.
+    /// * `source` - Address of the submitting oracle source. Must authorize this call.
+    /// * `asset_prices` - List of `(asset, price, timestamp)` tuples to submit.
+    ///
+    /// # Errors
+    ///
+    /// Same error conditions as `submit_price`, applied per entry.
+    pub fn submit_prices(env: Env, source: Address, asset_prices: Vec<(Address, i128, u64)>) {
+        prices::submit_prices(&env, source, asset_prices);
     }
 
     /// Returns the latest aggregate price for an asset, filtered by a maximum age.
@@ -744,6 +903,23 @@ impl PriceOracleContract {
         history::get_historical_prices(&env, asset, start_ledger, end_ledger)
     }
 
+    /// Enables or disables linear interpolation for `get_historical_price` queries.
+    ///
+    /// When enabled, querying a ledger with no exact snapshot will return a
+    /// linearly-interpolated estimate between the nearest surrounding data points.
+    /// The result has `is_interpolated = true` so consumers can distinguish it
+    /// from a real submission.
+    ///
+    /// Requires admin authorization.
+    pub fn set_interpolation_enabled(env: Env, enabled: bool) {
+        admin::set_interpolation_enabled(&env, enabled);
+    }
+
+    /// Returns whether linear interpolation is enabled for historical queries.
+    pub fn get_interpolation_enabled(env: Env) -> bool {
+        admin::get_interpolation_enabled(&env)
+    }
+
     // --- SEP-40 Oracle Interface ---
 
     /// Returns the decimal precision used by this oracle (SEP-40 `decimals`).
@@ -885,7 +1061,9 @@ impl PriceOracleContract {
     ///
     /// * [`ErrorCode::NotAuthorized`] — if the caller is not the current admin.
     pub fn pause(env: Env) {
+        reentrancy::enter(&env);
         pause::pause(&env);
+        reentrancy::exit(&env);
     }
 
     /// Resumes the contract after it has been paused, re-enabling price submissions.
@@ -898,7 +1076,9 @@ impl PriceOracleContract {
     ///
     /// * [`ErrorCode::NotAuthorized`] — if the caller is not the current admin.
     pub fn unpause(env: Env) {
+        reentrancy::enter(&env);
         pause::unpause(&env);
+        reentrancy::exit(&env);
     }
 
     /// Returns whether the contract is currently paused.
@@ -912,6 +1092,25 @@ impl PriceOracleContract {
     /// `true` if paused; `false` otherwise.
     pub fn is_paused(env: Env) -> bool {
         pause::is_paused(&env)
+    }
+
+    /// Returns a snapshot of the oracle's current health status.
+    ///
+    /// Aggregates information about registered sources, active sources, registered
+    /// assets, assets with live prices, pause state, last aggregation ledger, stale
+    /// price count, and suspended source count into a single [`HealthReport`].
+    ///
+    /// This is a read-only endpoint — no authentication required.
+    ///
+    /// # Arguments
+    ///
+    /// * `env` - The Soroban execution environment.
+    ///
+    /// # Returns
+    ///
+    /// A [`HealthReport`] reflecting current oracle state.
+    pub fn health_check(env: Env) -> HealthReport {
+        health::health_check(&env)
     }
 
     // --- Timelock ---
@@ -948,6 +1147,7 @@ impl PriceOracleContract {
     ///
     /// * [`ErrorCode::NotAuthorized`] — if the caller is not the current admin.
     pub fn propose_operation(env: Env, op_type: u32, data: soroban_sdk::Bytes) -> u32 {
+        reentrancy::enter(&env);
         let op_enum = match op_type {
             0 => types::OperationType::Upgrade,
             1 => types::OperationType::SetAdmin,
@@ -957,9 +1157,11 @@ impl PriceOracleContract {
             5 => types::OperationType::SetDecimals,
             6 => types::OperationType::SetDescription,
             7 => types::OperationType::SetTimestampThreshold,
-            _ => panic!("Invalid operation type"),
+            _ => panic_with_error!(&env, ErrorCode::InvalidOperationType),
         };
-        timelock::propose_operation(&env, op_enum, &data)
+        let result = timelock::propose_operation(&env, op_enum, &data);
+        reentrancy::exit(&env);
+        result
     }
 
     /// Executes a previously proposed operation after its timelock delay has elapsed.
@@ -979,7 +1181,9 @@ impl PriceOracleContract {
     /// * [`ErrorCode::TimelockNotReady`] — if the required number of ledgers has not
     ///   elapsed since the operation was proposed.
     pub fn execute_operation(env: Env, op_id: u32) {
+        reentrancy::enter(&env);
         timelock::execute_operation(&env, op_id);
+        reentrancy::exit(&env);
     }
 
     /// Cancels a pending timelock operation, removing it without executing it.
@@ -996,7 +1200,9 @@ impl PriceOracleContract {
     /// * [`ErrorCode::NotAuthorized`] — if the caller is not the current admin.
     /// * [`ErrorCode::OperationNotFound`] — if no pending operation with `op_id` exists.
     pub fn cancel_operation(env: Env, op_id: u32) {
+        reentrancy::enter(&env);
         timelock::cancel_operation(&env, op_id);
+        reentrancy::exit(&env);
     }
 
     /// Returns the current timelock delay in ledgers.
@@ -1025,7 +1231,269 @@ impl PriceOracleContract {
     ///
     /// * [`ErrorCode::NotAuthorized`] — if the caller is not the current admin.
     pub fn set_timelock_duration(env: Env, duration: u32) {
+        reentrancy::enter(&env);
         timelock::set_timelock_duration(&env, duration);
+        reentrancy::exit(&env);
+    }
+
+    // --- Relayer ---
+
+    /// Approves a new relayer that can submit prices on behalf of oracle sources.
+    ///
+    /// Relayers are off-chain agents (inspired by IBC Hermes / Egypt) that bundle
+    /// source-signed authorization entries and submit them to the contract. Only the
+    /// admin may grant relayer approval.
+    ///
+    /// # Arguments
+    ///
+    /// * `env` - The Soroban execution environment.
+    /// * `relayer` - Address to be approved as a relayer.
+    /// * `name` - Human-readable display name for the relayer.
+    ///
+    /// # Errors
+    ///
+    /// * [`ErrorCode::NotAuthorized`] — if the caller is not the current admin.
+    /// * [`ErrorCode::RelayerAlreadyExists`] — if `relayer` is already approved.
+    pub fn add_relayer(env: Env, relayer: Address, name: String) {
+        relayer::add_relayer(&env, relayer, name);
+    }
+
+    /// Revokes a relayer's approval, preventing future relayed submissions.
+    ///
+    /// # Arguments
+    ///
+    /// * `env` - The Soroban execution environment.
+    /// * `relayer` - Address of the relayer to revoke.
+    ///
+    /// # Errors
+    ///
+    /// * [`ErrorCode::NotAuthorized`] — if the caller is not the current admin.
+    /// * [`ErrorCode::RelayerNotAuthorized`] — if `relayer` is not currently approved.
+    pub fn remove_relayer(env: Env, relayer: Address) {
+        relayer::remove_relayer(&env, relayer);
+    }
+
+    /// Returns whether the given address is an approved relayer.
+    ///
+    /// # Arguments
+    ///
+    /// * `env` - The Soroban execution environment.
+    /// * `relayer` - Address to query.
+    ///
+    /// # Returns
+    ///
+    /// `true` if `relayer` is approved; `false` otherwise.
+    pub fn is_relayer(env: Env, relayer: Address) -> bool {
+        relayer::is_relayer(&env, relayer)
+    }
+
+    /// Returns the [`RelayerInfo`] metadata for a given relayer, or `None` if not approved.
+    ///
+    /// # Arguments
+    ///
+    /// * `env` - The Soroban execution environment.
+    /// * `relayer` - Address of the relayer to query.
+    ///
+    /// # Returns
+    ///
+    /// `Some(`[`RelayerInfo`]`)` with approval metadata, or `None` if not approved.
+    pub fn get_relayer_info(env: Env, relayer: Address) -> Option<RelayerInfo> {
+        relayer::get_relayer_info(&env, relayer)
+    }
+
+    /// Submits a price for an asset on behalf of an oracle source via an approved relayer.
+    ///
+    /// Both `relayer` and `source` must authorize this invocation. The source creates a
+    /// Soroban [`AuthorizationEntry`] off-chain (pre-signing this exact call with the
+    /// specific arguments), and the relayer bundles it into the transaction alongside its
+    /// own signature.
+    ///
+    /// # Arguments
+    ///
+    /// * `env` - The Soroban execution environment.
+    /// * `relayer` - Approved relayer submitting the transaction.
+    /// * `source` - Registered oracle source whose price data is being relayed.
+    /// * `asset` - Contract address of the asset being priced.
+    /// * `price` - Raw price value scaled by `10^decimals`. Must be > 0.
+    /// * `timestamp` - Unix timestamp (seconds) of the price observation.
+    ///
+    /// # Errors
+    ///
+    /// * [`ErrorCode::ContractPaused`] — contract is paused.
+    /// * [`ErrorCode::RelayerNotAuthorized`] — `relayer` is not admin-approved.
+    /// * [`ErrorCode::SourceNotFound`] — `source` is not a registered oracle source.
+    /// * [`ErrorCode::AssetNotRegistered`] — `asset` is not registered.
+    /// * [`ErrorCode::InvalidPrice`] — `price` is ≤ 0.
+    /// * [`ErrorCode::PriceBelowMinimum`] — `price` is below asset's minimum.
+    /// * [`ErrorCode::InvalidTimestamp`] — `timestamp` is too far in the future.
+    pub fn submit_price_relayed(
+        env: Env,
+        relayer: Address,
+        source: Address,
+        asset: Address,
+        price: i128,
+        timestamp: u64,
+    ) {
+        relayer::submit_price_relayed(&env, relayer, source, asset, price, timestamp);
+    }
+
+    /// Sets the fee (in stroops) accrued to a relayer per successful relayed submission.
+    ///
+    /// Setting `fee` to `0` disables fee accrual. The admin must authorize this call.
+    ///
+    /// # Arguments
+    ///
+    /// * `env` - The Soroban execution environment.
+    /// * `fee` - New fee per submission in stroops.
+    ///
+    /// # Errors
+    ///
+    /// * [`ErrorCode::NotAuthorized`] — if the caller is not the current admin.
+    pub fn set_relayer_fee_per_submission(env: Env, fee: i128) {
+        relayer::set_relayer_fee_per_submission(&env, fee);
+    }
+
+    /// Returns the current fee per relayed submission in stroops. Defaults to `0`.
+    ///
+    /// # Arguments
+    ///
+    /// * `env` - The Soroban execution environment.
+    ///
+    /// # Returns
+    ///
+    /// Fee in stroops. `0` means no fee is currently configured.
+    pub fn get_relayer_fee_per_submission(env: Env) -> i128 {
+        relayer::get_relayer_fee_per_submission(&env)
+    }
+
+    /// Returns the total accumulated fee balance (in stroops) owed to `relayer`.
+    ///
+    /// # Arguments
+    ///
+    /// * `env` - The Soroban execution environment.
+    /// * `relayer` - Address of the relayer to query.
+    ///
+    /// # Returns
+    ///
+    /// Accumulated fee in stroops. `0` if the relayer has never submitted or no fee is set.
+    pub fn get_relayer_fee_balance(env: Env, relayer: Address) -> i128 {
+        relayer::get_relayer_fee_balance(&env, relayer)
+    }
+
+    /// Returns the total number of successful relayed submissions by `relayer`.
+    ///
+    /// # Arguments
+    ///
+    /// * `env` - The Soroban execution environment.
+    /// * `relayer` - Address of the relayer to query.
+    ///
+    /// # Returns
+    ///
+    /// Submission count. `0` if no relayed submissions have been made.
+    pub fn get_relayer_submission_count(env: Env, relayer: Address) -> u64 {
+        relayer::get_relayer_submission_count(&env, relayer)
+    }
+
+    // --- Cross-Reference Oracle ---
+
+    /// Registers an external oracle contract for cross-reference price verification.
+    ///
+    /// The `asset_mapping` maps each of our asset `Address` values to the corresponding
+    /// asset `Address` used by the external oracle. On each
+    /// [`get_cross_reference`](Self::get_cross_reference) call the contract invokes
+    /// `lastprice(asset: Address) -> i128` on the registered oracle and compares the result.
+    ///
+    /// # Arguments
+    ///
+    /// * `env` - The Soroban execution environment.
+    /// * `contract_id` - Contract address of the external reference oracle.
+    /// * `asset_mapping` - Map from our asset addresses to the reference oracle's addresses.
+    ///
+    /// # Errors
+    ///
+    /// * [`ErrorCode::NotAuthorized`] — if the caller is not the current admin.
+    pub fn add_reference_oracle(
+        env: Env,
+        contract_id: Address,
+        asset_mapping: Map<Address, Address>,
+    ) {
+        cross_reference::add_reference_oracle(&env, contract_id, asset_mapping);
+    }
+
+    /// Removes a previously registered reference oracle.
+    ///
+    /// # Arguments
+    ///
+    /// * `env` - The Soroban execution environment.
+    /// * `contract_id` - Contract address of the reference oracle to remove.
+    ///
+    /// # Errors
+    ///
+    /// * [`ErrorCode::NotAuthorized`] — if the caller is not the current admin.
+    pub fn remove_reference_oracle(env: Env, contract_id: Address) {
+        cross_reference::remove_reference_oracle(&env, contract_id);
+    }
+
+    /// Returns all registered reference oracle contract addresses.
+    ///
+    /// # Arguments
+    ///
+    /// * `env` - The Soroban execution environment.
+    ///
+    /// # Returns
+    ///
+    /// A [`Vec`] of `Address` values for all registered reference oracles.
+    pub fn get_reference_oracles(env: Env) -> Vec<Address> {
+        cross_reference::get_reference_oracles(&env)
+    }
+
+    /// Compares our current aggregated price for `asset` against the first registered
+    /// reference oracle that has a mapping for this asset.
+    ///
+    /// If the deviation exceeds the configured threshold a
+    /// [`CrossRefDeviationEvent`](crate::events::CrossRefDeviationEvent) is emitted.
+    ///
+    /// # Arguments
+    ///
+    /// * `env` - The Soroban execution environment.
+    /// * `asset` - Contract address of the asset to check.
+    ///
+    /// # Returns
+    ///
+    /// `Some(`[`CrossReferenceResult`]`)` with both prices and the deviation in basis
+    /// points, or `None` if no local aggregate exists or no reference oracle has a
+    /// mapping for this asset.
+    pub fn get_cross_reference(env: Env, asset: Address) -> Option<CrossReferenceResult> {
+        cross_reference::get_cross_reference(&env, asset)
+    }
+
+    /// Sets the deviation threshold (in basis points) that triggers a
+    /// [`CrossRefDeviationEvent`](crate::events::CrossRefDeviationEvent).
+    ///
+    /// # Arguments
+    ///
+    /// * `env` - The Soroban execution environment.
+    /// * `threshold_bps` - New threshold in basis points (100 bps = 1 %; max `100_000`).
+    ///
+    /// # Errors
+    ///
+    /// * [`ErrorCode::NotAuthorized`] — if the caller is not the current admin.
+    /// * [`ErrorCode::InvalidConfiguration`] — if `threshold_bps > 100_000`.
+    pub fn set_cross_ref_deviation_threshold(env: Env, threshold_bps: u32) {
+        cross_reference::set_cross_ref_deviation_threshold(&env, threshold_bps);
+    }
+
+    /// Returns the current cross-reference deviation threshold in basis points.
+    ///
+    /// # Arguments
+    ///
+    /// * `env` - The Soroban execution environment.
+    ///
+    /// # Returns
+    ///
+    /// Threshold in basis points. Defaults to `500` (5 %).
+    pub fn get_cross_ref_deviation_threshold(env: Env) -> u32 {
+        cross_reference::get_cross_ref_deviation_threshold(&env)
     }
 
     // --- Cross-Reference Oracle ---
@@ -1098,3 +1566,6 @@ impl PriceOracleContract {
 mod test_helpers;
 
 mod test;
+
+#[cfg(test)]
+mod relayer_tests;

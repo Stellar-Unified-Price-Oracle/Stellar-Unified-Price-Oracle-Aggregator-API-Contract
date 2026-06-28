@@ -1,16 +1,72 @@
 use soroban_sdk::{panic_with_error, Address, Env, Vec};
 
-use crate::admin::get_max_history_length;
+use crate::admin::{get_interpolation_enabled, get_max_history_length};
 use crate::storage::{check_registered_asset, LEDGER_BUMP, LEDGER_THRESHOLD};
 use crate::types::{DataKey, ErrorCode, PriceHistoryEntry};
 
 pub fn get_historical_price(env: &Env, asset: Address, ledger: u32) -> PriceHistoryEntry {
     check_registered_asset(env, &asset);
-    let key = DataKey::PriceHistory(asset, ledger);
-    env.storage()
-        .temporary()
-        .extend_ttl(&key, LEDGER_THRESHOLD, LEDGER_BUMP);
-    env.storage().temporary().get(&key).unwrap()
+
+    // Exact match — return as-is.
+    let key = DataKey::PriceHistory(asset.clone(), ledger);
+    if env.storage().temporary().has(&key) {
+        env.storage()
+            .temporary()
+            .extend_ttl(&key, LEDGER_THRESHOLD, LEDGER_BUMP);
+        return env.storage().temporary().get(&key).unwrap();
+    }
+
+    // If interpolation is disabled, panic.
+    if !get_interpolation_enabled(env) {
+        panic_with_error!(env, ErrorCode::NoData);
+    }
+
+    // Find the nearest before/after entries via the ledger index.
+    let ledgers_key = DataKey::PriceHistoryLedgers(asset.clone());
+    let ledger_list: Vec<u32> = env
+        .storage()
+        .persistent()
+        .get(&ledgers_key)
+        .unwrap_or(Vec::new(env));
+
+    let mut before: Option<PriceHistoryEntry> = None;
+    let mut after: Option<PriceHistoryEntry> = None;
+
+    for i in 0..ledger_list.len() {
+        let l = ledger_list.get_unchecked(i);
+        if l <= ledger {
+            let k = DataKey::PriceHistory(asset.clone(), l);
+            if env.storage().temporary().has(&k) {
+                let entry: PriceHistoryEntry = env.storage().temporary().get(&k).unwrap();
+                before = Some(entry);
+            }
+        } else if after.is_none() {
+            let k = DataKey::PriceHistory(asset.clone(), l);
+            if env.storage().temporary().has(&k) {
+                let entry: PriceHistoryEntry = env.storage().temporary().get(&k).unwrap();
+                after = Some(entry);
+            }
+        }
+    }
+
+    match (before, after) {
+        (Some(b), Some(a)) => {
+            // Linear interpolation: price = b.price + (a.price - b.price) * (ledger - b.ledger) / (a.ledger - b.ledger)
+            let range = (a.ledger - b.ledger) as i128;
+            let offset = (ledger - b.ledger) as i128;
+            let interpolated_price = b.price + (a.price - b.price) * offset / range;
+            let interpolated_ts = b.timestamp
+                + ((a.timestamp.saturating_sub(b.timestamp) as i128) * offset / range) as u64;
+            PriceHistoryEntry {
+                price: interpolated_price,
+                timestamp: interpolated_ts,
+                ledger,
+                num_sources: 0,
+                is_interpolated: true,
+            }
+        }
+        _ => panic_with_error!(env, ErrorCode::NoData),
+    }
 }
 
 pub fn has_historical_price(env: &Env, asset: Address, ledger: u32) -> bool {
