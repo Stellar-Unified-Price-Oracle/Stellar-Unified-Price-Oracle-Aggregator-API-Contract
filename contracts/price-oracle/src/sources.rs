@@ -11,9 +11,17 @@ use crate::storage::{
 };
 use crate::types::{DataKey, ErrorCode, OracleSources};
 
+const MAX_SOURCE_NAME_LENGTH: u32 = 64;
+
 pub fn add_source(env: &Env, source: Address, name: String) {
     let admin = get_admin(env);
     admin.require_auth();
+    if name.is_empty() {
+        panic_with_error!(env, ErrorCode::SourceNameEmpty);
+    }
+    if name.len() > MAX_SOURCE_NAME_LENGTH {
+        panic_with_error!(env, ErrorCode::SourceNameTooLong);
+    }
     if env
         .storage()
         .persistent()

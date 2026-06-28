@@ -36,6 +36,9 @@ pub fn initialize(
     if description.len() > MAX_DESCRIPTION_LENGTH {
         panic_with_error!(env, ErrorCode::DescriptionTooLong);
     }
+    if decimals > 18 {
+        panic_with_error!(env, ErrorCode::InvalidConfiguration);
+    }
     admin.require_auth();
     env.storage().persistent().set(&DataKey::Admin, &admin);
     env.storage().persistent().set(
@@ -166,6 +169,9 @@ pub fn get_min_sources_required(env: &Env) -> u32 {
 pub fn set_max_history_length(env: &Env, new_max: u32) {
     let admin = get_admin(env);
     admin.require_auth();
+    if new_max == 0 {
+        panic_with_error!(env, ErrorCode::InvalidConfiguration);
+    }
     env.storage()
         .persistent()
         .set(&DataKey::MaxHistoryLength, &new_max);
@@ -213,6 +219,9 @@ pub fn get_resolution(env: &Env) -> u32 {
 pub fn set_decimals(env: &Env, new_decimals: u32) {
     let admin = get_admin(env);
     admin.require_auth();
+    if new_decimals > 18 {
+        panic_with_error!(env, ErrorCode::InvalidConfiguration);
+    }
     env.storage()
         .persistent()
         .set(&DataKey::Decimals, &new_decimals);
