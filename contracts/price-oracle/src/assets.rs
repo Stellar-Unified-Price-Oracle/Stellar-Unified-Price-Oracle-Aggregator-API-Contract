@@ -16,10 +16,16 @@ pub fn register_asset(env: &Env, asset: Address) {
     {
         panic_with_error!(env, ErrorCode::AssetAlreadyRegistered);
     }
+
+    let max_assets: u32 = crate::admin::get_max_assets(env);
+    let mut assets = read_registered_assets(env);
+    if assets.len() as u32 >= max_assets {
+        panic_with_error!(env, ErrorCode::MaxAssetsReached);
+    }
+
     env.storage()
         .persistent()
         .set(&DataKey::AssetRegistered(asset.clone()), &true);
-    let mut assets = read_registered_assets(env);
     assets.push_back(asset.clone());
     write_registered_assets(env, &assets);
     AssetRegisteredEvent {

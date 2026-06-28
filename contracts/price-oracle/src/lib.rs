@@ -523,10 +523,30 @@ impl PriceOracleContract {
 
     // --- Assets ---
 
+    /// Sets the maximum number of assets that can be registered.
+    ///
+    /// Admin must authorize this call.
+    ///
+    /// # Errors
+    ///
+    /// * [`ErrorCode::NotAuthorized`] — if the caller is not the current admin.
+    /// * [`ErrorCode::InvalidConfiguration`] — if `count` is `0`.
+    pub fn set_max_assets(env: Env, count: u32) {
+        admin::set_max_assets(&env, count);
+    }
+
+    /// Returns the configured maximum number of assets that can be registered.
+    ///
+    /// Defaults to `100`.
+    pub fn get_max_assets(env: Env) -> u32 {
+        admin::get_max_assets(&env)
+    }
+
     /// Registers an asset so it can receive price submissions.
     ///
     /// The admin must authorize this call. An asset cannot receive prices until it is
     /// registered.
+
     ///
     /// # Arguments
     ///
