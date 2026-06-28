@@ -12,7 +12,7 @@ pub fn propose_operation(env: &Env, op_type: OperationType, data: &Bytes) -> u32
     let op_count: u32 = env
         .storage()
         .persistent()
-        .get(&DataKey::PendingOpCount)
+        .get(&DataKey::TlPendingOpCount)
         .unwrap_or(0);
     let op_id = op_count + 1;
 
@@ -26,10 +26,10 @@ pub fn propose_operation(env: &Env, op_type: OperationType, data: &Bytes) -> u32
 
     env.storage()
         .persistent()
-        .set(&DataKey::PendingOp(op_id), &pending_op);
+        .set(&DataKey::TlPendingOp(op_id), &pending_op);
     env.storage()
         .persistent()
-        .set(&DataKey::PendingOpCount, &op_id);
+        .set(&DataKey::TlPendingOpCount, &op_id);
 
     let op_type_num = match op_type {
         OperationType::Upgrade => 0,
@@ -60,14 +60,14 @@ pub fn execute_operation(env: &Env, op_id: u32) {
     let pending_op: PendingOperation = env
         .storage()
         .persistent()
-        .get(&DataKey::PendingOp(op_id))
+        .get(&DataKey::TlPendingOp(op_id))
         .ok_or_else(|| panic_with_error!(env, ErrorCode::OperationNotFound))
         .unwrap();
 
     let timelock_duration: u32 = env
         .storage()
         .persistent()
-        .get(&DataKey::TimelockDuration)
+        .get(&DataKey::CfgTimelockDuration)
         .unwrap_or(10);
     let current_ledger = env.ledger().sequence();
     let elapsed = current_ledger - pending_op.proposed_ledger;
@@ -78,7 +78,7 @@ pub fn execute_operation(env: &Env, op_id: u32) {
 
     env.storage()
         .persistent()
-        .remove(&DataKey::PendingOp(op_id));
+        .remove(&DataKey::TlPendingOp(op_id));
 
     let op_type_num = match pending_op.op_type {
         OperationType::Upgrade => 0,
@@ -106,13 +106,13 @@ pub fn cancel_operation(env: &Env, op_id: u32) {
     let pending_op: PendingOperation = env
         .storage()
         .persistent()
-        .get(&DataKey::PendingOp(op_id))
+        .get(&DataKey::TlPendingOp(op_id))
         .ok_or_else(|| panic_with_error!(env, ErrorCode::OperationNotFound))
         .unwrap();
 
     env.storage()
         .persistent()
-        .remove(&DataKey::PendingOp(op_id));
+        .remove(&DataKey::TlPendingOp(op_id));
 
     let op_type_num = match pending_op.op_type {
         OperationType::Upgrade => 0,
@@ -138,11 +138,11 @@ pub fn set_timelock_duration(env: &Env, duration: u32) {
     admin.require_auth();
     env.storage()
         .persistent()
-        .set(&DataKey::TimelockDuration, &duration);
+        .set(&DataKey::CfgTimelockDuration, &duration);
 }
 
 pub fn get_timelock_duration(env: &Env) -> u32 {
-    let key = DataKey::TimelockDuration;
+    let key = DataKey::CfgTimelockDuration;
     if env.storage().persistent().has(&key) {
         env.storage()
             .persistent()

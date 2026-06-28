@@ -1,5 +1,27 @@
+# Build artifacts
 /target
 **/*.wasm
+
+# Test snapshots
 test_snapshots/
+
+# Kiro AI agent state
 .kiro/
+
+# Node.js
 node_modules/
+npm-debug.log*
+
+# Environment / secrets
+.env
+.env.*
+!.env.example
+
+# IDE
+.vscode/
+.idea/
+*.iml
+
+# OS
+.DS_Store
+Thumbs.db

@@ -403,16 +403,13 @@ pub fn get_source_price(env: &Env, asset: Address, source: Address) -> PriceEntr
 
 pub fn get_all_prices(env: &Env, asset: Address) -> Vec<PriceEntry> {
     check_registered_asset(env, &asset);
+    // Read the sources list once; iterate without extra reads or writes per entry.
     let oracle_sources: OracleSources = read_oracle_sources(env);
     let mut prices: Vec<PriceEntry> = Vec::new(env);
     for i in 0..oracle_sources.sources.len() {
         let src = oracle_sources.sources.get_unchecked(i);
         let sub_key = DataKey::Submission(asset.clone(), src);
-        let sub: Option<PriceEntry> = env.storage().persistent().get(&sub_key);
-        if let Some(entry) = sub {
-            env.storage()
-                .persistent()
-                .extend_ttl(&sub_key, LEDGER_THRESHOLD, LEDGER_BUMP);
+        if let Some(entry) = env.storage().persistent().get::<_, PriceEntry>(&sub_key) {
             prices.push_back(entry);
         }
     }
@@ -556,16 +553,6 @@ pub fn prices(env: &Env, asset: Asset, records: u32) -> Option<Vec<PriceData>> {
     Some(result)
 }
 
-#[allow(dead_code)]
-pub fn get_prices(env: &Env, assets: Vec<Address>) -> Vec<Option<AggregatePrice>> {
-    let mut results: Vec<Option<AggregatePrice>> = Vec::new(env);
-    for i in 0..assets.len() {
-        let asset = assets.get_unchecked(i);
-        let price = get_price(env, asset, 0);
-        results.push_back(price);
-    }
-    results
-}
 
 pub fn override_price(env: &Env, asset: Address, price: i128, reason: String, expiry_ledger: u32) {
     let admin = get_admin(env);
@@ -639,15 +626,7 @@ pub fn get_price_override(env: &Env, asset: Address) -> Option<PriceOverrideEntr
     env.storage().persistent().get(&override_key)
 }
 
-#[allow(dead_code)]
-pub fn get_price_change(env: &Env, asset: Address, ledgers_back: u32) -> Option<i128> {
-    check_registered_asset(env, &asset);
 
-    let current_price = get_price(env, asset.clone(), 0)?;
-
-    if current_price.price == 0 {
-        return None;
-    }
 
     let current_ledger = env.ledger().sequence();
     let target_ledger = current_ledger.saturating_sub(ledgers_back);

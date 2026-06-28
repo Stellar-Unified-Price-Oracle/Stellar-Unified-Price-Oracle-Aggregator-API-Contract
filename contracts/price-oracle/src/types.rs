@@ -4,11 +4,25 @@ pub use crate::errors::ErrorCode;
 
 /// Storage keys used to address contract state in persistent, temporary, and instance storage.
 ///
-/// Each variant uniquely identifies a piece of data stored on-chain. Address-keyed variants
-/// allow per-address records while symbol-keyed variants hold global configuration.
+/// ## Key Schema (namespace → variants)
+///
+/// | Namespace | Prefix | Variants |
+/// |-----------|--------|----------|
+/// | Admin identity | (none) | `Admin` |
+/// | Global config | `Cfg` | `CfgMinSources`, `CfgMaxHistory`, `CfgResolution`, `CfgDecimals`, `CfgDescription`, `CfgTimestampThreshold`, `CfgMaxDeviation`, `CfgHeartbeatInterval`, `CfgMaxInvalidSubs`, `CfgAggregationMethod`, `CfgPauseFlag`, `CfgTimelockDuration` |
+/// | Source registry | `Src` | `SrcActive(addr)`, `SrcRegistry`, `SrcHeartbeat(addr)`, `SrcInactive(addr)` |
+/// | Asset registry | `Asset` | `AssetRegistered(addr)`, `AssetRegistry`, `AssetMetadata(addr)`, `AssetMinPrice(addr)` |
+/// | Price data | `Price` | `Submission(asset, src)`, `PriceSubmissionLedger(asset, src)`, `Aggregate(asset)`, `PriceOverride(asset)`, `PriceDeviant(asset, src)` |
+/// | History | `Hist` | `PriceHistory(asset, ledger)`, `PriceHistoryLedgers(asset)` |
+/// | Timelock ops | `Tl` | `TlPendingOpCount`, `TlPendingOp(id)` |
+///
+/// Soroban encodes each variant name as an XDR `Symbol` discriminant, so variants are
+/// inherently collision-free. The namespace prefixes make the category explicit at the
+/// call site and prevent accidental re-use of a name across categories in future additions.
 #[derive(Clone, Debug, Eq, PartialEq)]
 #[contracttype]
 pub enum DataKey {
+    // --- Admin ---
     /// The contract administrator's address.
     Admin,
     ReentrancyGuard,
@@ -31,31 +45,45 @@ pub enum DataKey {
     /// Ordered list of all registered asset addresses.
     RegisteredAssets,
     /// Minimum number of contributing sources required to publish an aggregate price.
-    MinSourcesRequired,
+    CfgMinSources,
     /// Maximum number of history entries retained per asset before pruning.
-    MaxHistoryLength,
+    CfgMaxHistory,
     /// Price resolution window in seconds (SEP-40 `resolution` field).
-    Resolution,
+    CfgResolution,
     /// Decimal precision applied to all prices stored by this contract.
-    Decimals,
+    CfgDecimals,
     /// Human-readable description of this oracle instance.
-    Description,
+    CfgDescription,
     /// Maximum allowed difference (in seconds) between a submitted timestamp and ledger time.
-    TimestampThreshold,
+    CfgTimestampThreshold,
     /// Maximum allowed price deviation in basis points before flagging a submission.
-    MaxPriceDeviation,
-    /// Flag set when a source's submission deviates excessively from the current aggregate.
-    SubmissionDeviant(Address, Address),
-    /// Unix timestamp of the last heartbeat submitted by a source.
-    SourceHeartbeat(Address),
+    CfgMaxDeviation,
     /// Interval in seconds after which a source with no heartbeat is considered inactive.
-    HeartbeatInterval,
-    /// Inactive flag for a source.
-    InactiveSource(Address),
+    CfgHeartbeatInterval,
     /// Maximum number of invalid submissions allowed before a source is suspended.
-    MaxInvalidSubmissions,
+    CfgMaxInvalidSubs,
     /// Currently active [`AggregationMethod`] stored as a `u32` discriminant.
-    AggregationMethod,
+    CfgAggregationMethod,
+    /// Boolean flag indicating whether the contract is paused.
+    CfgPauseFlag,
+    /// Number of ledgers that must pass between proposing and executing a timelock operation.
+    CfgTimelockDuration,
+
+    // --- Source registry (prefix: Src) ---
+    /// Existence flag for a registered oracle source (`true` when present).
+    SrcActive(Address),
+    /// The [`OracleSources`] registry (list of sources and their metadata).
+    SrcRegistry,
+    /// Unix timestamp of the last heartbeat submitted by a source.
+    SrcHeartbeat(Address),
+    /// Inactive flag for a source.
+    SrcInactive(Address),
+
+    // --- Asset registry (prefix: Asset) ---
+    /// Existence flag for a registered asset (`true` when present).
+    AssetRegistered(Address),
+    /// Ordered list of all registered asset addresses.
+    AssetRegistry,
     /// Optional [`AssetMetadata`] attached to a registered asset.
     AssetMetadata(Address),
     /// Optional minimum accepted price (`i128`) for a registered asset.
@@ -66,7 +94,7 @@ pub enum DataKey {
     /// Boolean flag indicating whether the contract is paused.
     PauseFlag,
     /// Monotonically incrementing counter used to assign IDs to pending operations.
-    PendingOpCount,
+    TlPendingOpCount,
     /// A [`PendingOperation`] awaiting timelock expiry before execution.
     PendingOp(u32),
     /// Number of ledgers that must pass between proposing and executing a timelock operation.
