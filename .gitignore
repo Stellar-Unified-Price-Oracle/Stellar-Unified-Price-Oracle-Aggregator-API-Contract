@@ -1,5 +1,8 @@
 # Build artifacts
 /target
+**/target/
+
+# WebAssembly binaries
 **/*.wasm
 
 # Test snapshots

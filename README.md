@@ -249,6 +249,13 @@ See [`docs/error-codes.md`](docs/error-codes.md) for the full registry with caus
 | [Security Audit Checklist](docs/security-audit-checklist.md) | Pre-audit review items: access control, input validation, arithmetic safety, storage safety, upgrade mechanism, event integrity, known patterns |
 | [Monitoring Dashboard](docs/monitoring/README.md) | Grafana dashboard setup and metrics reference |
 
+## Documentation
+
+- [Price Submission Bot Design](docs/price-submission-bot.md) — off-chain bot architecture for automated price submissions
+- [Disaster Recovery Plan](docs/disaster-recovery.md) — failure scenario playbooks and recovery procedures
+- [Architecture](docs/ARCHITECTURE.md) — contract design and data flow
+- [Monitoring](docs/monitoring/README.md) — Grafana dashboard and alerting setup
+
 ## License
 
 MIT
