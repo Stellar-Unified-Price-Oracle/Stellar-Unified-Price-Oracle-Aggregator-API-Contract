@@ -80,10 +80,42 @@ pub fn submit_price(env: &Env, source: Address, asset: Address, price: i128, tim
         timestamp,
     }
     .publish(env);
+    event_count += 1;
 
     let min_required = get_min_sources_required(env);
     let oracle_sources: OracleSources = read_oracle_sources(env);
     let total_sources = oracle_sources.sources.len();
+
+    // Issue #93: if MaxAggregationSources > 0 and we have more sources than the cap,
+    // randomly select a subset using the current ledger hash for determinism.
+    let max_agg = get_max_aggregation_sources(env);
+    let selected_sources: Vec<Address> = if max_agg > 0 && total_sources > max_agg {
+        // Use ledger hash bytes as a deterministic seed.
+        let hash_bytes = env.ledger().sequence().to_le_bytes();
+        // Simple LCG-style selection: pick indices derived from the hash.
+        let seed = u32::from_le_bytes(hash_bytes);
+        let mut selected: Vec<Address> = Vec::new(env);
+        // Reservoir-style: include source[i] if deterministic hash says so.
+        // We iterate all sources and keep `max_agg` of them pseudo-randomly.
+        let mut kept: u32 = 0;
+        for i in 0..total_sources {
+            let remaining = total_sources - i;
+            let needed = max_agg - kept;
+            // Probability of keeping: needed / remaining (integer check).
+            // Use a hash of seed XOR index to decide.
+            let h = seed.wrapping_mul(1664525u32).wrapping_add(i).wrapping_add(1013904223u32);
+            if needed >= remaining || (h % remaining) < needed {
+                selected.push_back(oracle_sources.sources.get_unchecked(i));
+                kept += 1;
+                if kept >= max_agg {
+                    break;
+                }
+            }
+        }
+        selected
+    } else {
+        oracle_sources.sources.clone()
+    };
 
     let mut valid_prices: Vec<i128> = Vec::new(env);
     let mut latest_timestamp: u64 = 0;
@@ -186,7 +218,7 @@ pub fn submit_price(env: &Env, source: Address, asset: Address, price: i128, tim
                 &history_entry,
             );
 
-            // Track ledger in history index for pruning
+            // Track ledger in history index for pruning.
             let ledgers_key = DataKey::PriceHistoryLedgers(asset.clone());
             let mut ledger_list: soroban_sdk::Vec<u32> = env
                 .storage()
@@ -195,8 +227,22 @@ pub fn submit_price(env: &Env, source: Address, asset: Address, price: i128, tim
                 .unwrap_or(soroban_sdk::Vec::new(env));
             ledger_list.push_back(current_ledger);
 
+            // Issue #92: check event budget before emitting prune events.
+            // Each prune loop iteration emits 1 event.
+
+            // Global history cap (existing MaxHistoryLength).
             let max_history = get_max_history_length(env);
             while ledger_list.len() > max_history {
+                // Issue #92: stop emitting prune events if we hit the cap.
+                if event_count >= max_events {
+                    EventLimitWarningEvent {
+                        asset: asset.clone(),
+                        event_count,
+                        max_events,
+                    }
+                    .publish(env);
+                    break;
+                }
                 let oldest_ledger = ledger_list.get_unchecked(0);
                 ledger_list.remove(0);
                 env.storage()
@@ -208,24 +254,71 @@ pub fn submit_price(env: &Env, source: Address, asset: Address, price: i128, tim
                     remaining: ledger_list.len(),
                 }
                 .publish(env);
+                event_count += 1;
             }
+
+            // Issue #94: per-asset history cap (MaxHistoryPerAsset, default 1000).
+            let max_per_asset = get_max_history_per_asset(env);
+            while ledger_list.len() > max_per_asset {
+                if event_count >= max_events {
+                    EventLimitWarningEvent {
+                        asset: asset.clone(),
+                        event_count,
+                        max_events,
+                    }
+                    .publish(env);
+                    break;
+                }
+                let oldest_ledger = ledger_list.get_unchecked(0);
+                ledger_list.remove(0);
+                env.storage()
+                    .temporary()
+                    .remove(&DataKey::PriceHistory(asset.clone(), oldest_ledger));
+                HistoryPerAssetPrunedEvent {
+                    asset: asset.clone(),
+                    pruned_ledger: oldest_ledger,
+                    remaining: ledger_list.len(),
+                }
+                .publish(env);
+                event_count += 1;
+            }
+
             env.storage().persistent().set(&ledgers_key, &ledger_list);
         }
 
-        PriceAggregatedEvent {
-            asset: asset.clone(),
-            price: median_price,
-            num_sources: contributing_sources,
-            timestamp: latest_timestamp,
+        // Issue #92: only emit aggregation event if within budget.
+        if event_count < max_events {
+            PriceAggregatedEvent {
+                asset: asset.clone(),
+                price: median_price,
+                num_sources: contributing_sources,
+                timestamp: latest_timestamp,
+            }
+            .publish(env);
+        } else {
+            EventLimitWarningEvent {
+                asset: asset.clone(),
+                event_count,
+                max_events,
+            }
+            .publish(env);
         }
-        .publish(env);
     } else {
-        SourcesInsufficientEvent {
-            asset: asset.clone(),
-            current_source_count: contributing_sources,
-            min_sources_required: min_required,
+        if event_count < max_events {
+            SourcesInsufficientEvent {
+                asset: asset.clone(),
+                current_source_count: contributing_sources,
+                min_sources_required: min_required,
+            }
+            .publish(env);
+        } else {
+            EventLimitWarningEvent {
+                asset: asset.clone(),
+                event_count,
+                max_events,
+            }
+            .publish(env);
         }
-        .publish(env);
     }
 }
 

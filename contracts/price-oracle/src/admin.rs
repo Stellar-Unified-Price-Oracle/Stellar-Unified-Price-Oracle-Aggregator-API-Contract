@@ -3,7 +3,8 @@ use soroban_sdk::{panic_with_error, Address, Env, String};
 use crate::events::{
     emit_initialized, emit_max_price_deviation_changed, emit_timestamp_threshold_changed,
     AdminChangedEvent, ContractUpgradedEvent, DecimalsChangedEvent, DescriptionChangedEvent,
-    HeartbeatIntervalChangedEvent, MaxHistoryChangedEvent, MinSourcesChangedEvent,
+    HeartbeatIntervalChangedEvent, MaxAggregationSourcesChangedEvent, MaxEventsPerCallChangedEvent,
+    MaxHistoryChangedEvent, MaxHistoryPerAssetChangedEvent, MinSourcesChangedEvent,
     ResolutionChangedEvent,
 };
 use crate::storage::{get_admin, read_oracle_sources, LEDGER_BUMP, LEDGER_THRESHOLD};
@@ -20,6 +21,12 @@ const MAX_DESCRIPTION_LENGTH: u32 = 256;
 pub const DEFAULT_MAX_PRICE_DEVIATION: u32 = 500; // 5% in basis points
 pub const DEFAULT_HEARTBEAT_INTERVAL: u64 = 3600; // 1 hour
 pub const DEFAULT_MAX_INVALID_SUBMISSIONS: u32 = 5;
+/// Default per-asset history cap (issue #94).
+pub const DEFAULT_MAX_HISTORY_PER_ASSET: u32 = 1000;
+/// Default maximum events per call (issue #92).
+pub const DEFAULT_MAX_EVENTS_PER_CALL: u32 = 20;
+/// Default maximum aggregation sources; 0 means no limit (issue #93).
+pub const DEFAULT_MAX_AGGREGATION_SOURCES: u32 = 0;
 
 pub fn initialize(
     env: &Env,
