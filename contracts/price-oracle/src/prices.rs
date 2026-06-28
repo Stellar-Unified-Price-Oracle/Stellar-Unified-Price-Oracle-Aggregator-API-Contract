@@ -20,47 +20,71 @@ use crate::types::{
     PriceHistoryEntry, PriceOverrideEntry,
 };
 
-pub fn submit_price(env: &Env, source: Address, asset: Address, price: i128, timestamp: u64) {
+/// Submits prices for multiple assets in a single atomic transaction.
+///
+/// Authorization is checked once for `source`. Each `(asset, price, timestamp)` tuple
+/// is validated individually; if any entry is invalid the entire call panics (atomicity).
+/// Aggregation is triggered for each asset after all submissions are stored.
+///
+/// # Arguments
+///
+/// * `env` - The Soroban execution environment.
+/// * `source` - Address of the submitting oracle source. Must authorize this call.
+/// * `asset_prices` - Ordered list of `(asset, price, timestamp)` tuples.
+///
+/// # Errors
+///
+/// Same error conditions as `submit_price`, applied per entry.
+pub fn submit_prices(env: &Env, source: Address, asset_prices: Vec<(Address, i128, u64)>) {
     check_not_paused(env);
     source.require_auth();
     check_source(env, &source);
-    check_registered_asset(env, &asset);
 
     if crate::sources::is_source_suspended(env, source.clone()) {
         panic_with_error!(env, ErrorCode::NotAuthorized);
     }
 
-    if price <= 0 {
-        crate::sources::record_invalid_submission(env, source.clone());
-        panic_with_error!(env, ErrorCode::InvalidPrice);
-    }
-
-    let min_price = crate::assets::get_min_price(env, asset.clone());
-    if price < min_price {
-        panic_with_error!(env, ErrorCode::PriceBelowMinimum);
-    }
-
+    let decimals = get_decimals(env);
     let ledger_time = env.ledger().timestamp();
     let threshold = get_timestamp_threshold(env);
-    if timestamp > ledger_time.saturating_add(threshold) {
-        crate::sources::record_invalid_submission(env, source.clone());
-        panic_with_error!(env, ErrorCode::InvalidTimestamp);
-    }
-
-    let decimals = get_decimals(env);
     let current_ledger = env.ledger().sequence();
 
-    let entry = PriceEntry {
-        price,
-        timestamp,
-        source: source.clone(),
-        decimals,
-        last_updated: current_ledger,
-    };
+    // Validate all entries first for atomicity — any invalid entry aborts the whole call.
+    for i in 0..asset_prices.len() {
+        let (ref asset, price, timestamp) = asset_prices.get_unchecked(i);
+        check_registered_asset(env, asset);
 
-    env.storage()
-        .persistent()
-        .set(&DataKey::Submission(asset.clone(), source.clone()), &entry);
+        if price <= 0 {
+            crate::sources::record_invalid_submission(env, source.clone());
+            panic_with_error!(env, ErrorCode::InvalidPrice);
+        }
+
+        let min_price = crate::assets::get_min_price(env, asset.clone());
+        if price < min_price {
+            panic_with_error!(env, ErrorCode::PriceBelowMinimum);
+        }
+
+        if timestamp > ledger_time.saturating_add(threshold) {
+            crate::sources::record_invalid_submission(env, source.clone());
+            panic_with_error!(env, ErrorCode::InvalidTimestamp);
+        }
+    }
+
+    // All valid — store submissions and trigger aggregation.
+    for i in 0..asset_prices.len() {
+        let (asset, price, timestamp) = asset_prices.get_unchecked(i);
+
+        let entry = PriceEntry {
+            price,
+            timestamp,
+            source: source.clone(),
+            decimals,
+            last_updated: current_ledger,
+        };
+
+        env.storage()
+            .persistent()
+            .set(&DataKey::Submission(asset.clone(), source.clone()), &entry);
 
     // #70: track last submission ledger for compliance
     env.storage().persistent().set(
@@ -82,6 +106,8 @@ pub fn submit_price(env: &Env, source: Address, asset: Address, price: i128, tim
     .publish(env);
     event_count += 1;
 
+/// Internal helper: re-aggregate all sources for a single asset and write history.
+fn aggregate_asset(env: &Env, asset: &Address, current_ledger: u32, decimals: u32) {
     let min_required = get_min_sources_required(env);
     let oracle_sources: OracleSources = read_oracle_sources(env);
     let total_sources = oracle_sources.sources.len();
@@ -321,6 +347,59 @@ pub fn submit_price(env: &Env, source: Address, asset: Address, price: i128, tim
             .publish(env);
         }
     }
+}
+
+pub fn submit_price(env: &Env, source: Address, asset: Address, price: i128, timestamp: u64) {
+    check_not_paused(env);
+    source.require_auth();
+    check_source(env, &source);
+    check_registered_asset(env, &asset);
+
+    if crate::sources::is_source_suspended(env, source.clone()) {
+        panic_with_error!(env, ErrorCode::NotAuthorized);
+    }
+
+    if price <= 0 {
+        crate::sources::record_invalid_submission(env, source.clone());
+        panic_with_error!(env, ErrorCode::InvalidPrice);
+    }
+
+    let min_price = crate::assets::get_min_price(env, asset.clone());
+    if price < min_price {
+        panic_with_error!(env, ErrorCode::PriceBelowMinimum);
+    }
+
+    let ledger_time = env.ledger().timestamp();
+    let threshold = get_timestamp_threshold(env);
+    if timestamp > ledger_time.saturating_add(threshold) {
+        crate::sources::record_invalid_submission(env, source.clone());
+        panic_with_error!(env, ErrorCode::InvalidTimestamp);
+    }
+
+    let decimals = get_decimals(env);
+    let current_ledger = env.ledger().sequence();
+
+    let entry = PriceEntry {
+        price,
+        timestamp,
+        source: source.clone(),
+        decimals,
+        last_updated: current_ledger,
+    };
+
+    env.storage()
+        .persistent()
+        .set(&DataKey::Submission(asset.clone(), source.clone()), &entry);
+
+    PriceSubmittedEvent {
+        asset: asset.clone(),
+        source: source.clone(),
+        price,
+        timestamp,
+    }
+    .publish(env);
+
+    aggregate_asset(env, &asset, current_ledger, decimals);
 }
 
 pub fn get_price(env: &Env, asset: Address, max_age: u64) -> Option<AggregatePrice> {
