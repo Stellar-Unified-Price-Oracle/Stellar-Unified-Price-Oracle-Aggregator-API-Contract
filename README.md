@@ -166,6 +166,15 @@ contracts/price-oracle/
 | 7 | `InvalidPrice` | Price is zero or negative |
 | 8 | `NoData` | No price data available |
 
+## Documentation
+
+| Document | Description |
+|---|---|
+| [Architecture](docs/ARCHITECTURE.md) | System design, data flow, module structure |
+| [Deployment Record](docs/deployment.md) | Contract addresses, initialization parameters, admin addresses, deployment checklist |
+| [Security Audit Checklist](docs/security-audit-checklist.md) | Pre-audit review items: access control, input validation, arithmetic safety, storage safety, upgrade mechanism, event integrity, known patterns |
+| [Monitoring Dashboard](docs/monitoring/README.md) | Grafana dashboard setup and metrics reference |
+
 ## License
 
 MIT
