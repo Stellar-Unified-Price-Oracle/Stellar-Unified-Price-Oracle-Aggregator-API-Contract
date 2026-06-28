@@ -18,6 +18,9 @@ mod override_tests;
 #[cfg(test)]
 mod prop_tests;
 
+#[cfg(test)]
+mod batch_tests;
+
 pub use types::{
     AggregatePrice, AggregationMethod, Asset, DataKey, ErrorCode, OracleSources, PriceData,
     PriceEntry, PriceHistoryEntry, PriceOverrideEntry,
@@ -573,6 +576,25 @@ impl PriceOracleContract {
     /// * [`ErrorCode::InvalidTimestamp`] — if `timestamp` is too far in the future.
     pub fn submit_price(env: Env, source: Address, asset: Address, price: i128, timestamp: u64) {
         prices::submit_price(&env, source, asset, price, timestamp);
+    }
+
+    /// Submits prices for multiple assets in a single atomic transaction.
+    ///
+    /// Authorization is checked once for `source`. All entries are validated before any
+    /// are written — if any entry fails validation the entire call panics (all-or-nothing).
+    /// Aggregation is triggered for each asset after all submissions are stored.
+    ///
+    /// # Arguments
+    ///
+    /// * `env` - The Soroban execution environment.
+    /// * `source` - Address of the submitting oracle source. Must authorize this call.
+    /// * `asset_prices` - List of `(asset, price, timestamp)` tuples to submit.
+    ///
+    /// # Errors
+    ///
+    /// Same error conditions as `submit_price`, applied per entry.
+    pub fn submit_prices(env: Env, source: Address, asset_prices: Vec<(Address, i128, u64)>) {
+        prices::submit_prices(&env, source, asset_prices);
     }
 
     /// Returns the latest aggregate price for an asset, filtered by a maximum age.
