@@ -69,9 +69,11 @@ A **decentralized price oracle aggregator** built on Soroban (Stellar smart cont
 
 | Function | Description |
 |----------|-------------|
-| `get_historical_price(asset, ledger) -> PriceHistoryEntry` | Get historical price at a specific ledger |
+| `get_historical_price(asset, ledger) -> PriceHistoryEntry` | Get historical price at a specific ledger (interpolated if enabled) |
 | `get_historical_prices(asset, start, end) -> Vec<PriceHistoryEntry>` | Get historical prices in a ledger range |
 | `has_historical_price(asset, ledger) -> bool` | Check if historical price exists |
+| `set_interpolation_enabled(bool)` | Enable/disable linear interpolation for history gaps (admin) |
+| `get_interpolation_enabled() -> bool` | Check if interpolation is enabled |
 
 ### SEP-40 Oracle Consumer Interface
 
@@ -98,6 +100,59 @@ A **decentralized price oracle aggregator** built on Soroban (Stellar smart cont
 | `PriceUpdatedEvent` | aggregate price changes | asset | new_price, old_price, timestamp |
 | `AdminChangedEvent` | `set_admin()` | old_admin, new_admin | — |
 | `ContractUpgradedEvent` | `upgrade()` | new_wasm_hash | — |
+
+## oracle-cli
+
+`scripts/oracle-cli.sh` is a shell script plugin that wraps `stellar contract invoke` with
+oracle-specific ergonomics.
+
+### Prerequisites
+
+- `stellar` CLI installed and configured
+- `ORACLE_CONTRACT_ID` environment variable set to your deployed contract address
+
+### Commands
+
+| Command | Description |
+|---------|-------------|
+| `oracle-cli init` | Initialize a newly deployed contract |
+| `oracle-cli submit-price` | Submit a price from a registered source |
+| `oracle-cli get-price` | Get the latest aggregated price for an asset |
+| `oracle-cli add-source` | Register a new oracle source (admin) |
+| `oracle-cli register-asset` | Register a new asset (admin) |
+| `oracle-cli health-check` | Display contract configuration and live status |
+
+### Quick start
+
+```bash
+export ORACLE_CONTRACT_ID=CAAAA...
+export ORACLE_NETWORK=testnet        # default: testnet
+
+# Initialize
+./scripts/oracle-cli.sh init \
+  --admin GAAA... --admin-key my-admin \
+  --description "My Oracle" --decimals 18
+
+# Add a source
+./scripts/oracle-cli.sh add-source \
+  --address GBBB... --name "Chainlink" --admin-key my-admin
+
+# Register an asset
+./scripts/oracle-cli.sh register-asset \
+  --asset GCCC... --admin-key my-admin
+
+# Submit a price  (price = 50 000 × 10^18)
+./scripts/oracle-cli.sh submit-price \
+  --source GBBB... --asset GCCC... \
+  --price 50000000000000000000 \
+  --source-key my-source-identity
+
+# Query latest price
+./scripts/oracle-cli.sh get-price --asset GCCC...
+
+# Health check
+./scripts/oracle-cli.sh health-check
+```
 
 ## Getting Started
 
@@ -156,7 +211,7 @@ contracts/price-oracle/
 
 | Code | Name | Description |
 |------|------|-------------|
-| 0 | `NotAuthorized` | Caller is not the admin |
+| 0 | `NotAuthorized` | Caller is not the admin or required signer |
 | 1 | `AlreadyInitialized` | Contract already initialized |
 | 2 | `AssetNotRegistered` | Asset not found |
 | 3 | `AssetAlreadyRegistered` | Asset already registered |
@@ -164,7 +219,16 @@ contracts/price-oracle/
 | 5 | `SourceNotFound` | Source not found |
 | 6 | `InsufficientSources` | Not enough sources for aggregation |
 | 7 | `InvalidPrice` | Price is zero or negative |
-| 8 | `NoData` | No price data available |
+| 8 | `NoData` | No price data available (or gap with interpolation disabled) |
+| 9 | `InvalidTimestamp` | Submitted timestamp too far in the future |
+| 10 | `InvalidConfiguration` | Configuration parameter out of valid range |
+| 11 | `DescriptionTooLong` | Description exceeds 256 characters |
+| 12 | `ContractPaused` | Contract is paused; operations blocked |
+| 13 | `TimelockNotReady` | Timelock delay has not elapsed |
+| 14 | `OperationNotFound` | No pending timelock operation with that ID |
+| 15 | `PriceBelowMinimum` | Price is below the asset's configured minimum |
+
+See [`docs/error-codes.md`](docs/error-codes.md) for the full registry with causes and resolutions.
 
 ## License
 

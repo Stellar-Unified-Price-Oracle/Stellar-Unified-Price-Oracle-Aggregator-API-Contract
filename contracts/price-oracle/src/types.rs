@@ -68,6 +68,8 @@ pub enum DataKey {
     /// Number of ledgers that must pass between proposing and executing a timelock operation.
     TimelockDuration,
     PriceOverride(Address),
+    /// Boolean flag indicating whether linear interpolation is enabled for historical queries.
+    InterpolationEnabled,
 }
 
 /// A price submission from a single oracle source for a specific asset.
@@ -130,6 +132,9 @@ pub struct PriceHistoryEntry {
     pub ledger: u32,
     /// Number of sources that contributed to this price.
     pub num_sources: u32,
+    /// `true` when this entry was produced by linear interpolation rather than a
+    /// real submission. Consumers should treat interpolated values as estimates.
+    pub is_interpolated: bool,
 }
 
 /// Registry of all authorized oracle sources and their display names.

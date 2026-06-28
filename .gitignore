@@ -1,5 +1,25 @@
+# Build artifacts
 /target
 **/*.wasm
+
+# Test infrastructure
 test_snapshots/
+
+# Kiro IDE
 .kiro/
+
+# Node / npm
 node_modules/
+npm-debug.log*
+
+# Environment files
+.env
+.env.*
+!.env.example
+
+# Editor / OS
+.DS_Store
+.vscode/
+.idea/
+*.swp
+*.swo

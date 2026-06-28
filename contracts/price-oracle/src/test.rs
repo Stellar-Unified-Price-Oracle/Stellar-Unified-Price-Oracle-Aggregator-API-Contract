@@ -1206,3 +1206,101 @@ fn test_mean_saturating_sum_large_prices() {
     assert!(price.is_some());
     assert_eq!(price.unwrap().price, i128::MAX / 2 + 1);
 }
+
+// ── Interpolation tests ───────────────────────────────────────────────────────
+
+#[test]
+fn test_interpolation_disabled_no_data_panics() {
+    let e = Env::default();
+    ledger_default(&e, 100, 10000);
+    let (client, _) = setup_contract(&e);
+    client.set_min_sources_required(&1u32);
+    let source = register_test_source(&e, &client, "Oracle");
+    let asset = register_test_asset(&e, &client);
+    submit_test_price(&client, &source, &asset, 1000i128, 9999);
+    // Ledger 999 has no snapshot; interpolation off => NoData (#8)
+    assert!(client.try_get_historical_price(&asset, &999u32).is_err());
+}
+
+#[test]
+fn test_get_interpolation_enabled_defaults_false() {
+    let e = Env::default();
+    let (client, _) = setup_contract(&e);
+    assert!(!client.get_interpolation_enabled());
+}
+
+#[test]
+fn test_set_interpolation_enabled() {
+    let e = Env::default();
+    let (client, _) = setup_contract(&e);
+    client.set_interpolation_enabled(&true);
+    assert!(client.get_interpolation_enabled());
+    client.set_interpolation_enabled(&false);
+    assert!(!client.get_interpolation_enabled());
+}
+
+#[test]
+fn test_interpolation_exact_match_not_flagged() {
+    let e = Env::default();
+    ledger_default(&e, 100, 10000);
+    let (client, _) = setup_contract(&e);
+    client.set_min_sources_required(&1u32);
+    client.set_interpolation_enabled(&true);
+    let source = register_test_source(&e, &client, "Oracle");
+    let asset = register_test_asset(&e, &client);
+    submit_test_price(&client, &source, &asset, 500i128, 9999);
+    let entry = client.get_historical_price(&asset, &100u32);
+    assert_eq!(entry.price, 500i128);
+    assert!(!entry.is_interpolated);
+}
+
+#[test]
+fn test_interpolation_between_two_points() {
+    let e = Env::default();
+    ledger_default(&e, 100, 10000);
+    let (client, _) = setup_contract(&e);
+    client.set_min_sources_required(&1u32);
+    client.set_interpolation_enabled(&true);
+    let source = register_test_source(&e, &client, "Oracle");
+    let asset = register_test_asset(&e, &client);
+
+    // Submit at ledger 100 (price 1000, ts 10000)
+    submit_test_price(&client, &source, &asset, 1000i128, 9999);
+    // Advance ledger and submit at ledger 200 (price 2000)
+    ledger_default(&e, 200, 20000);
+    submit_test_price(&client, &source, &asset, 2000i128, 19999);
+
+    // Query ledger 150 => midpoint => price = 1500
+    let entry = client.get_historical_price(&asset, &150u32);
+    assert_eq!(entry.price, 1500i128);
+    assert!(entry.is_interpolated);
+    assert_eq!(entry.ledger, 150u32);
+}
+
+#[test]
+fn test_interpolation_no_surrounding_points_panics() {
+    let e = Env::default();
+    ledger_default(&e, 100, 10000);
+    let (client, _) = setup_contract(&e);
+    client.set_min_sources_required(&1u32);
+    client.set_interpolation_enabled(&true);
+    let source = register_test_source(&e, &client, "Oracle");
+    let asset = register_test_asset(&e, &client);
+    submit_test_price(&client, &source, &asset, 1000i128, 9999);
+    // Ledger 50 has no before-point => NoData (#8)
+    assert!(client.try_get_historical_price(&asset, &50u32).is_err());
+}
+
+#[test]
+fn test_interpolation_only_before_panics() {
+    let e = Env::default();
+    ledger_default(&e, 100, 10000);
+    let (client, _) = setup_contract(&e);
+    client.set_min_sources_required(&1u32);
+    client.set_interpolation_enabled(&true);
+    let source = register_test_source(&e, &client, "Oracle");
+    let asset = register_test_asset(&e, &client);
+    submit_test_price(&client, &source, &asset, 1000i128, 9999);
+    // Ledger 300 has only a before-point => NoData (#8)
+    assert!(client.try_get_historical_price(&asset, &300u32).is_err());
+}

@@ -136,6 +136,7 @@ pub fn submit_price(env: &Env, source: Address, asset: Address, price: i128, tim
                 timestamp: latest_timestamp,
                 ledger: current_ledger,
                 num_sources: contributing_sources,
+                is_interpolated: false,
             };
             env.storage().temporary().set(
                 &DataKey::PriceHistory(asset.clone(), current_ledger),

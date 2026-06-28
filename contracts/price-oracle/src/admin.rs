@@ -341,3 +341,18 @@ pub fn get_heartbeat_interval(env: &Env) -> u64 {
         .get(&key)
         .unwrap_or(DEFAULT_HEARTBEAT_INTERVAL)
 }
+
+pub fn set_interpolation_enabled(env: &Env, enabled: bool) {
+    let admin = get_admin(env);
+    admin.require_auth();
+    env.storage()
+        .persistent()
+        .set(&DataKey::InterpolationEnabled, &enabled);
+}
+
+pub fn get_interpolation_enabled(env: &Env) -> bool {
+    env.storage()
+        .persistent()
+        .get(&DataKey::InterpolationEnabled)
+        .unwrap_or(false)
+}

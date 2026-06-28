@@ -18,6 +18,9 @@ mod override_tests;
 #[cfg(test)]
 mod prop_tests;
 
+#[cfg(test)]
+mod string_boundary_tests;
+
 pub use types::{
     AggregatePrice, AggregationMethod, Asset, DataKey, ErrorCode, OracleSources, PriceData,
     PriceEntry, PriceHistoryEntry, PriceOverrideEntry,
@@ -737,6 +740,23 @@ impl PriceOracleContract {
         end_ledger: u32,
     ) -> Vec<PriceHistoryEntry> {
         history::get_historical_prices(&env, asset, start_ledger, end_ledger)
+    }
+
+    /// Enables or disables linear interpolation for `get_historical_price` queries.
+    ///
+    /// When enabled, querying a ledger with no exact snapshot will return a
+    /// linearly-interpolated estimate between the nearest surrounding data points.
+    /// The result has `is_interpolated = true` so consumers can distinguish it
+    /// from a real submission.
+    ///
+    /// Requires admin authorization.
+    pub fn set_interpolation_enabled(env: Env, enabled: bool) {
+        admin::set_interpolation_enabled(&env, enabled);
+    }
+
+    /// Returns whether linear interpolation is enabled for historical queries.
+    pub fn get_interpolation_enabled(env: Env) -> bool {
+        admin::get_interpolation_enabled(&env)
     }
 
     // --- SEP-40 Oracle Interface ---
