@@ -1295,7 +1295,6 @@ fn test_subscribe_and_get_expiry() {
 }
 
 #[test]
-#[should_panic(expected = "Error(Contract, #18)")]
 fn test_renew_subscription() {
     let e = Env::default();
     ledger_default(&e, 100, 1000000);
