@@ -1508,7 +1508,11 @@ impl PriceOracleContract {
     /// # Errors
     ///
     /// * [`ErrorCode::NotAuthorized`] — if the caller is not the current admin.
-    pub fn add_reference_oracle(env: Env, contract_id: Address, asset_mapping: Map<Address, Address>) {
+    pub fn add_reference_oracle(
+        env: Env,
+        contract_id: Address,
+        asset_mapping: Map<Address, Address>,
+    ) {
         cross_reference::add_reference_oracle(&env, contract_id, asset_mapping);
     }
 
@@ -1569,3 +1573,6 @@ mod test;
 
 #[cfg(test)]
 mod relayer_tests;
+
+#[cfg(test)]
+mod asset_registry_gas_tests;

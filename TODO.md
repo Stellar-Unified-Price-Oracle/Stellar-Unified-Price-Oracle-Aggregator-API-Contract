@@ -1,8 +1,14 @@
-- [ ] Gather current admin/source limit patterns (already partially gathered)
-- [x] Update storage/config: add DataKey + getter/setter for max oracle sources (default 50)
-- [x] Update ErrorCode: add MaxSourcesReached
-- [x] Wire admin functions set_max_sources/get_max_sources into contract API + admin module
-- [x] Enforce limit in sources::add_source
-- [ ] Add unit tests for limit enforcement (including rejection when at limit)
-- [ ] Run cargo test to ensure all existing tests pass
+# TODO
+
+## Asset registry lookup optimization (Vec -> efficient index)
+
+- [ ] Create plan + confirm changes across assets/storage/types/lib
+- [ ] Implement asset membership index for O(1) lookup without breaking existing `assets()` listing
+- [ ] Add backward-compatible migration logic (existing AssetRegistry Vec -> new index)
+- [x] Update gas tracking / add benchmark for 50+ assets lookup (get/try asset registered)
+
+- [x] Document memory/storage tradeoff in docs or comments
+
+- [ ] Ensure all existing tests still compile (at least logically) and add new unit test for migration
+
 
