@@ -1,8 +1,9 @@
-use crate::types::{DataKey, ErrorCode, OracleSources};
-use soroban_sdk::{panic_with_error, Address, Env, Vec};
+use crate::types::{DataKey, ErrorCode, OracleSources, SubscriptionPlans};
+use soroban_sdk::{panic_with_error, Address, Env, Map, Vec};
 
 pub const LEDGER_THRESHOLD: u32 = 1000;
 pub const LEDGER_BUMP: u32 = 4000;
+pub const DEFAULT_QUERY_RATE_LIMIT: u32 = 100;
 
 pub fn get_admin(env: &Env) -> Address {
     env.storage().persistent().get(&DataKey::Admin).unwrap()
@@ -203,4 +204,62 @@ pub fn mark_source_inactive(env: &Env, source: &Address) {
 pub fn mark_source_active(env: &Env, source: &Address) {
     let key = DataKey::InactiveSource(source.clone());
     env.storage().persistent().remove(&key);
+}
+
+pub fn check_rate_limit(env: &Env, consumer: &Address) -> bool {
+    let ledger = env.ledger().sequence();
+    let key = DataKey::QueryCount(consumer.clone(), ledger);
+    let count: u32 = env.storage().temporary().get(&key).unwrap_or(0);
+    let rate_limit_key = DataKey::QueryRateLimit;
+    let max_queries: u32 = env.storage().persistent().get(&rate_limit_key).unwrap_or(DEFAULT_QUERY_RATE_LIMIT);
+    count < max_queries
+}
+
+pub fn increment_query_count(env: &Env, consumer: &Address) -> u32 {
+    let ledger = env.ledger().sequence();
+    let key = DataKey::QueryCount(consumer.clone(), ledger);
+    let count: u32 = env.storage().temporary().get(&key).unwrap_or(0);
+    let new_count = count + 1;
+    env.storage().temporary().set(&key, &new_count);
+    env.storage().temporary().extend_ttl(&key, LEDGER_THRESHOLD, LEDGER_BUMP);
+    new_count
+}
+
+pub fn read_subscription_expiry(env: &Env, consumer: &Address) -> Option<u64> {
+    let key = DataKey::SubscriptionExpiry(consumer.clone());
+    env.storage().persistent().get(&key)
+}
+
+pub fn write_subscription_expiry(env: &Env, consumer: &Address, expiry: u64) {
+    let key = DataKey::SubscriptionExpiry(consumer.clone());
+    env.storage().persistent().set(&key, &expiry);
+}
+
+pub fn read_subscription_plans(env: &Env) -> SubscriptionPlans {
+    let key = DataKey::SubscriptionPlans;
+    env.storage()
+        .persistent()
+        .get(&key)
+        .unwrap_or_else(|| Map::new(env))
+}
+
+pub fn write_subscription_plans(env: &Env, plans: &SubscriptionPlans) {
+    let key = DataKey::SubscriptionPlans;
+    env.storage().persistent().set(&key, plans);
+}
+
+pub fn get_plan_amount(env: &Env, duration: u32) -> Option<i128> {
+    let plans = read_subscription_plans(env);
+    plans.get(duration)
+}
+
+pub fn is_subscribed(env: &Env, consumer: &Address) -> bool {
+    let key = DataKey::SubscriptionExpiry(consumer.clone());
+    let expiry: u64 = env.storage().persistent().get(&key).unwrap_or(0);
+    if expiry > 0 {
+        let ledger_timestamp = env.ledger().timestamp();
+        expiry > ledger_timestamp
+    } else {
+        false
+    }
 }

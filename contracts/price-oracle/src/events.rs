@@ -455,3 +455,62 @@ pub struct PriceOverrideExpiredEvent {
     pub expiry_ledger: u32,
     pub current_ledger: u32,
 }
+
+/// Emitted when the query rate limit is updated.
+#[contractevent]
+#[derive(Clone)]
+pub struct QueryRateLimitChangedEvent {
+    /// The new query rate limit value.
+    pub value: u32,
+}
+
+/// Emitted when a rate limit is exceeded for an address.
+///
+/// Topics: `consumer`
+#[contractevent]
+#[derive(Clone)]
+pub struct RateLimitExceededEvent {
+    /// Address that exceeded the rate limit.
+    #[topic]
+    pub consumer: Address,
+    /// Current count of operations.
+    pub current_count: u32,
+    /// The rate limit threshold.
+    pub limit: u32,
+}
+
+/// Emitted when a subscription is created for a consumer.
+///
+/// Topics: `consumer`, `duration`
+#[contractevent]
+#[derive(Clone)]
+pub struct SubscriptionCreatedEvent {
+    /// Address of the consumer who created the subscription.
+    #[topic]
+    pub consumer: Address,
+    /// Duration of the subscription in seconds.
+    #[topic]
+    pub duration: u64,
+}
+
+/// Emitted when a subscription is renewed by a consumer.
+///
+/// Topics: `consumer`
+#[contractevent]
+#[derive(Clone)]
+pub struct SubscriptionRenewedEvent {
+    /// Address of the consumer who renewed the subscription.
+    #[topic]
+    pub consumer: Address,
+}
+
+/// Emitted when a subscription expires for a consumer.
+///
+/// Topics: `consumer`
+#[contractevent]
+#[derive(Clone)]
+pub struct SubscriptionExpiredEvent {
+    /// Address of the consumer whose subscription expired.
+    #[topic]
+    pub consumer: Address,
+}

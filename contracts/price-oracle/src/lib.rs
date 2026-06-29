@@ -9,6 +9,7 @@ mod pause;
 mod prices;
 mod sources;
 mod storage;
+mod subscription;
 mod timelock;
 mod types;
 
@@ -20,7 +21,7 @@ mod prop_tests;
 
 pub use types::{
     AggregatePrice, AggregationMethod, Asset, DataKey, ErrorCode, OracleSources, PriceData,
-    PriceEntry, PriceHistoryEntry, PriceOverrideEntry,
+    PriceEntry, PriceHistoryEntry, PriceOverrideEntry, SubscriptionPlans,
 };
 
 use soroban_sdk::{contract, contractimpl, Address, Env, String, Symbol, Vec};
@@ -365,6 +366,119 @@ impl PriceOracleContract {
         admin::get_heartbeat_interval(&env)
     }
 
+    /// Sets the query rate limit — the maximum number of queries allowed per ledger.
+    ///
+    /// # Arguments
+    ///
+    /// * `env` - The Soroban execution environment.
+    /// * `max_per_ledger` - Maximum queries per ledger (must be > 0).
+    ///
+    /// # Errors
+    ///
+    /// * [`ErrorCode::NotAuthorized`] — if the caller is not the current admin.
+    pub fn set_query_rate_limit(env: Env, max_per_ledger: u32) {
+        admin::set_query_rate_limit(&env, max_per_ledger);
+    }
+
+    /// Returns the current query rate limit.
+    ///
+    /// # Arguments
+    ///
+    /// * `env` - The Soroban execution environment.
+    ///
+    /// # Returns
+    ///
+    /// Query rate limit per ledger. Defaults to `100`.
+    pub fn get_query_rate_limit(env: Env) -> u32 {
+        admin::get_query_rate_limit(&env)
+    }
+
+    // --- Subscription ---
+
+    /// Creates a new subscription for the consumer with the given duration plan.
+    ///
+    /// The `consumer` address must authorize this call. The `duration` must match
+    /// a registered plan. The expiry timestamp is set to `ledger_timestamp + duration`
+    /// in seconds.
+    ///
+    /// # Arguments
+    ///
+    /// * `env` - The Soroban execution environment.
+    /// * `consumer` - Address of the consumer purchasing the subscription.
+    /// * `duration` - Duration in seconds. Must match an existing plan.
+    ///
+    /// # Errors
+    ///
+    /// * [`ErrorCode::NotAuthorized`] — if `consumer` does not authorize the call.
+    /// * [`ErrorCode::InvalidDuration`] — if `duration` does not match any registered plan.
+    pub fn subscribe(env: Env, consumer: Address, duration: u32) {
+        subscription::subscribe(&env, consumer, duration);
+    }
+
+    /// Renews an existing active subscription by extending its expiry with the remaining duration.
+    ///
+    /// The `consumer` address must authorize this call. The current subscription
+    /// must not have expired. Expiry is extended by the remaining time on the subscription.
+    ///
+    /// # Arguments
+    ///
+    /// * `env` - The Soroban execution environment.
+    /// * `consumer` - Address of the consumer renewing their subscription.
+    ///
+    /// # Errors
+    ///
+    /// * [`ErrorCode::NotAuthorized`] — if `consumer` does not authorize the call.
+    /// * [`ErrorCode::NoData`] — if no subscription exists for `consumer`.
+    /// * [`ErrorCode::SubscriptionExpired`] — if the current subscription has expired.
+    pub fn renew_subscription(env: Env, consumer: Address) {
+        subscription::renew_subscription(&env, consumer);
+    }
+
+    /// Returns the expiry timestamp for a consumer's subscription, or `0` if none exists.
+    ///
+    /// # Arguments
+    ///
+    /// * `env` - The Soroban execution environment.
+    /// * `consumer` - Address of the consumer to query.
+    ///
+    /// # Returns
+    ///
+    /// `expiry_timestamp` if a subscription exists; `0` otherwise.
+    pub fn get_subscription_expiry(env: Env, consumer: Address) -> u64 {
+        subscription::get_subscription_expiry(&env, consumer)
+    }
+
+    /// Returns all available subscription plans.
+    ///
+    /// # Arguments
+    ///
+    /// * `env` - The Soroban execution environment.
+    ///
+    /// # Returns
+    ///
+    /// A [`SubscriptionPlans`] map of duration (seconds) to amount (stroops).
+    pub fn get_subscription_plans(env: Env) -> SubscriptionPlans {
+        subscription::get_subscription_plans(&env)
+    }
+
+    /// Sets the price for a subscription plan.
+    ///
+    /// The admin must authorize this call. If a plan with the same duration already
+    /// exists, it is updated.
+    ///
+    /// # Arguments
+    ///
+    /// * `env` - The Soroban execution environment.
+    /// * `duration` - Duration in seconds identifying the plan.
+    /// * `amount` - Cost amount in stroops.
+    ///
+    /// # Errors
+    ///
+    /// * [`ErrorCode::NotAuthorized`] — if the caller is not the current admin.
+    pub fn set_subscription_price(env: Env, duration: u32, amount: i128) {
+        admin::set_subscription_price(&env, duration, amount);
+    }
+
     // --- Sources ---
 
     /// Registers a new oracle source authorized to submit prices.
@@ -596,6 +710,7 @@ impl PriceOracleContract {
     /// # Errors
     ///
     /// * [`ErrorCode::AssetNotRegistered`] — if `asset` is not registered.
+    /// * [`ErrorCode::RateLimitExceeded`] — if the caller has exceeded the query rate limit.
     pub fn get_price(env: Env, asset: Address, max_age: u64) -> Option<AggregatePrice> {
         prices::get_price(&env, asset, max_age)
     }

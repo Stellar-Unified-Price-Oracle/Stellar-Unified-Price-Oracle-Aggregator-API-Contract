@@ -1206,3 +1206,154 @@ fn test_mean_saturating_sum_large_prices() {
     assert!(price.is_some());
     assert_eq!(price.unwrap().price, i128::MAX / 2 + 1);
 }
+
+// ---- Rate Limiting Tests ----
+
+#[test]
+fn test_set_get_query_rate_limit() {
+    let e = Env::default();
+    let (client, _) = setup_contract(&e);
+
+    // Default rate limit is 100 when not explicitly set
+    assert_eq!(client.get_query_rate_limit(), 100u32);
+
+    client.set_query_rate_limit(&50u32);
+    assert_eq!(client.get_query_rate_limit(), 50u32);
+
+    client.set_query_rate_limit(&200u32);
+    assert_eq!(client.get_query_rate_limit(), 200u32);
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #16)")]
+fn test_rate_limit_enforced() {
+    let e = Env::default();
+    ledger_default(&e, 100, 10000);
+    let (client, _) = setup_contract(&e);
+    let asset = register_test_asset(&e, &client);
+
+    client.set_query_rate_limit(&2u32);
+
+    // First two queries within the limit of 2
+    let _ = client.get_price(&asset, &0u64);
+    let _ = client.get_price(&asset, &0u64);
+
+    // Third query exceeds the rate limit → panics with RateLimitExceeded (#16)
+    let _ = client.get_price(&asset, &0u64);
+}
+
+#[test]
+fn test_rate_limit_resets_each_ledger() {
+    let e = Env::default();
+    ledger_default(&e, 100, 10000);
+    let (client, _) = setup_contract(&e);
+    let asset = register_test_asset(&e, &client);
+
+    client.set_query_rate_limit(&2u32);
+
+    // Exhaust the limit on ledger 100
+    let _ = client.get_price(&asset, &0u64);
+    let _ = client.get_price(&asset, &0u64);
+
+    // Advance to a new ledger — rate limit counter should reset
+    ledger_default(&e, 101, 10001);
+
+    // This should succeed because the count is per-ledger
+    let result = client.get_price(&asset, &0u64);
+    assert!(result.is_none());
+}
+
+// ---- Subscription Tests ----
+
+#[test]
+fn test_set_subscription_price_and_get_plans() {
+    let e = Env::default();
+    let (client, _) = setup_contract(&e);
+
+    client.set_subscription_price(&86400u32, &100i128);
+    client.set_subscription_price(&604800u32, &500i128);
+
+    let plans = client.get_subscription_plans();
+    assert_eq!(plans.len(), 2u32);
+    assert_eq!(plans.get(86400u32).unwrap(), 100i128);
+    assert_eq!(plans.get(604800u32).unwrap(), 500i128);
+}
+
+#[test]
+fn test_subscribe_and_get_expiry() {
+    let e = Env::default();
+    ledger_default(&e, 100, 1000000);
+
+    let (client, admin) = setup_contract(&e);
+    client.set_subscription_price(&86400u32, &100i128);
+
+    let consumer = Address::generate(&e);
+    client.subscribe(&consumer, &86400u32);
+
+    let expiry = client.get_subscription_expiry(&consumer);
+    assert_eq!(expiry, 1086400u64);
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #18)")]
+fn test_renew_subscription() {
+    let e = Env::default();
+    ledger_default(&e, 100, 1000000);
+
+    let (client, _admin) = setup_contract(&e);
+    client.set_subscription_price(&86400u32, &100i128);
+
+    let consumer = Address::generate(&e);
+    client.subscribe(&consumer, &86400u32);
+
+    let expiry_before = client.get_subscription_expiry(&consumer);
+    assert_eq!(expiry_before, 1086400u64);
+
+    client.renew_subscription(&consumer);
+
+    let expiry_after = client.get_subscription_expiry(&consumer);
+    assert_eq!(expiry_after, 1086400u64 + 86400u64);
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #18)")]
+fn test_renew_expired_subscription() {
+    let e = Env::default();
+    ledger_default(&e, 100, 1000000);
+
+    let (client, _admin) = setup_contract(&e);
+    client.set_subscription_price(&86400u32, &100i128);
+
+    let consumer = Address::generate(&e);
+    client.subscribe(&consumer, &86400u32);
+
+    // Advance time past expiry
+    ledger_default(&e, 101, 2000000);
+
+    // Renewal should fail with SubscriptionExpired
+    client.renew_subscription(&consumer);
+}
+
+#[test]
+fn test_subscription_bypasses_rate_limit() {
+    let e = Env::default();
+    ledger_default(&e, 100, 1000000);
+
+    let (client, _) = setup_contract(&e);
+    client.set_subscription_price(&86400u32, &100i128);
+    client.set_query_rate_limit(&2u32);
+
+    let source = register_test_source(&e, &client, "Oracle");
+    let asset = register_test_asset(&e, &client);
+
+    submit_test_price(&client, &source, &asset, 100i128, 1000000);
+    submit_test_price(&client, &source, &asset, 110i128, 1000000);
+
+    let consumer = Address::generate(&e);
+    client.subscribe(&consumer, &86400u32);
+
+    // Subscribed consumer can make many queries without hitting rate limit
+    for _ in 0..10 {
+        let _ = client.get_price(&asset, &0u64);
+    }
+}

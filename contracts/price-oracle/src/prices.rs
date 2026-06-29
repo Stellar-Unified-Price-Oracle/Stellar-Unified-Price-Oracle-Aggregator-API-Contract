@@ -7,11 +7,13 @@ use crate::admin::{
 use crate::events::{
     HistoryPrunedEvent, PriceAggregatedEvent, PriceOverrideExpiredEvent, PriceOverrideRemovedEvent,
     PriceOverrideSetEvent, PriceStaleEvent, PriceSubmittedEvent, SourcesInsufficientEvent,
+    RateLimitExceededEvent,
 };
 use crate::pause::check_not_paused;
 use crate::storage::{
     check_registered_asset, check_source, compute_mean, compute_median, compute_trimmed_mean,
-    get_admin, read_oracle_sources, LEDGER_BUMP, LEDGER_THRESHOLD,
+    get_admin, is_subscribed, read_oracle_sources, LEDGER_BUMP, LEDGER_THRESHOLD,
+    check_rate_limit, increment_query_count,
 };
 use crate::types::{
     AggregatePrice, Asset, DataKey, ErrorCode, OracleSources, PriceData, PriceEntry,
@@ -186,6 +188,12 @@ pub fn submit_price(env: &Env, source: Address, asset: Address, price: i128, tim
 }
 
 pub fn get_price(env: &Env, asset: Address, max_age: u64) -> Option<AggregatePrice> {
+    let consumer = env.invoker();
+    check_rate_limit_and_increment(env, &consumer);
+    get_price_internal(env, asset, max_age)
+}
+
+pub fn get_price_internal(env: &Env, asset: Address, max_age: u64) -> Option<AggregatePrice> {
     check_registered_asset(env, &asset);
     let current_ledger = env.ledger().sequence();
 
@@ -280,6 +288,33 @@ pub fn get_all_prices(env: &Env, asset: Address) -> Vec<PriceEntry> {
         }
     }
     prices
+}
+
+pub fn check_rate_limit_and_increment(env: &Env, consumer: &Address) {
+    if is_subscribed(env, consumer) {
+        return;
+    }
+
+    let ledger = env.ledger().sequence();
+    let rate_limit_key = DataKey::QueryRateLimit;
+    let max_queries: u32 = env.storage().persistent().get(&rate_limit_key).unwrap_or(100);
+
+    let count_key = DataKey::QueryCount(consumer.clone(), ledger);
+    let current_count: u32 = env.storage().temporary().get(&count_key).unwrap_or(0);
+
+    if current_count >= max_queries {
+        RateLimitExceededEvent {
+            consumer: consumer.clone(),
+            current_count,
+            limit: max_queries,
+        }
+        .publish(env);
+        panic_with_error!(env, ErrorCode::RateLimitExceeded);
+    }
+
+    let new_count = current_count + 1;
+    env.storage().temporary().set(&count_key, &new_count);
+    env.storage().temporary().extend_ttl(&count_key, LEDGER_THRESHOLD, LEDGER_BUMP);
 }
 
 pub fn lastprice(env: &Env, asset: Asset) -> Option<PriceData> {
@@ -414,12 +449,11 @@ pub fn prices(env: &Env, asset: Asset, records: u32) -> Option<Vec<PriceData>> {
     Some(result)
 }
 
-#[allow(dead_code)]
 pub fn get_prices(env: &Env, assets: Vec<Address>) -> Vec<Option<AggregatePrice>> {
     let mut results: Vec<Option<AggregatePrice>> = Vec::new(env);
     for i in 0..assets.len() {
         let asset = assets.get_unchecked(i);
-        let price = get_price(env, asset, 0);
+        let price = get_price_internal(env, asset, 0);
         results.push_back(price);
     }
     results
@@ -494,9 +528,7 @@ pub fn get_price_override(env: &Env, asset: Address) -> Option<PriceOverrideEntr
 
 #[allow(dead_code)]
 pub fn get_price_change(env: &Env, asset: Address, ledgers_back: u32) -> Option<i128> {
-    check_registered_asset(env, &asset);
-
-    let current_price = get_price(env, asset.clone(), 0)?;
+    let current_price = get_price_internal(env, asset.clone(), 0)?;
 
     if current_price.price == 0 {
         return None;

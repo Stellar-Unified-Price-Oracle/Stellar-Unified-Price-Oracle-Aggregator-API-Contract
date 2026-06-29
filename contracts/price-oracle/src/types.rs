@@ -2,6 +2,8 @@ use soroban_sdk::{contracttype, Address, Bytes, Map, String, Symbol, Vec};
 
 pub use crate::errors::ErrorCode;
 
+pub type SubscriptionPlans = Map<u32, i128>;
+
 /// Storage keys used to address contract state in persistent, temporary, and instance storage.
 ///
 /// Each variant uniquely identifies a piece of data stored on-chain. Address-keyed variants
@@ -67,6 +69,14 @@ pub enum DataKey {
     PendingOp(u32),
     /// Number of ledgers that must pass between proposing and executing a timelock operation.
     TimelockDuration,
+    /// Tracks the number of queries made by a consumer for a specific ledger.
+    QueryCount(Address, u32),
+    /// Maximum number of queries allowed per ledger for rate limiting.
+    QueryRateLimit,
+    /// Expiry timestamp for a consumer's subscription.
+    SubscriptionExpiry(Address),
+    /// Available subscription plans mapped by duration (seconds) to amount (stroops).
+    SubscriptionPlans,
     PriceOverride(Address),
 }
 
@@ -113,6 +123,28 @@ pub struct PriceOverrideEntry {
     pub reason: String,
     pub expiry_ledger: u32,
     pub set_ledger: u32,
+}
+
+/// Subscription plan configuration.
+///
+/// Stored under [`DataKey::SubscriptionPlan`] or similar key.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct SubscriptionPlan {
+    /// Duration of the subscription plan in seconds.
+    pub duration: u32,
+    /// Cost amount in stroops (i128 for precision).
+    pub amount: i128,
+}
+
+/// Subscription expiry record for a consumer address.
+///
+/// Stored under [`DataKey::SubscriptionExpiry`] keyed by consumer address.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct SubscriptionExpiry {
+    /// Unix timestamp (seconds) at which the subscription expires.
+    pub expiry_timestamp: u64,
 }
 
 /// A snapshot of the aggregate price recorded at a particular ledger.
