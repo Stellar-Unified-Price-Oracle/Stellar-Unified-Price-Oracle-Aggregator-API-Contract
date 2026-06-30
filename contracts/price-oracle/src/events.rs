@@ -542,3 +542,45 @@ pub struct BatchCancelledEvent {
     #[topic]
     pub cancelled_by: Address,
 }
+
+// #65 reputation events
+#[contractevent]
+#[derive(Clone)]
+pub struct SourceReputationUpdatedEvent {
+    #[topic]
+    pub source: Address,
+    pub old_score: i128,
+    pub new_score: i128,
+}
+
+#[contractevent]
+#[derive(Clone)]
+pub struct ReputationDecayChangedEvent {
+    pub value: u32,
+}
+
+// #66 phased removal events
+#[contractevent]
+#[derive(Clone)]
+pub struct SourceMarkedForRemovalEvent {
+    #[topic]
+    pub source: Address,
+    #[topic]
+    pub admin: Address,
+    pub eligible_at_ledger: u32,
+}
+
+#[contractevent]
+#[derive(Clone)]
+pub struct SourceRemovalCancelledEvent {
+    #[topic]
+    pub source: Address,
+    #[topic]
+    pub admin: Address,
+}
+
+#[contractevent]
+#[derive(Clone)]
+pub struct RemovalCooldownChangedEvent {
+    pub value: u32,
+}
