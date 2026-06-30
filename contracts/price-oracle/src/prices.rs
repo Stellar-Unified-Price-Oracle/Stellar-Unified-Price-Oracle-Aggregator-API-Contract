@@ -405,8 +405,20 @@ pub fn submit_price(env: &Env, source: Address, asset: Address, price: i128, tim
 }
 
 pub fn get_price(env: &Env, asset: Address, max_age: u64) -> Option<AggregatePrice> {
+    // ─────────────────────────────────────────────────────────────────────────────
+    // Storage reads (hot path) and when they occur:
+    //  1) check_registered_asset() → DataKey::AssetRegistered(asset)
+    //  2) Override branch (only if not expired):
+    //       DataKey::PriceOverride(asset)
+    //       - if active: also reads global decimals via get_decimals(env)
+    //  3) Aggregate branch:
+    //       DataKey::Aggregate(asset)
+    //       - resolution gating reads per-asset resolution via get_asset_resolution(env, asset)
+    // ─────────────────────────────────────────────────────────────────────────────
+
     check_registered_asset(env, &asset);
     let current_ledger = env.ledger().sequence();
+    let ledger_time = env.ledger().timestamp();
 
     // Check for active price override
     let override_key = DataKey::PriceOverride(asset.clone());
@@ -419,10 +431,12 @@ pub fn get_price(env: &Env, asset: Address, max_age: u64) -> Option<AggregatePri
             env.storage()
                 .persistent()
                 .extend_ttl(&override_key, LEDGER_THRESHOLD, LEDGER_BUMP);
+
+            // Only needed when override is active.
             let decimals = get_decimals(env);
             return Some(AggregatePrice {
                 price: ovr.price,
-                timestamp: env.ledger().timestamp(),
+                timestamp: ledger_time,
                 num_sources: 0,
                 decimals,
                 is_override: true,
@@ -442,36 +456,43 @@ pub fn get_price(env: &Env, asset: Address, max_age: u64) -> Option<AggregatePri
     let key = DataKey::Aggregate(asset.clone());
     let result: AggregatePrice = env.storage().persistent().get(&key)?;
 
-    if max_age > 0 {
-        let ledger_time = env.ledger().timestamp();
-        if result.timestamp.saturating_add(max_age) < ledger_time {
-            PriceStaleEvent {
-                asset: asset.clone(),
-                last_update_ledger: 0,
-                current_ledger,
-            }
-            .publish(env);
-            return None;
+    // max_age gating (if enabled)
+    if max_age > 0 && result
+        .timestamp
+        .saturating_add(max_age)
+        < ledger_time
+    {
+        PriceStaleEvent {
+            asset: asset.clone(),
+            last_update_ledger: 0,
+            current_ledger,
         }
+        .publish(env);
+        return None;
     }
+
+    // resolution gating (if enabled)
     let resolution = get_asset_resolution(env, asset.clone());
-    if resolution > 0 {
-        let ledger_time = env.ledger().timestamp();
-        if result.timestamp.saturating_add(resolution as u64) < ledger_time {
-            PriceStaleEvent {
-                asset: asset.clone(),
-                last_update_ledger: 0,
-                current_ledger,
-            }
-            .publish(env);
-            return None;
+    if resolution > 0 && result
+        .timestamp
+        .saturating_add(resolution as u64)
+        < ledger_time
+    {
+        PriceStaleEvent {
+            asset: asset.clone(),
+            last_update_ledger: 0,
+            current_ledger,
         }
+        .publish(env);
+        return None;
     }
+
     env.storage()
         .persistent()
         .extend_ttl(&key, LEDGER_THRESHOLD, LEDGER_BUMP);
     Some(result)
 }
+
 
 pub fn get_source_price(env: &Env, asset: Address, source: Address) -> PriceEntry {
     check_registered_asset(env, &asset);
