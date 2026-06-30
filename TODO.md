@@ -1,8 +1,6 @@
-- [ ] Gather current admin/source limit patterns (already partially gathered)
-- [x] Update storage/config: add DataKey + getter/setter for max oracle sources (default 50)
-- [x] Update ErrorCode: add MaxSourcesReached
-- [x] Wire admin functions set_max_sources/get_max_sources into contract API + admin module
-- [x] Enforce limit in sources::add_source
-- [ ] Add unit tests for limit enforcement (including rejection when at limit)
-- [ ] Run cargo test to ensure all existing tests pass
-
+- [ ] Understand current median computation implementation
+- [ ] Implement O(n) selection algorithm (quickselect) for compute_median
+- [ ] Ensure correctness parity for odd/even n and i128 boundaries
+- [ ] Add benchmark tests comparing current vs optimized median across source sizes (50+)
+- [ ] Update gas usage tracking / docs with benchmark methodology and observed deltas
+- [ ] Run full test suite (cargo test) and ensure existing tests pass

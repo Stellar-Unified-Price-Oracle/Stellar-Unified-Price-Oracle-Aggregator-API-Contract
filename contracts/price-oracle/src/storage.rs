@@ -21,14 +21,33 @@ pub fn check_source(env: &Env, addr: &Address) {
 }
 
 pub fn check_registered_asset(env: &Env, asset: &Address) {
-    let key = DataKey::AssetRegistered(asset.clone());
-    let is_registered: bool = env.storage().persistent().get(&key).unwrap_or(false);
-    if !is_registered {
+    // Prefer the O(1) membership index.
+    let index_key = DataKey::AssetRegistryIndex(asset.clone());
+    let indexed: bool = env.storage().persistent().get(&index_key).unwrap_or(false);
+    if indexed {
+        env.storage()
+            .persistent()
+            .extend_ttl(&index_key, LEDGER_THRESHOLD, LEDGER_BUMP);
+        return;
+    }
+
+    // Backward compatibility: older deployments only have the legacy
+    // `AssetRegistered(asset)` flag. If it exists, lazily (re)build
+    // the index entry.
+    let legacy_key = DataKey::AssetRegistered(asset.clone());
+    let exists: bool = env.storage().persistent().get(&legacy_key).unwrap_or(false);
+    if !exists {
         panic_with_error!(env, ErrorCode::AssetNotRegistered);
     }
+
     env.storage()
         .persistent()
-        .extend_ttl(&key, LEDGER_THRESHOLD, LEDGER_BUMP);
+        .extend_ttl(&legacy_key, LEDGER_THRESHOLD, LEDGER_BUMP);
+
+    env.storage().persistent().set(&index_key, &true);
+    env.storage()
+        .persistent()
+        .extend_ttl(&index_key, LEDGER_THRESHOLD, LEDGER_BUMP);
 }
 
 /// Sort prices using heapsort — guaranteed O(n log n) worst-case, O(1) extra space.
@@ -100,7 +119,6 @@ pub fn compute_median(prices: &soroban_sdk::Vec<i128>) -> i128 {
         sorted.get_unchecked(n / 2)
     }
 }
-
 
 pub fn compute_mean(prices: &soroban_sdk::Vec<i128>) -> i128 {
     let n = prices.len();

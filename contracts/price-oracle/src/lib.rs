@@ -725,6 +725,46 @@ impl PriceOracleContract {
         sources::get_source_last_heartbeat(&env, source)
     }
 
+    // --- #65: Source Reputation ---
+
+    pub fn get_source_reputation(env: Env, source: Address) -> i128 {
+        sources::get_source_reputation(&env, source)
+    }
+
+    pub fn set_reputation_decay_factor(env: Env, factor: u32) {
+        sources::set_reputation_decay_factor(&env, factor);
+    }
+
+    pub fn get_reputation_decay_factor(env: Env) -> u32 {
+        sources::get_reputation_decay_factor(&env)
+    }
+
+    // --- #66: Phased Source Removal ---
+
+    pub fn mark_source_for_removal(env: Env, source: Address) {
+        sources::mark_source_for_removal(&env, source);
+    }
+
+    pub fn cancel_source_removal(env: Env, source: Address) {
+        sources::cancel_source_removal(&env, source);
+    }
+
+    pub fn finalize_source_removal(env: Env, source: Address) {
+        sources::finalize_source_removal(&env, source);
+    }
+
+    pub fn set_removal_cooldown(env: Env, ledgers: u32) {
+        sources::set_removal_cooldown(&env, ledgers);
+    }
+
+    pub fn get_removal_cooldown(env: Env) -> u32 {
+        sources::get_removal_cooldown(&env)
+    }
+
+    pub fn is_source_pending_removal(env: Env, source: Address) -> bool {
+        sources::is_source_pending_removal(&env, source)
+    }
+
     // --- Assets ---
 
     /// Sets the maximum number of assets that can be registered.
@@ -1623,7 +1663,11 @@ impl PriceOracleContract {
     /// # Errors
     ///
     /// * [`ErrorCode::NotAuthorized`] — if the caller is not the current admin.
-    pub fn add_reference_oracle(env: Env, contract_id: Address, asset_mapping: Map<Address, Address>) {
+    pub fn add_reference_oracle(
+        env: Env,
+        contract_id: Address,
+        asset_mapping: Map<Address, Address>,
+    ) {
         cross_reference::add_reference_oracle(&env, contract_id, asset_mapping);
     }
 
@@ -1684,3 +1728,6 @@ mod test;
 
 #[cfg(test)]
 mod relayer_tests;
+
+#[cfg(test)]
+mod asset_registry_gas_tests;
