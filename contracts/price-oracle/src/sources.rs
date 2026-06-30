@@ -199,3 +199,176 @@ pub fn get_source_last_heartbeat(env: &Env, source: Address) -> u64 {
     let key = DataKey::SrcHeartbeat(source);
     env.storage().persistent().get(&key).unwrap_or(0u64)
 }
+
+// --- #66: Phased source removal ---
+
+const DEFAULT_REMOVAL_COOLDOWN: u32 = 100; // ledgers
+
+pub fn set_removal_cooldown(env: &Env, ledgers: u32) {
+    let admin = get_admin(env);
+    admin.require_auth();
+    env.storage()
+        .persistent()
+        .set(&DataKey::RemovalCooldown, &ledgers);
+    RemovalCooldownChangedEvent { value: ledgers }.publish(env);
+}
+
+pub fn get_removal_cooldown(env: &Env) -> u32 {
+    env.storage()
+        .persistent()
+        .get(&DataKey::RemovalCooldown)
+        .unwrap_or(DEFAULT_REMOVAL_COOLDOWN)
+}
+
+pub fn mark_source_for_removal(env: &Env, source: Address) {
+    let admin = get_admin(env);
+    admin.require_auth();
+    if !env
+        .storage()
+        .persistent()
+        .has(&DataKey::Source(source.clone()))
+    {
+        panic_with_error!(env, ErrorCode::SourceNotFound);
+    }
+    let cooldown = get_removal_cooldown(env);
+    let current_ledger = env.ledger().sequence();
+    let eligible_at = current_ledger + cooldown;
+    env.storage()
+        .persistent()
+        .set(&DataKey::SourcePendingRemoval(source.clone()), &eligible_at);
+    SourceMarkedForRemovalEvent {
+        source: source.clone(),
+        admin: admin.clone(),
+        eligible_at_ledger: eligible_at,
+    }
+    .publish(env);
+}
+
+pub fn cancel_source_removal(env: &Env, source: Address) {
+    let admin = get_admin(env);
+    admin.require_auth();
+    if !env
+        .storage()
+        .persistent()
+        .has(&DataKey::SourcePendingRemoval(source.clone()))
+    {
+        panic_with_error!(env, ErrorCode::SourceNotPendingRemoval);
+    }
+    env.storage()
+        .persistent()
+        .remove(&DataKey::SourcePendingRemoval(source.clone()));
+    SourceRemovalCancelledEvent {
+        source: source.clone(),
+        admin: admin.clone(),
+    }
+    .publish(env);
+}
+
+pub fn finalize_source_removal(env: &Env, source: Address) {
+    let admin = get_admin(env);
+    admin.require_auth();
+    let eligible_at: u32 = env
+        .storage()
+        .persistent()
+        .get(&DataKey::SourcePendingRemoval(source.clone()))
+        .unwrap_or_else(|| panic_with_error!(env, ErrorCode::SourceNotPendingRemoval));
+    if env.ledger().sequence() < eligible_at {
+        panic_with_error!(env, ErrorCode::CooldownNotElapsed);
+    }
+    env.storage()
+        .persistent()
+        .remove(&DataKey::SourcePendingRemoval(source.clone()));
+    // Perform the actual removal (same logic as remove_source)
+    env.storage()
+        .persistent()
+        .remove(&DataKey::Source(source.clone()));
+    let mut oracle_sources: OracleSources = read_oracle_sources(env);
+    let mut new_sources: Vec<Address> = Vec::new(env);
+    for i in 0..oracle_sources.sources.len() {
+        let s = oracle_sources.sources.get_unchecked(i);
+        if s != source {
+            new_sources.push_back(s);
+        }
+    }
+    oracle_sources.sources = new_sources;
+    oracle_sources.metadata.remove(source.clone());
+    env.storage()
+        .persistent()
+        .set(&DataKey::OracleSources, &oracle_sources);
+    SourceRemovedEvent {
+        source: source.clone(),
+        admin: admin.clone(),
+    }
+    .publish(env);
+}
+
+pub fn is_source_pending_removal(env: &Env, source: Address) -> bool {
+    env.storage()
+        .persistent()
+        .has(&DataKey::SourcePendingRemoval(source))
+}
+
+// --- #65: Source reputation ---
+
+const DEFAULT_DECAY_FACTOR: u32 = 10; // out of 100, higher = faster decay towards 50
+const INITIAL_REPUTATION: i128 = 50;
+
+pub fn set_reputation_decay_factor(env: &Env, factor: u32) {
+    let admin = get_admin(env);
+    admin.require_auth();
+    env.storage()
+        .persistent()
+        .set(&DataKey::ReputationDecayFactor, &factor);
+    crate::events::ReputationDecayChangedEvent { value: factor }.publish(env);
+}
+
+pub fn get_reputation_decay_factor(env: &Env) -> u32 {
+    env.storage()
+        .persistent()
+        .get(&DataKey::ReputationDecayFactor)
+        .unwrap_or(DEFAULT_DECAY_FACTOR)
+}
+
+pub fn get_source_reputation(env: &Env, source: Address) -> i128 {
+    env.storage()
+        .persistent()
+        .get(&DataKey::SourceReputation(source))
+        .unwrap_or(INITIAL_REPUTATION)
+}
+
+/// Called after aggregation to update a source's reputation based on deviation from median.
+/// `source_price`: the price submitted by this source
+/// `median_price`: the aggregated median for the asset
+pub fn update_source_reputation(env: &Env, source: &Address, source_price: i128, median_price: i128) {
+    if median_price == 0 {
+        return;
+    }
+    let old_score = get_source_reputation(env, source.clone());
+    let decay = get_reputation_decay_factor(env) as i128;
+
+    // Deviation in basis points (0 = perfect, 10000 = 100% off)
+    let deviation_bps = ((source_price - median_price).abs() * 10_000) / median_price;
+
+    // Accuracy score: 100 if exact, decreasing linearly, floored at 0
+    // 100 bps (~1%) deviation → still near perfect; 5000 bps (50%) → score 0
+    let accuracy: i128 = if deviation_bps >= 5000 {
+        0
+    } else {
+        100 - (deviation_bps * 100 / 5000)
+    };
+
+    // Weighted moving average: new = old * (100 - decay)/100 + accuracy * decay/100
+    let new_score = (old_score * (100 - decay) + accuracy * decay) / 100;
+    let new_score = new_score.clamp(0, 100);
+
+    env.storage()
+        .persistent()
+        .set(&DataKey::SourceReputation(source.clone()), &new_score);
+
+    crate::events::SourceReputationUpdatedEvent {
+        source: source.clone(),
+        old_score,
+        new_score,
+    }
+    .publish(env);
+}
