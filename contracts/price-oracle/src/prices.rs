@@ -6,9 +6,9 @@ use crate::admin::{
     get_timestamp_threshold,
 };
 use crate::events::{
-    AggregationTriggeredEvent, HistoryPrunedEvent, PriceAggregatedEvent,
-    PriceOverrideExpiredEvent, PriceOverrideRemovedEvent, PriceOverrideSetEvent, PriceStaleEvent,
-    PriceSubmittedEvent, SourceNonCompliantEvent, SourcesInsufficientEvent,
+    AggregationTriggeredEvent, HistoryPrunedEvent, PriceAggregatedEvent, PriceOverrideExpiredEvent,
+    PriceOverrideRemovedEvent, PriceOverrideSetEvent, PriceStaleEvent, PriceSubmittedEvent,
+    SourceNonCompliantEvent, SourcesInsufficientEvent,
 };
 use crate::pause::check_not_paused;
 use crate::storage::{
@@ -49,6 +49,8 @@ pub fn submit_prices(env: &Env, source: Address, asset_prices: Vec<(Address, i12
     let threshold = get_timestamp_threshold(env);
     let current_ledger = env.ledger().sequence();
 
+    let mut event_count: u32 = 0;
+
     // Validate all entries first for atomicity — any invalid entry aborts the whole call.
     for i in 0..asset_prices.len() {
         let (ref asset, price, timestamp) = asset_prices.get_unchecked(i);
@@ -86,25 +88,33 @@ pub fn submit_prices(env: &Env, source: Address, asset_prices: Vec<(Address, i12
             .persistent()
             .set(&DataKey::Submission(asset.clone(), source.clone()), &entry);
 
-    // #70: track last submission ledger for compliance
-    env.storage().persistent().set(
-        &DataKey::LastSubmissionLedger(source.clone(), asset.clone()),
-        &current_ledger,
-    );
-    // If source was non-compliant, clear the flag on new submission
-    let nc_key = DataKey::SourceNonCompliant(source.clone(), asset.clone());
-    if env.storage().persistent().has(&nc_key) {
-        env.storage().persistent().remove(&nc_key);
+        // #70: track last submission ledger for compliance
+        env.storage().persistent().set(
+            &DataKey::LastSubmissionLedger(source.clone(), asset.clone()),
+            &current_ledger,
+        );
+        // If source was non-compliant, clear the flag on new submission
+        let nc_key = DataKey::SourceNonCompliant(source.clone(), asset.clone());
+        if env.storage().persistent().has(&nc_key) {
+            env.storage().persistent().remove(&nc_key);
+        }
+
+        PriceSubmittedEvent {
+            asset: asset.clone(),
+            source: source.clone(),
+            price,
+            timestamp,
+        }
+        .publish(env);
+        event_count += 1;
     }
 
-    PriceSubmittedEvent {
-        asset: asset.clone(),
-        source: source.clone(),
-        price,
-        timestamp,
+    // Trigger aggregation for each submitted asset.
+    for i in 0..asset_prices.len() {
+        let (asset, _, _) = asset_prices.get_unchecked(i);
+        aggregate_asset(env, asset, current_ledger, decimals);
     }
-    .publish(env);
-    event_count += 1;
+}
 
 /// Internal helper: re-aggregate all sources for a single asset and write history.
 fn aggregate_asset(env: &Env, asset: &Address, current_ledger: u32, decimals: u32) {
@@ -131,7 +141,10 @@ fn aggregate_asset(env: &Env, asset: &Address, current_ledger: u32, decimals: u3
             let needed = max_agg - kept;
             // Probability of keeping: needed / remaining (integer check).
             // Use a hash of seed XOR index to decide.
-            let h = seed.wrapping_mul(1664525u32).wrapping_add(i).wrapping_add(1013904223u32);
+            let h = seed
+                .wrapping_mul(1664525u32)
+                .wrapping_add(i)
+                .wrapping_add(1013904223u32);
             if needed >= remaining || (h % remaining) < needed {
                 selected.push_back(oracle_sources.sources.get_unchecked(i));
                 kept += 1;
@@ -656,7 +669,6 @@ pub fn prices(env: &Env, asset: Asset, records: u32) -> Option<Vec<PriceData>> {
     Some(result)
 }
 
-
 pub fn override_price(env: &Env, asset: Address, price: i128, reason: String, expiry_ledger: u32) {
     let admin = get_admin(env);
     admin.require_auth();
@@ -729,8 +741,12 @@ pub fn get_price_override(env: &Env, asset: Address) -> Option<PriceOverrideEntr
     env.storage().persistent().get(&override_key)
 }
 
-
-
+pub fn historical_price_change_percent(
+    env: &Env,
+    asset: Address,
+    current_price: AggregatePrice,
+    ledgers_back: u32,
+) -> Option<i128> {
     let current_ledger = env.ledger().sequence();
     let target_ledger = current_ledger.saturating_sub(ledgers_back);
 
@@ -760,11 +776,7 @@ pub fn trigger_aggregation(env: &Env, asset: Address) {
 
     // Check cooldown
     let last_trigger_key = DataKey::LastAggregationTrigger(asset.clone());
-    if let Some(last_triggered) = env
-        .storage()
-        .persistent()
-        .get::<_, u32>(&last_trigger_key)
-    {
+    if let Some(last_triggered) = env.storage().persistent().get::<_, u32>(&last_trigger_key) {
         if current_ledger.saturating_sub(last_triggered) < cooldown {
             panic_with_error!(env, ErrorCode::InvalidConfiguration);
         }
@@ -798,11 +810,7 @@ pub fn trigger_aggregation(env: &Env, asset: Address) {
         }
 
         let sub_key = DataKey::Submission(asset.clone(), src.clone());
-        if let Some(entry_data) = env
-            .storage()
-            .persistent()
-            .get::<_, PriceEntry>(&sub_key)
-        {
+        if let Some(entry_data) = env.storage().persistent().get::<_, PriceEntry>(&sub_key) {
             if entry_data.timestamp > latest_timestamp {
                 latest_timestamp = entry_data.timestamp;
             }
