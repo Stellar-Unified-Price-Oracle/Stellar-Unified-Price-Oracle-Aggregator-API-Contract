@@ -1348,6 +1348,543 @@ fn test_mean_saturating_sum_large_prices() {
     assert_eq!(price.unwrap().price, i128::MAX / 2 + 1);
 }
 
+// ---- Rate Limiting Tests ----
+
+#[test]
+fn test_set_get_query_rate_limit() {
+    let e = Env::default();
+    let (client, _) = setup_contract(&e);
+
+    // Default rate limit is 100 when not explicitly set
+    assert_eq!(client.get_query_rate_limit(), 100u32);
+
+    client.set_query_rate_limit(&50u32);
+    assert_eq!(client.get_query_rate_limit(), 50u32);
+
+    client.set_query_rate_limit(&200u32);
+    assert_eq!(client.get_query_rate_limit(), 200u32);
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #16)")]
+fn test_rate_limit_enforced() {
+    let e = Env::default();
+    ledger_default(&e, 100, 10000);
+    let (client, _) = setup_contract(&e);
+    let asset = register_test_asset(&e, &client);
+
+    client.set_query_rate_limit(&2u32);
+
+    // First two queries within the limit of 2
+    let _ = client.get_price(&asset, &0u64);
+    let _ = client.get_price(&asset, &0u64);
+
+    // Third query exceeds the rate limit → panics with RateLimitExceeded (#16)
+    let _ = client.get_price(&asset, &0u64);
+}
+
+#[test]
+fn test_rate_limit_resets_each_ledger() {
+    let e = Env::default();
+    ledger_default(&e, 100, 10000);
+    let (client, _) = setup_contract(&e);
+    let asset = register_test_asset(&e, &client);
+
+    client.set_query_rate_limit(&2u32);
+
+    // Exhaust the limit on ledger 100
+    let _ = client.get_price(&asset, &0u64);
+    let _ = client.get_price(&asset, &0u64);
+
+    // Advance to a new ledger — rate limit counter should reset
+    ledger_default(&e, 101, 10001);
+
+    // This should succeed because the count is per-ledger
+    let result = client.get_price(&asset, &0u64);
+    assert!(result.is_none());
+}
+
+// ---- Subscription Tests ----
+
+#[test]
+fn test_set_subscription_price_and_get_plans() {
+    let e = Env::default();
+    let (client, _) = setup_contract(&e);
+
+    client.set_subscription_price(&86400u32, &100i128);
+    client.set_subscription_price(&604800u32, &500i128);
+
+    let plans = client.get_subscription_plans();
+    assert_eq!(plans.len(), 2u32);
+    assert_eq!(plans.get(86400u32).unwrap(), 100i128);
+    assert_eq!(plans.get(604800u32).unwrap(), 500i128);
+}
+
+#[test]
+fn test_subscribe_and_get_expiry() {
+    let e = Env::default();
+    ledger_default(&e, 100, 1000000);
+
+    let (client, admin) = setup_contract(&e);
+    client.set_subscription_price(&86400u32, &100i128);
+
+    let consumer = Address::generate(&e);
+    client.subscribe(&consumer, &86400u32);
+
+    let expiry = client.get_subscription_expiry(&consumer);
+    assert_eq!(expiry, 1086400u64);
+}
+
+#[test]
+fn test_renew_subscription() {
+    let e = Env::default();
+    ledger_default(&e, 100, 1000000);
+
+    let (client, _admin) = setup_contract(&e);
+    client.set_subscription_price(&86400u32, &100i128);
+
+    let consumer = Address::generate(&e);
+    client.subscribe(&consumer, &86400u32);
+
+    let expiry_before = client.get_subscription_expiry(&consumer);
+    assert_eq!(expiry_before, 1086400u64);
+
+    client.renew_subscription(&consumer);
+
+    let expiry_after = client.get_subscription_expiry(&consumer);
+    assert_eq!(expiry_after, 1086400u64 + 86400u64);
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #18)")]
+fn test_renew_expired_subscription() {
+    let e = Env::default();
+    ledger_default(&e, 100, 1000000);
+
+    let (client, _admin) = setup_contract(&e);
+    client.set_subscription_price(&86400u32, &100i128);
+
+    let consumer = Address::generate(&e);
+    client.subscribe(&consumer, &86400u32);
+
+    // Advance time past expiry
+    ledger_default(&e, 101, 2000000);
+
+    // Renewal should fail with SubscriptionExpired
+    client.renew_subscription(&consumer);
+}
+
+// ==== Frontrunning Prevention Tests ====
+//
+// Median aggregation is inherently resistant to frontrunning because the
+// result depends solely on the set of submitted price values, not on the
+// order in which those prices are submitted. The contract sorts all valid
+// prices before computing the median (see `compute_median` in storage.rs),
+// so any permutation of the same price set yields an identical median.
+//
+// An attacker who observes pending transactions ("mempool") cannot bias the
+// oracle output by reordering their own submission, because the median is
+// computed post-sort. Only the aggregate timestamp updates to the latest
+// individual submission timestamp, which does not change the price outcome.
+
+// --- Test 1: Ordering independence ---
+// Submitting the same prices in different orders produces the identical median.
+#[test]
+fn test_median_ordering_independent() {
+    let e = Env::default();
+    ledger_default(&e, 100, 1234567890);
+
+    let (client, _) = setup_contract(&e);
+    client.set_min_sources_required(&3u32);
+
+    let source1 = register_test_source(&e, &client, "A");
+    let source2 = register_test_source(&e, &client, "B");
+    let source3 = register_test_source(&e, &client, "C");
+    let asset = register_test_asset(&e, &client);
+
+    // Submission order A (ascending): 100, 150, 200 → median = 150
+    submit_test_price(&client, &source1, &asset, 100i128, 1234567890);
+    submit_test_price(&client, &source2, &asset, 150i128, 1234567890);
+    submit_test_price(&client, &source3, &asset, 200i128, 1234567890);
+
+    let price_asc = client.get_price(&asset, &0u64).unwrap();
+    assert_eq!(price_asc.price, 150i128);
+
+    // Reset by removing and re-registering the asset (creates a fresh oracle env)
+    let e2 = Env::default();
+    ledger_default(&e2, 100, 1234567890);
+    let (client2, _) = setup_contract(&e2);
+    client2.set_min_sources_required(&3u32);
+
+    let src1 = register_test_source(&e2, &client2, "A");
+    let src2 = register_test_source(&e2, &client2, "B");
+    let src3 = register_test_source(&e2, &client2, "C");
+    let asset2 = register_test_asset(&e2, &client2);
+
+    // Submission order B (descending): 200, 150, 100 → median = 150 (same result)
+    submit_test_price(&client2, &src3, &asset2, 200i128, 1234567890);
+    submit_test_price(&client2, &src2, &asset2, 150i128, 1234567890);
+    submit_test_price(&client2, &src1, &asset2, 100i128, 1234567890);
+
+    let price_desc = client2.get_price(&asset2, &0u64).unwrap();
+    assert_eq!(price_desc.price, 150i128);
+
+    // --- Submission order C (random/out-of-order): 200, 100, 150 → median = 150 (same result)
+    let e3 = Env::default();
+    ledger_default(&e3, 100, 1234567890);
+    let (client3, _) = setup_contract(&e3);
+    client3.set_min_sources_required(&3u32);
+
+    let s1 = register_test_source(&e3, &client3, "A");
+    let s2 = register_test_source(&e3, &client3, "B");
+    let s3 = register_test_source(&e3, &client3, "C");
+    let asset3 = register_test_asset(&e3, &client3);
+
+    submit_test_price(&client3, &s3, &asset3, 200i128, 1234567890);
+    submit_test_price(&client3, &s1, &asset3, 100i128, 1234567890);
+    submit_test_price(&client3, &s2, &asset3, 150i128, 1234567890);
+
+    let price_mixed = client3.get_price(&asset3, &0u64).unwrap();
+    assert_eq!(price_mixed.price, 150i128);
+}
+
+// --- Test 2: Multi-source submissions with different timestamps ---
+// Prices submitted at different timestamps still converge to the same median.
+// Only the aggregate's `timestamp` field reflects the latest submission; the
+// `price` (median) is unchanged by timestamp variation.
+#[test]
+fn test_median_resistant_to_timestamp_manipulation() {
+    let e = Env::default();
+    ledger_default(&e, 100, 1234567890);
+
+    let (client, _) = setup_contract(&e);
+    client.set_min_sources_required(&3u32);
+
+    let source1 = register_test_source(&e, &client, "Chainlink");
+    let source2 = register_test_source(&e, &client, "Band");
+    let source3 = register_test_source(&e, &client, "Redstone");
+    let asset = register_test_asset(&e, &client);
+
+    // Scenario A: all sources submit at the same timestamp
+    submit_test_price(&client, &source1, &asset, 100i128, 1000);
+    submit_test_price(&client, &source2, &asset, 200i128, 1000);
+    submit_test_price(&client, &source3, &asset, 300i128, 1000);
+
+    let price_same_ts = client.get_price(&asset, &0u64).unwrap();
+    assert_eq!(price_same_ts.price, 200i128);
+    assert_eq!(price_same_ts.timestamp, 1000u64);
+
+    // Scenario B: same prices but source1 tries to frontrun by submitting a slightly
+    // different timestamp early. The median price must remain 200.
+    let e2 = Env::default();
+    ledger_default(&e2, 100, 1234567890);
+    let (client2, _) = setup_contract(&e2);
+    client2.set_min_sources_required(&3u32);
+
+    let src1 = register_test_source(&e2, &client2, "Chainlink");
+    let src2 = register_test_source(&e2, &client2, "Band");
+    let src3 = register_test_source(&e2, &client2, "Redstone");
+    let asset2 = register_test_asset(&e2, &client2);
+
+    // Frontrunner submits early with a different timestamp but same price value
+    submit_test_price(&client2, &src1, &asset2, 100i128, 500);
+    submit_test_price(&client2, &src2, &asset2, 200i128, 1500);
+    submit_test_price(&client2, &src3, &asset2, 300i128, 2000);
+
+    let price_diff_ts = client2.get_price(&asset2, &0u64).unwrap();
+    assert_eq!(price_diff_ts.price, 200i128);
+    // The aggregate timestamp is the MAX of individual timestamps
+    assert_eq!(price_diff_ts.timestamp, 2000u64);
+
+    // Even though timestamps differ, the median PRICE is identical
+    assert_eq!(price_same_ts.price, price_diff_ts.price);
+}
+
+// --- Test 3: Frontrun resistance with adversarial price arrangement ---
+// An attacker sees pending prices [50, 100, 150, 200, 250] (median = 150).
+// Attacker submits a price to try to shift the median. We verify that with
+// 5 sources, the median can only be changed by changing the actual price
+// set — not by modifying the submission order or by adding an outlier.
+#[test]
+fn test_median_frontrun_resistance_adversarial() {
+    let e = Env::default();
+    ledger_default(&e, 100, 1234567890);
+
+    let (client, _) = setup_contract(&e);
+    client.set_min_sources_required(&5u32);
+
+    // 5 honest sources submitting prices across a range
+    let honest1 = register_test_source(&e, &client, "Honest1");
+    let honest2 = register_test_source(&e, &client, "Honest2");
+    let honest3 = register_test_source(&e, &client, "Honest3");
+    let honest4 = register_test_source(&e, &client, "Honest4");
+    let honest5 = register_test_source(&e, &client, "Honest5");
+    let asset = register_test_asset(&e, &client);
+
+    // Honest submissions in random order: 250, 50, 100, 200, 150
+    // Sorted: [50, 100, 150, 200, 250] → median = 150
+    submit_test_price(&client, &honest1, &asset, 250i128, 1000);
+    submit_test_price(&client, &honest2, &asset, 50i128, 1000);
+    submit_test_price(&client, &honest3, &asset, 100i128, 1000);
+    submit_test_price(&client, &honest4, &asset, 200i128, 1000);
+    submit_test_price(&client, &honest5, &asset, 150i128, 1000);
+
+    let honest_price = client.get_price(&asset, &0u64).unwrap();
+    assert_eq!(honest_price.price, 150i128);
+    assert_eq!(honest_price.num_sources, 5u32);
+
+    // Now a frontrunner submits after seeing the honest prices above.
+    // They can choose any price. The median of 6 values is still determined
+    // by the sorted middle two values, so it cannot be shifted unless the
+    // frontrunner's price pushes past the existing median.
+    let e2 = Env::default();
+    ledger_default(&e2, 100, 1234567890);
+    let (client2, _) = setup_contract(&e2);
+    client2.set_min_sources_required(&5u32);
+
+    let h1 = register_test_source(&e2, &client2, "Honest1");
+    let h2 = register_test_source(&e2, &client2, "Honest2");
+    let h3 = register_test_source(&e2, &client2, "Honest3");
+    let h4 = register_test_source(&e2, &client2, "Honest4");
+    let h5 = register_test_source(&e2, &client2, "Honest5");
+    let frontrunner = register_test_source(&e2, &client2, "Frontrunner");
+    let asset2 = register_test_asset(&e2, &client2);
+
+    // Honest prices same as before
+    submit_test_price(&client2, &h1, &asset2, 250i128, 1000);
+    submit_test_price(&client2, &h2, &asset2, 50i128, 1000);
+    submit_test_price(&client2, &h3, &asset2, 100i128, 1000);
+    submit_test_price(&client2, &h4, &asset2, 200i128, 1000);
+    submit_test_price(&client2, &h5, &asset2, 150i128, 1000);
+
+    // Frontrunner tries to push median higher by submitting a high price
+    // Sorted 6 values: [50, 100, 150, 200, 250, 900] → median = (150 + 200) / 2 = 175
+    // With a moderate price (140): [50, 100, 140, 150, 200, 250] → median = (140 + 150) / 2 = 145
+    submit_test_price(&client2, &frontrunner, &asset2, 900i128, 2000);
+
+    let attacked_price = client2.get_price(&asset2, &0u64).unwrap();
+    // Even with an extreme outliers, the median of 6 values [50, 100, 150, 200, 250, 900]
+    // becomes (150 + 200) / 2 = 175 (median of even-length sorted list)
+    assert_eq!(attacked_price.price, 175i128);
+    // The honest 5-source median alone was 150 — an extreme outlier only shifts
+    // it by one position because median is robust to extremes.
+    assert!((attacked_price.price - 150i128).abs() <= 50i128);
+}
+
+// --- Test 4: Median is identical regardless of which source submits last ---
+// The last-submitted price does not get priority in the median sort. This
+// prevents a frontrunner from gaming the result by being the final caller.
+#[test]
+fn test_median_last_submission_has_no_priority() {
+    let e = Env::default();
+    ledger_default(&e, 100, 1234567890);
+
+    let (client, _) = setup_contract(&e);
+    client.set_min_sources_required(&3u32);
+
+    let source1 = register_test_source(&e, &client, "A");
+    let source2 = register_test_source(&e, &client, "B");
+    let source3 = register_test_source(&e, &client, "C");
+    let asset = register_test_asset(&e, &client);
+
+    // Source with the "attacker" price submits last but the median is still fair
+    submit_test_price(&client, &source1, &asset, 100i128, 1000);
+    submit_test_price(&client, &source2, &asset, 200i128, 1000);
+    submit_test_price(&client, &source3, &asset, 150i128, 3000); // last, middle value
+
+    let price = client.get_price(&asset, &0u64).unwrap();
+    assert_eq!(price.price, 150i128);
+    assert_eq!(price.num_sources, 3u32);
+
+    // Flip order: make source3 submit first
+    let e2 = Env::default();
+    ledger_default(&e2, 100, 1234567890);
+    let (client2, _) = setup_contract(&e2);
+    client2.set_min_sources_required(&3u32);
+
+    let s1 = register_test_source(&e2, &client2, "A");
+    let s2 = register_test_source(&e2, &client2, "B");
+    let s3 = register_test_source(&e2, &client2, "C");
+    let asset2 = register_test_asset(&e2, &client2);
+
+    submit_test_price(&client2, &s3, &asset2, 150i128, 1000); // "attacker" value submitted first
+    submit_test_price(&client2, &s1, &asset2, 100i128, 2000);
+    submit_test_price(&client2, &s2, &asset2, 200i128, 3000);
+
+    let price2 = client2.get_price(&asset2, &0u64).unwrap();
+    assert_eq!(price2.price, 150i128);
+    assert_eq!(price.price, price2.price);
+}
+
+// --- Test 5: Even count — frontrun cannot pick which two values form the median ---
+#[test]
+fn test_median_even_sources_frontrun_resistant() {
+    let e = Env::default();
+    ledger_default(&e, 100, 1234567890);
+
+    let (client, _) = setup_contract(&e);
+    client.set_min_sources_required(&4u32);
+
+    let source1 = register_test_source(&e, &client, "A");
+    let source2 = register_test_source(&e, &client, "B");
+    let source3 = register_test_source(&e, &client, "C");
+    let source4 = register_test_source(&e, &client, "D");
+    let asset = register_test_asset(&e, &client);
+
+    // 4 honest sources: 100, 200, 300, 400 → median = (200 + 300) / 2 = 250
+    submit_test_price(&client, &source1, &asset, 100i128, 1000);
+    submit_test_price(&client, &source2, &asset, 200i128, 1000);
+    submit_test_price(&client, &source3, &asset, 300i128, 1000);
+    submit_test_price(&client, &source4, &asset, 400i128, 1000);
+
+    let honest_price = client.get_price(&asset, &0u64).unwrap();
+    assert_eq!(honest_price.price, 250i128);
+
+    // Try a different submission order → same median
+    let e2 = Env::default();
+    ledger_default(&e2, 100, 1234567890);
+    let (client2, _) = setup_contract(&e2);
+    client2.set_min_sources_required(&4u32);
+
+    let s1 = register_test_source(&e2, &client2, "A");
+    let s2 = register_test_source(&e2, &client2, "B");
+    let s3 = register_test_source(&e2, &client2, "C");
+    let s4 = register_test_source(&e2, &client2, "D");
+    let asset2 = register_test_asset(&e2, &client2);
+
+    submit_test_price(&client2, &s4, &asset2, 400i128, 1000);
+    submit_test_price(&client2, &s1, &asset2, 100i128, 1000);
+    submit_test_price(&client2, &s3, &asset2, 300i128, 1000);
+    submit_test_price(&client2, &s2, &asset2, 200i128, 1000);
+
+    let reordered_price = client2.get_price(&asset2, &0u64).unwrap();
+    assert_eq!(reordered_price.price, 250i128);
+    assert_eq!(honest_price.price, reordered_price.price);
+}
+
+// --- Test 6: Outlier injection does not bias the median ---
+// Adding many extreme prices from frontrunning sources does not shift the
+// median unless they genuinely outnumber the honest middle values.
+#[test]
+fn test_median_outlier_injection_resistant() {
+    let e = Env::default();
+    ledger_default(&e, 100, 1234567890);
+
+    let (client, _) = setup_contract(&e);
+    client.set_min_sources_required(&7u32);
+
+    let h1 = register_test_source(&e, &client, "H1");
+    let h2 = register_test_source(&e, &client, "H2");
+    let h3 = register_test_source(&e, &client, "H3");
+    let h4 = register_test_source(&e, &client, "H4");
+    let h5 = register_test_source(&e, &client, "H5");
+    let h6 = register_test_source(&e, &client, "H6");
+    let h7 = register_test_source(&e, &client, "H7");
+    let asset = register_test_asset(&e, &client);
+
+    // Honest cluster around 150-170, sorted: [150, 155, 160, 165, 170, 500, 1000]
+    // Median = 165
+    submit_test_price(&client, &h1, &asset, 150i128, 1000);
+    submit_test_price(&client, &h2, &asset, 155i128, 1000);
+    submit_test_price(&client, &h3, &asset, 160i128, 1000);
+    submit_test_price(&client, &h4, &asset, 165i128, 1000);
+    submit_test_price(&client, &h5, &asset, 170i128, 1000);
+    submit_test_price(&client, &h6, &asset, 500i128, 1000);
+    submit_test_price(&client, &h7, &asset, 1000i128, 1000);
+
+    let price = client.get_price(&asset, &0u64).unwrap();
+    assert_eq!(price.price, 165i128);
+
+    // Add 2 extreme outliers (frontrunners). With 9 total:
+    // Sorted: [150, 155, 160, 165, 170, 500, 1000, 1_000_000, 1_000_001]
+    // Median (index 4) = 170 — only shifted by 5 due to outliers
+    let e2 = Env::default();
+    ledger_default(&e2, 100, 1234567890);
+    let (client2, _) = setup_contract(&e2);
+    client2.set_min_sources_required(&7u32);
+
+    let h1b = register_test_source(&e2, &client2, "H1");
+    let h2b = register_test_source(&e2, &client2, "H2");
+    let h3b = register_test_source(&e2, &client2, "H3");
+    let h4b = register_test_source(&e2, &client2, "H4");
+    let h5b = register_test_source(&e2, &client2, "H5");
+    let h6b = register_test_source(&e2, &client2, "H6");
+    let h7b = register_test_source(&e2, &client2, "H7");
+    let f1 = register_test_source(&e2, &client2, "Front1");
+    let f2 = register_test_source(&e2, &client2, "Front2");
+    let asset2 = register_test_asset(&e2, &client2);
+
+    submit_test_price(&client2, &h1b, &asset2, 150i128, 1000);
+    submit_test_price(&client2, &h2b, &asset2, 155i128, 1000);
+    submit_test_price(&client2, &h3b, &asset2, 160i128, 1000);
+    submit_test_price(&client2, &h4b, &asset2, 165i128, 1000);
+    submit_test_price(&client2, &h5b, &asset2, 170i128, 1000);
+    submit_test_price(&client2, &h6b, &asset2, 500i128, 1000);
+    submit_test_price(&client2, &h7b, &asset2, 1000i128, 1000);
+    submit_test_price(&client2, &f1, &asset2, 1_000_000i128, 2000);
+    submit_test_price(&client2, &f2, &asset2, 1_000_001i128, 2000);
+
+    let attacked_price = client2.get_price(&asset2, &0u64).unwrap();
+    // Median of 9 values is the middle (index 4): sorted = [150,155,160,165,170,500,1000,1M,1M+1]
+    assert_eq!(attacked_price.price, 170i128);
+    // Outliers shifted the median by only 5 (from 165 to 170), demonstrating resistance
+    assert!((attacked_price.price - 165i128).abs() <= 10i128);
+}
+
+// --- Test 7: Duplicate price values across sources (cloning attack) ---
+// A frontrunner cannot inflate their influence by submitting multiple times —
+// each source is keyed by address, so duplicate submissions from the same
+// source overwrite the previous one and still count as a single contributor.
+#[test]
+fn test_median_duplicate_source_no_inflation() {
+    let e = Env::default();
+    ledger_default(&e, 100, 1234567890);
+
+    let (client, _) = setup_contract(&e);
+    client.set_min_sources_required(&2u32);
+
+    let source1 = register_test_source(&e, &client, "Source1");
+    let source2 = register_test_source(&e, &client, "Source2");
+    let asset = register_test_asset(&e, &client);
+
+    // Source1 submits 100, then "frontruns" by submitting 500.
+    // Since it is the same source, the old submission is overwritten.
+    submit_test_price(&client, &source1, &asset, 100i128, 1000);
+    submit_test_price(&client, &source2, &asset, 150i128, 1000);
+
+    let first_agg = client.get_price(&asset, &0u64).unwrap();
+    assert_eq!(first_agg.price, 125i128); // median(100, 150) = 100 + (150-100)/2 = 125
+    assert_eq!(first_agg.num_sources, 2u32);
+
+    // Source1 overwrites their submission with a higher price
+    submit_test_price(&client, &source1, &asset, 500i128, 2000);
+    let second_agg = client.get_price(&asset, &0u64).unwrap();
+    assert_eq!(second_agg.price, 325i128); // median(500, 150) = 325
+    // Still only 2 contributors — the overwrite did not inflate the count
+    assert_eq!(second_agg.num_sources, 2u32);
+}
+
+#[test]
+fn test_subscription_bypasses_rate_limit() {
+    let e = Env::default();
+    ledger_default(&e, 100, 1000000);
+
+    let (client, _) = setup_contract(&e);
+    client.set_subscription_price(&86400u32, &100i128);
+    client.set_query_rate_limit(&2u32);
+
+    let source = register_test_source(&e, &client, "Oracle");
+    let asset = register_test_asset(&e, &client);
+
+    submit_test_price(&client, &source, &asset, 100i128, 1000000);
+    submit_test_price(&client, &source, &asset, 110i128, 1000000);
+
+    let consumer = Address::generate(&e);
+    client.subscribe(&consumer, &86400u32);
+
+    // Subscribed consumer can make many queries without hitting rate limit
+    for _ in 0..10 {
+        let _ = client.get_price(&asset, &0u64);
 // ===== Issue #85: Strict Input Validation Tests =====
 
 // --- add_source name validation ---

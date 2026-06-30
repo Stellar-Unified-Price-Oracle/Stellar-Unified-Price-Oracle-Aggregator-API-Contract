@@ -42,5 +42,11 @@ pub enum ErrorCode {
     OperationNotFound = 14,
     /// The submitted price is below the asset's configured minimum price floor.
     PriceBelowMinimum = 15,
+    /// Rate limit exceeded for an operation (e.g., too many price submissions).
+    RateLimitExceeded = 16,
+    /// The requested subscription plan duration does not exist.
+    InvalidDuration = 17,
+    /// The consumer's subscription has expired.
+    SubscriptionExpired = 18,
     Reentrant = 16,
 }

@@ -13,7 +13,8 @@ use crate::events::{
 use crate::pause::check_not_paused;
 use crate::storage::{
     check_registered_asset, check_source, compute_mean, compute_median, compute_trimmed_mean,
-    get_admin, read_oracle_sources, LEDGER_BUMP, LEDGER_THRESHOLD,
+    get_admin, is_subscribed, read_oracle_sources, LEDGER_BUMP, LEDGER_THRESHOLD,
+    check_rate_limit, increment_query_count,
 };
 use crate::types::{
     AggregatePrice, Asset, DataKey, ErrorCode, OracleSources, PriceData, PriceEntry,
@@ -530,6 +531,33 @@ pub fn get_all_prices(env: &Env, asset: Address) -> Vec<PriceEntry> {
         }
     }
     prices
+}
+
+pub fn check_rate_limit_and_increment(env: &Env, consumer: &Address) {
+    if is_subscribed(env, consumer) {
+        return;
+    }
+
+    let ledger = env.ledger().sequence();
+    let rate_limit_key = DataKey::QueryRateLimit;
+    let max_queries: u32 = env.storage().persistent().get(&rate_limit_key).unwrap_or(100);
+
+    let count_key = DataKey::QueryCount(consumer.clone(), ledger);
+    let current_count: u32 = env.storage().temporary().get(&count_key).unwrap_or(0);
+
+    if current_count >= max_queries {
+        RateLimitExceededEvent {
+            consumer: consumer.clone(),
+            current_count,
+            limit: max_queries,
+        }
+        .publish(env);
+        panic_with_error!(env, ErrorCode::RateLimitExceeded);
+    }
+
+    let new_count = current_count + 1;
+    env.storage().temporary().set(&count_key, &new_count);
+    env.storage().temporary().extend_ttl(&count_key, LEDGER_THRESHOLD, LEDGER_BUMP);
 }
 
 pub fn lastprice(env: &Env, asset: Asset) -> Option<PriceData> {

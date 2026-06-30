@@ -3,11 +3,16 @@ use soroban_sdk::{panic_with_error, symbol_short, Address, Bytes, Env, String};
 use crate::events::{
     emit_initialized, emit_max_price_deviation_changed, emit_timestamp_threshold_changed,
     AdminChangedEvent, ContractUpgradedEvent, DecimalsChangedEvent, DescriptionChangedEvent,
+    HeartbeatIntervalChangedEvent, MaxHistoryChangedEvent, MinSourcesChangedEvent,
+    QueryRateLimitChangedEvent, ResolutionChangedEvent,
+};
+use crate::storage::{
+    get_admin, read_oracle_sources, read_subscription_plans, write_subscription_plans,
+    DEFAULT_QUERY_RATE_LIMIT, LEDGER_BUMP, LEDGER_THRESHOLD,
     HeartbeatIntervalChangedEvent, MaxAggregationSourcesChangedEvent, MaxEventsPerCallChangedEvent,
     MaxHistoryChangedEvent, MaxHistoryPerAssetChangedEvent, MinSourcesChangedEvent,
     ResolutionChangedEvent,
 };
-use crate::storage::{get_admin, read_oracle_sources, LEDGER_BUMP, LEDGER_THRESHOLD};
 use crate::types::{AggregationMethod, DataKey, ErrorCode, OracleSources};
 
 const DEFAULT_MAX_HISTORY: u32 = 100;
@@ -94,6 +99,10 @@ pub fn initialize(
     env.storage().persistent().set(
         &DataKey::CfgAggregationMethod,
         &(AggregationMethod::Median as u32),
+    );
+    env.storage().persistent().set(
+        &DataKey::QueryRateLimit,
+        &DEFAULT_QUERY_RATE_LIMIT,
     );
     let init_admin: Address = env.storage().persistent().get(&DataKey::Admin).unwrap();
     emit_initialized(
@@ -381,11 +390,18 @@ pub fn get_heartbeat_interval(env: &Env) -> u64 {
         .unwrap_or(DEFAULT_HEARTBEAT_INTERVAL)
 }
 
+pub fn set_query_rate_limit(env: &Env, max_per_ledger: u32) {
 pub fn set_max_assets(env: &Env, new_max: u32) {
     let admin = get_admin(env);
     admin.require_auth();
     env.storage()
         .persistent()
+        .set(&DataKey::QueryRateLimit, &max_per_ledger);
+    QueryRateLimitChangedEvent { value: max_per_ledger }.publish(env);
+}
+
+pub fn get_query_rate_limit(env: &Env) -> u32 {
+    let key = DataKey::QueryRateLimit;
         .set(&DataKey::MaxAssets, &new_max);
 }
 
@@ -399,5 +415,14 @@ pub fn get_max_assets(env: &Env) -> u32 {
     env.storage()
         .persistent()
         .get(&key)
+        .unwrap_or(DEFAULT_QUERY_RATE_LIMIT)
+}
+
+pub fn set_subscription_price(env: &Env, duration: u32, amount: i128) {
+    let admin = get_admin(env);
+    admin.require_auth();
+    let mut plans = read_subscription_plans(env);
+    plans.set(duration, amount);
+    write_subscription_plans(env, &plans);
         .unwrap_or(DEFAULT_MAX_ASSETS)
 }
