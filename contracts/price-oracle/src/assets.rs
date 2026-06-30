@@ -26,8 +26,15 @@ pub fn register_asset(env: &Env, asset: Address) {
     env.storage()
         .persistent()
         .set(&DataKey::AssetRegistered(asset.clone()), &true);
+
+    // O(1) membership index (new): keep in sync with the Vec.
+    env.storage()
+        .persistent()
+        .set(&DataKey::AssetRegistryIndex(asset.clone()), &true);
+
     assets.push_back(asset.clone());
     write_registered_assets(env, &assets);
+
     AssetRegisteredEvent {
         asset: asset.clone(),
         admin: admin.clone(),
@@ -43,9 +50,16 @@ pub fn unregister_asset(env: &Env, asset: Address) {
     env.storage()
         .persistent()
         .remove(&DataKey::AssetRegistered(asset.clone()));
+
+    // O(1) membership index (new).
+    env.storage()
+        .persistent()
+        .remove(&DataKey::AssetRegistryIndex(asset.clone()));
+
     env.storage()
         .persistent()
         .remove(&DataKey::Aggregate(asset.clone()));
+
     let assets = read_registered_assets(env);
     let mut new_assets: Vec<Address> = Vec::new(env);
     for i in 0..assets.len() {
@@ -64,12 +78,30 @@ pub fn unregister_asset(env: &Env, asset: Address) {
 }
 
 pub fn is_asset_registered(env: &Env, asset: Address) -> bool {
-    let key = DataKey::AssetRegistered(asset);
-    let exists: bool = env.storage().persistent().get(&key).unwrap_or(false);
+    // Prefer the O(1) index. For backwards compatibility with older
+    // deployments, fall back to the legacy `AssetRegistered(addr)` flag and
+    // lazily (re)build the index when needed.
+    let index_key = DataKey::AssetRegistryIndex(asset.clone());
+    let indexed: bool = env.storage().persistent().get(&index_key).unwrap_or(false);
+    if indexed {
+        env.storage()
+            .persistent()
+            .extend_ttl(&index_key, LEDGER_THRESHOLD, LEDGER_BUMP);
+        return true;
+    }
+
+    let legacy_key = DataKey::AssetRegistered(asset.clone());
+    let exists: bool = env.storage().persistent().get(&legacy_key).unwrap_or(false);
     if exists {
         env.storage()
             .persistent()
-            .extend_ttl(&key, LEDGER_THRESHOLD, LEDGER_BUMP);
+            .extend_ttl(&legacy_key, LEDGER_THRESHOLD, LEDGER_BUMP);
+
+        // Lazy migration: populate index entry.
+        env.storage().persistent().set(&index_key, &true);
+        env.storage()
+            .persistent()
+            .extend_ttl(&index_key, LEDGER_THRESHOLD, LEDGER_BUMP);
     }
     exists
 }

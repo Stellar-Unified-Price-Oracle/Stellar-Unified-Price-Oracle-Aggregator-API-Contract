@@ -82,8 +82,16 @@ pub enum DataKey {
     // --- Asset registry (prefix: Asset) ---
     /// Existence flag for a registered asset (`true` when present).
     AssetRegistered(Address),
-    /// Ordered list of all registered asset addresses.
+    /// Ordered list of all registered asset addresses (used for enumeration).
     AssetRegistry,
+
+    /// O(1) membership index: `true` when an asset address is registered.
+    ///
+    /// Kept separate from `AssetRegistry` so we can provide efficient
+    /// `is_asset_registered` / `check_registered_asset` lookups while
+    /// preserving the historical ordering exposed by `assets()`.
+    AssetRegistryIndex(Address),
+
     /// Optional [`AssetMetadata`] attached to a registered asset.
     AssetMetadata(Address),
     /// Optional minimum accepted price (`i128`) for a registered asset.
