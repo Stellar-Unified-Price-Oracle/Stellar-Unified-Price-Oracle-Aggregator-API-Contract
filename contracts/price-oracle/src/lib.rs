@@ -37,7 +37,7 @@ pub use types::{
 
 use soroban_sdk::{contract, contractimpl, panic_with_error, Address, Env, String, Symbol, Vec};
 
-use crate::storage::read_registered_assets;
+use crate::storage::{enter_reentrancy_guard, exit_reentrancy_guard, read_registered_assets};
 
 /// Stellar Unified Price Oracle — a multi-source, aggregating price oracle smart contract.
 ///
