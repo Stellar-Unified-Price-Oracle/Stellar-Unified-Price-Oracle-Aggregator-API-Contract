@@ -1,0 +1,6 @@
+- [ ] Understand current median computation implementation
+- [ ] Implement O(n) selection algorithm (quickselect) for compute_median
+- [ ] Ensure correctness parity for odd/even n and i128 boundaries
+- [ ] Add benchmark tests comparing current vs optimized median across source sizes (50+)
+- [ ] Update gas usage tracking / docs with benchmark methodology and observed deltas
+- [ ] Run full test suite (cargo test) and ensure existing tests pass

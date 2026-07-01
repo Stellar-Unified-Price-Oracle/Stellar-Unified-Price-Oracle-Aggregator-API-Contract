@@ -49,6 +49,14 @@ All 56 tests should pass with zero warnings.
 - Include the error code, the function called, and a minimal reproduction.
 - For feature requests, describe the use case and how it fits the oracle aggregator model.
 
+## Governance Proposals
+
+For proposals related to contract upgrades, parameter changes, source additions/removals, or asset management, use the standardized template:
+
+👉 [Governance Proposal Template](docs/governance-proposal-template.md)
+
+Submit completed proposals as a GitHub issue or pull request for community review before any on-chain action is taken.
+
 ## License
 
 By contributing, you agree that your contributions will be licensed under the MIT License.

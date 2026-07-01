@@ -2,15 +2,32 @@ use soroban_sdk::{contracttype, Address, Bytes, Map, String, Symbol, Vec};
 
 pub use crate::errors::ErrorCode;
 
+pub type SubscriptionPlans = Map<u32, i128>;
+
 /// Storage keys used to address contract state in persistent, temporary, and instance storage.
 ///
-/// Each variant uniquely identifies a piece of data stored on-chain. Address-keyed variants
-/// allow per-address records while symbol-keyed variants hold global configuration.
+/// ## Key Schema (namespace → variants)
+///
+/// | Namespace | Prefix | Variants |
+/// |-----------|--------|----------|
+/// | Admin identity | (none) | `Admin` |
+/// | Global config | `Cfg` | `CfgMinSources`, `CfgMaxHistory`, `CfgResolution`, `CfgDecimals`, `CfgDescription`, `CfgTimestampThreshold`, `CfgMaxDeviation`, `CfgHeartbeatInterval`, `CfgMaxInvalidSubs`, `CfgAggregationMethod`, `CfgPauseFlag`, `CfgTimelockDuration` |
+/// | Source registry | `Src` | `SrcActive(addr)`, `SrcRegistry`, `SrcHeartbeat(addr)`, `SrcInactive(addr)` |
+/// | Asset registry | `Asset` | `AssetRegistered(addr)`, `AssetRegistry`, `AssetMetadata(addr)`, `AssetMinPrice(addr)` |
+/// | Price data | `Price` | `Submission(asset, src)`, `PriceSubmissionLedger(asset, src)`, `Aggregate(asset)`, `PriceOverride(asset)`, `PriceDeviant(asset, src)` |
+/// | History | `Hist` | `PriceHistory(asset, ledger)`, `PriceHistoryLedgers(asset)` |
+/// | Timelock ops | `Tl` | `TlPendingOpCount`, `TlPendingOp(id)` |
+///
+/// Soroban encodes each variant name as an XDR `Symbol` discriminant, so variants are
+/// inherently collision-free. The namespace prefixes make the category explicit at the
+/// call site and prevent accidental re-use of a name across categories in future additions.
 #[derive(Clone, Debug, Eq, PartialEq)]
 #[contracttype]
 pub enum DataKey {
+    // --- Admin ---
     /// The contract administrator's address.
     Admin,
+    ReentrancyGuard,
     /// Existence flag for a registered oracle source (`true` when present).
     Source(Address),
     /// Existence flag for a registered asset (`true` when present).
@@ -30,44 +47,93 @@ pub enum DataKey {
     /// Ordered list of all registered asset addresses.
     RegisteredAssets,
     /// Minimum number of contributing sources required to publish an aggregate price.
-    MinSourcesRequired,
+    CfgMinSources,
     /// Maximum number of history entries retained per asset before pruning.
-    MaxHistoryLength,
+    CfgMaxHistory,
     /// Price resolution window in seconds (SEP-40 `resolution` field).
-    Resolution,
+    CfgResolution,
     /// Decimal precision applied to all prices stored by this contract.
-    Decimals,
+    CfgDecimals,
     /// Human-readable description of this oracle instance.
-    Description,
+    CfgDescription,
     /// Maximum allowed difference (in seconds) between a submitted timestamp and ledger time.
-    TimestampThreshold,
+    CfgTimestampThreshold,
     /// Maximum allowed price deviation in basis points before flagging a submission.
-    MaxPriceDeviation,
-    /// Flag set when a source's submission deviates excessively from the current aggregate.
-    SubmissionDeviant(Address, Address),
-    /// Unix timestamp of the last heartbeat submitted by a source.
-    SourceHeartbeat(Address),
+    CfgMaxDeviation,
     /// Interval in seconds after which a source with no heartbeat is considered inactive.
-    HeartbeatInterval,
-    /// Inactive flag for a source.
-    InactiveSource(Address),
+    CfgHeartbeatInterval,
     /// Maximum number of invalid submissions allowed before a source is suspended.
-    MaxInvalidSubmissions,
+    CfgMaxInvalidSubs,
     /// Currently active [`AggregationMethod`] stored as a `u32` discriminant.
-    AggregationMethod,
+    CfgAggregationMethod,
+    /// Boolean flag indicating whether the contract is paused.
+    CfgPauseFlag,
+    /// Number of ledgers that must pass between proposing and executing a timelock operation.
+    CfgTimelockDuration,
+
+    // --- Source registry (prefix: Src) ---
+    /// Existence flag for a registered oracle source (`true` when present).
+    SrcActive(Address),
+    /// The [`OracleSources`] registry (list of sources and their metadata).
+    SrcRegistry,
+    /// Unix timestamp of the last heartbeat submitted by a source.
+    SrcHeartbeat(Address),
+    /// Inactive flag for a source.
+    SrcInactive(Address),
+
+    // --- Asset registry (prefix: Asset) ---
+    /// Existence flag for a registered asset (`true` when present).
+    AssetRegistered(Address),
+    /// Ordered list of all registered asset addresses (used for enumeration).
+    AssetRegistry,
+
+    /// O(1) membership index: `true` when an asset address is registered.
+    ///
+    /// Kept separate from `AssetRegistry` so we can provide efficient
+    /// `is_asset_registered` / `check_registered_asset` lookups while
+    /// preserving the historical ordering exposed by `assets()`.
+    AssetRegistryIndex(Address),
+
     /// Optional [`AssetMetadata`] attached to a registered asset.
     AssetMetadata(Address),
     /// Optional minimum accepted price (`i128`) for a registered asset.
     AssetMinPrice(Address),
+    /// Configurable maximum number of assets that can be registered.
+    MaxAssets,
+
     /// Boolean flag indicating whether the contract is paused.
     PauseFlag,
     /// Monotonically incrementing counter used to assign IDs to pending operations.
-    PendingOpCount,
+    TlPendingOpCount,
     /// A [`PendingOperation`] awaiting timelock expiry before execution.
     PendingOp(u32),
     /// Number of ledgers that must pass between proposing and executing a timelock operation.
     TimelockDuration,
+    /// Tracks the number of queries made by a consumer for a specific ledger.
+    QueryCount(Address, u32),
+    /// Maximum number of queries allowed per ledger for rate limiting.
+    QueryRateLimit,
+    /// Expiry timestamp for a consumer's subscription.
+    SubscriptionExpiry(Address),
+    /// Available subscription plans mapped by duration (seconds) to amount (stroops).
+    SubscriptionPlans,
     PriceOverride(Address),
+    /// Per-asset resolution override in seconds. When set, overrides the contract-wide resolution.
+    AssetResolution(Address),
+    /// Cooldown (in ledgers) between trigger_aggregation calls per asset.
+    AggregationCooldown,
+    /// Ledger of the last trigger_aggregation call per asset.
+    LastAggregationTrigger(Address),
+    /// Minimum submission interval enforcement (in ledgers) for sources.
+    MinSubmissionInterval,
+    /// Last submission ledger per (source, asset) pair — for compliance tracking.
+    LastSubmissionLedger(Address, Address),
+    /// Flag marking a source as non-compliant for a given asset.
+    SourceNonCompliant(Address, Address),
+    /// Counter and storage for pending batch operations.
+    PendingBatchCount,
+    /// A pending batch operation.
+    PendingBatch(u32),
 }
 
 /// A price submission from a single oracle source for a specific asset.
@@ -115,6 +181,28 @@ pub struct PriceOverrideEntry {
     pub set_ledger: u32,
 }
 
+/// Subscription plan configuration.
+///
+/// Stored under [`DataKey::SubscriptionPlan`] or similar key.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct SubscriptionPlan {
+    /// Duration of the subscription plan in seconds.
+    pub duration: u32,
+    /// Cost amount in stroops (i128 for precision).
+    pub amount: i128,
+}
+
+/// Subscription expiry record for a consumer address.
+///
+/// Stored under [`DataKey::SubscriptionExpiry`] keyed by consumer address.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct SubscriptionExpiry {
+    /// Unix timestamp (seconds) at which the subscription expires.
+    pub expiry_timestamp: u64,
+}
+
 /// A snapshot of the aggregate price recorded at a particular ledger.
 ///
 /// Stored in temporary storage under [`DataKey::PriceHistory`] keyed by `(asset, ledger)`.
@@ -130,6 +218,9 @@ pub struct PriceHistoryEntry {
     pub ledger: u32,
     /// Number of sources that contributed to this price.
     pub num_sources: u32,
+    /// `true` when this entry was produced by linear interpolation rather than a
+    /// real submission. Consumers should treat interpolated values as estimates.
+    pub is_interpolated: bool,
 }
 
 /// Registry of all authorized oracle sources and their display names.
@@ -225,6 +316,29 @@ pub struct PendingOperation {
     pub data: Bytes,
 }
 
+/// A snapshot of the oracle's overall health, returned by `health_check()`.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct HealthReport {
+    /// Total number of registered oracle sources.
+    pub total_sources: u32,
+    /// Number of sources that are currently active (not inactive/suspended).
+    pub active_sources: u32,
+    /// Total number of registered assets.
+    pub total_assets: u32,
+    /// Number of assets that have at least one aggregate price recorded.
+    pub assets_with_prices: u32,
+    /// Whether the contract is currently paused (aggregation suspended).
+    pub is_aggregation_paused: bool,
+    /// Ledger sequence number of the most recent price aggregation, or 0 if none.
+    pub last_aggregation_ledger: u32,
+    /// Number of assets whose latest price is stale (older than `resolution` seconds).
+    /// Always 0 when `resolution` is 0 (staleness checking disabled).
+    pub stale_price_count: u32,
+    /// Number of sources currently marked as suspended or inactive.
+    pub suspended_source_count: u32,
+}
+
 /// Optional metadata that can be attached to a registered asset.
 ///
 /// Stored under [`DataKey::AssetMetadata`] and managed via `set_asset_metadata`.
@@ -238,4 +352,28 @@ pub struct AssetMetadata {
     /// Optional override for the number of decimals used by this asset's token contract.
     /// When `None`, the contract-wide decimal setting applies.
     pub decimals: Option<u32>,
+}
+
+/// A single admin operation within a batch, identified by type and its encoded payload.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct BatchOperation {
+    /// Numeric discriminant matching [`OperationType`] (0–7).
+    pub op_type: u32,
+    /// Encoded payload for the operation (same encoding as single [`PendingOperation`]).
+    pub data: Bytes,
+}
+
+/// A pending batch of admin operations waiting for its timelock to expire.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct PendingBatch {
+    /// Unique sequential identifier assigned at proposal time.
+    pub id: u32,
+    /// Address of the admin who proposed the batch.
+    pub proposed_by: Address,
+    /// Ledger when the batch was proposed.
+    pub proposed_ledger: u32,
+    /// Ordered list of operations to execute atomically.
+    pub operations: Vec<BatchOperation>,
 }
