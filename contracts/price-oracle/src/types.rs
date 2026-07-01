@@ -134,6 +134,10 @@ pub enum DataKey {
     PendingBatchCount,
     /// A pending batch operation.
     PendingBatch(u32),
+    /// Current storage schema version (u32). Absent means version 1.
+    StorageVersion,
+    /// Active migration state, if a migration is in progress.
+    MigrationState,
 }
 
 /// A price submission from a single oracle source for a specific asset.
@@ -376,4 +380,33 @@ pub struct PendingBatch {
     pub proposed_ledger: u32,
     /// Ordered list of operations to execute atomically.
     pub operations: Vec<BatchOperation>,
+}
+
+/// Status of an in-progress storage migration.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub enum MigrationStatus {
+    /// Migration has been started but not yet completed.
+    InProgress = 0,
+    /// Migration completed successfully.
+    Completed = 1,
+}
+
+/// Tracks progress of a storage migration from one version to the next.
+///
+/// Stored under [`DataKey::MigrationState`] while a migration is running.
+/// Removed once the migration completes.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct MigrationState {
+    /// Storage version being migrated from.
+    pub from_version: u32,
+    /// Storage version being migrated to.
+    pub to_version: u32,
+    /// Index of the next item to process (supports pause/resume).
+    pub cursor: u32,
+    /// Ledger when the migration was started.
+    pub started_ledger: u32,
+    /// Current migration status.
+    pub status: MigrationStatus,
 }

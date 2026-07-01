@@ -7,6 +7,7 @@ mod errors;
 mod events;
 mod health;
 mod history;
+mod migration;
 mod pause;
 mod prices;
 mod reentrancy;
@@ -1268,7 +1269,31 @@ impl PriceOracleContract {
         health::health_check(&env)
     }
 
-    // --- Timelock ---
+    // --- Storage Migration (#112) ---
+
+    /// Starts or resumes a storage migration to [`CURRENT_VERSION`].
+    ///
+    /// Admin must authorize. Each call processes up to `batch_size` items
+    /// (use `0` for the default of 50). Call repeatedly until
+    /// [`get_migration_state`] returns `None`, which signals completion.
+    ///
+    /// Emits [`MigrationStartedEvent`] on the first call, [`MigrationResumedEvent`]
+    /// on subsequent calls, and [`MigrationCompletedEvent`] when finished.
+    pub fn migrate_storage(env: Env, batch_size: u32) {
+        migration::migrate_storage(&env, batch_size);
+    }
+
+    /// Returns the current on-chain storage schema version.
+    ///
+    /// Returns `1` for contracts deployed before Issue #112.
+    pub fn get_storage_version(env: Env) -> u32 {
+        migration::get_storage_version(&env)
+    }
+
+    /// Returns the active [`MigrationState`], or `None` when no migration is running.
+    pub fn get_migration_state(env: Env) -> Option<MigrationState> {
+        migration::get_migration_state(&env)
+    }
 
     /// Proposes a governance operation that will be executable after the timelock delay.
     ///
