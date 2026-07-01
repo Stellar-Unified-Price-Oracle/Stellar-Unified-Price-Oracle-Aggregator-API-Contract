@@ -126,8 +126,8 @@ fn test_whitelist_disabled_by_default() {
 
     let asset = register_test_asset(&e, &client);
 
-    submit_test_price(&client, &source1, &asset, 100i128, 1234567890);
-    submit_test_price(&client, &source2, &asset, 200i128, 1234567890);
+    submit_test_price(&client, &source1, &asset, 100i128, 1234567890, 1);
+    submit_test_price(&client, &source2, &asset, 200i128, 1234567890, 1);
 
     // Without whitelist enabled, any caller should be able to query
     let price = client.get_price(&asset, &0u64);
@@ -150,8 +150,8 @@ fn test_whitelisted_consumer_can_query() {
     client.add_consumer(&consumer);
     client.set_whitelist_enabled(&true);
 
-    submit_test_price(&client, &source1, &asset, 100i128, 1234567890);
-    submit_test_price(&client, &source2, &asset, 200i128, 1234567890);
+    submit_test_price(&client, &source1, &asset, 100i128, 1234567890, 1);
+    submit_test_price(&client, &source2, &asset, 200i128, 1234567890, 1);
 
     // Whitelisted consumer should be able to query
     let price = client.get_price(&asset, &0u64);
@@ -177,8 +177,8 @@ fn test_non_whitelisted_consumer_cannot_query() {
     client.add_consumer(&whitelisted);
     client.set_whitelist_enabled(&true);
 
-    submit_test_price(&client, &source1, &asset, 100i128, 1234567890);
-    submit_test_price(&client, &source2, &asset, 200i128, 1234567890);
+    submit_test_price(&client, &source1, &asset, 100i128, 1234567890, 1);
+    submit_test_price(&client, &source2, &asset, 200i128, 1234567890, 1);
 
     // Try to query as unauthorized consumer (should fail)
     clear_auth(&e);
@@ -201,8 +201,8 @@ fn test_admin_can_always_query() {
     client.set_whitelist_enabled(&true);
     // Admin not in whitelist but should still be able to query
 
-    submit_test_price(&client, &source1, &asset, 100i128, 1234567890);
-    submit_test_price(&client, &source2, &asset, 200i128, 1234567890);
+    submit_test_price(&client, &source1, &asset, 100i128, 1234567890, 1);
+    submit_test_price(&client, &source2, &asset, 200i128, 1234567890, 1);
 
     let price = client.get_price(&asset, &0u64);
     assert!(price.is_some());
@@ -251,8 +251,8 @@ fn test_toggle_whitelist_enables_restrictions() {
     let asset = register_test_asset(&e, &client);
     let consumer = Address::generate(&e);
 
-    submit_test_price(&client, &source1, &asset, 100i128, 1234567890);
-    submit_test_price(&client, &source2, &asset, 200i128, 1234567890);
+    submit_test_price(&client, &source1, &asset, 100i128, 1234567890, 1);
+    submit_test_price(&client, &source2, &asset, 200i128, 1234567890, 1);
 
     // Initially whitelist is disabled, query works
     assert!(client.get_price(&asset, &0u64).is_some());
