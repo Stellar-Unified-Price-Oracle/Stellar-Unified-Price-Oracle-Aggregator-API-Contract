@@ -170,8 +170,8 @@ fn test_source_excluded_below_minimum() {
     client.stake(&source1, &2000i128);
     // source2 has no stake, below minimum
 
-    submit_test_price(&client, &source1, &asset, 100i128, 1234567890);
-    submit_test_price(&client, &source2, &asset, 200i128, 1234567890);
+    submit_test_price(&client, &source1, &asset, 100i128, 1234567890, 1);
+    submit_test_price(&client, &source2, &asset, 200i128, 1234567890, 1);
 
     // Only source1 should be included in aggregation (source2 excluded)
     assert!(client.get_price(&asset, &0u64).is_none());
@@ -193,8 +193,8 @@ fn test_stake_allows_submission() {
     client.stake(&source1, &2000i128);
     client.stake(&source2, &2000i128);
 
-    submit_test_price(&client, &source1, &asset, 100i128, 1234567890);
-    submit_test_price(&client, &source2, &asset, 200i128, 1234567890);
+    submit_test_price(&client, &source1, &asset, 100i128, 1234567890, 1);
+    submit_test_price(&client, &source2, &asset, 200i128, 1234567890, 1);
 
     let price = client.get_price(&asset, &0u64).unwrap();
     assert_eq!(price.price, 150i128);
