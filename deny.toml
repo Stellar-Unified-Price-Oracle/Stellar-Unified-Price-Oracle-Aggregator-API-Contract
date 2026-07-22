@@ -1,0 +1,108 @@
+# cargo-deny configuration for the Stellar Unified Price Oracle workspace.
+# Run locally:  cargo deny check
+# Docs:         https://embarkstudios.github.io/cargo-deny/
+
+# ---------------------------------------------------------------------------
+# Advisory / vulnerability checking
+# ---------------------------------------------------------------------------
+[advisories]
+version = 2
+# Pull vulnerability data from the RustSec advisory database.
+db-urls = ["https://github.com/rustsec/advisory-db"]
+# Fail the check when a crate has a known vulnerability.
+vulnerability = "deny"
+# Warn (rather than deny) on unmaintained crates so the build stays green
+# while we evaluate replacements.
+unmaintained = "warn"
+# Warn on crates that have been yanked from crates.io.
+yanked = "warn"
+# Acknowledged advisories that we have evaluated and accept.
+# Format: { id = "RUSTSEC-YYYY-NNNN", reason = "..." }
+ignore = []
+
+# ---------------------------------------------------------------------------
+# License checking
+# ---------------------------------------------------------------------------
+[licenses]
+version = 2
+# Licenses we explicitly allow.  The soroban / Stellar ecosystem is primarily
+# Apache-2.0; the broader Rust ecosystem mixes MIT, Apache-2.0, BSD, ISC, and
+# Unicode variants.
+allow = [
+    "MIT",
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "Unicode-DFS-2016",
+    "Unicode-3.0",
+    "CC0-1.0",
+    "Zlib",
+]
+# Copyleft licenses (GPL, LGPL, AGPL, MPL) are unwanted in a smart-contract
+# binary — warn so we catch them early without blocking the build outright.
+copyleft = "warn"
+# Deny any license not in the allow list.
+default = "deny"
+# Per-crate overrides for crates whose SPDX expression needs clarification.
+exceptions = []
+# Confidence threshold for license text scanning (0.0 – 1.0).
+confidence-threshold = 0.8
+
+# ---------------------------------------------------------------------------
+# Duplicate / banned crate detection
+# ---------------------------------------------------------------------------
+[bans]
+# Warn (rather than hard-fail) on multiple versions of the same crate so we
+# can track and reduce duplication over time.
+multiple-versions = "warn"
+# Wildcards in version requirements are acceptable in this workspace.
+wildcards = "allow"
+# Highlight all duplicate occurrences in output.
+highlight = "all"
+# Crates that are explicitly forbidden (none currently).
+deny = []
+# ---------------------------------------------------------------------------
+# Known duplicate versions introduced by the soroban-sdk 26 dependency tree.
+# These are upstream transitive dependencies that we cannot resolve without
+# forking soroban-sdk; they are documented here so the warning is intentional.
+# ---------------------------------------------------------------------------
+skip = [
+    # darling 0.20 (soroban-sdk-macros) vs 0.23 (serde_with / schemars 0.9+)
+    { name = "darling",       version = "=0.20.11" },
+    { name = "darling_core",  version = "=0.20.11" },
+    { name = "darling_macro", version = "=0.20.11" },
+
+    # getrandom 0.2 (ed25519-dalek / curve25519-dalek) vs 0.3 (rand 0.9)
+    { name = "getrandom", version = "=0.2.17" },
+
+    # hashbrown: three versions pulled by indexmap 1.x, ahash 0.8, and hashbrown 0.17
+    { name = "hashbrown", version = "=0.12.3" },
+    { name = "hashbrown", version = "=0.15.5" },
+
+    # indexmap 1.x (soroban-env-common) vs 2.x (newer deps)
+    { name = "indexmap", version = "=1.9.3" },
+
+    # rand 0.8 (proptest) vs 0.9 (soroban test utils)
+    { name = "rand",       version = "=0.8.6" },
+    { name = "rand_chacha", version = "=0.3.1" },
+    { name = "rand_core",  version = "=0.6.4" },
+
+    # schemars 0.8 (older soroban-spec) vs 0.9 vs 1.x (newer soroban-spec-rust)
+    { name = "schemars", version = "=0.8.22" },
+    { name = "schemars", version = "=0.9.0"  },
+
+    # stellar-strkey 0.0.13 (soroban-env-common) vs 0.0.16 (soroban-sdk)
+    { name = "stellar-strkey", version = "=0.0.13" },
+]
+
+# ---------------------------------------------------------------------------
+# Allowed source registries
+# ---------------------------------------------------------------------------
+[sources]
+# Only crates.io — no unknown registries or ad-hoc git dependencies.
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+allow-git = []
