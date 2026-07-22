@@ -1,4 +1,4 @@
-use soroban_sdk::{contractevent, Address, String};
+use soroban_sdk::{contractevent, symbol_short, Address, Bytes, String, Symbol};
 
 // ContractInitializedEvent uses manual publishing due to String field
 // limitations with the macro in soroban-sdk 26.
@@ -454,4 +454,190 @@ pub struct PriceOverrideExpiredEvent {
     pub asset: Address,
     pub expiry_ledger: u32,
     pub current_ledger: u32,
+}
+
+/// Emitted when the query rate limit is updated.
+#[contractevent]
+#[derive(Clone)]
+pub struct QueryRateLimitChangedEvent {
+    /// The new query rate limit value.
+    pub value: u32,
+}
+
+/// Emitted when a rate limit is exceeded for an address.
+///
+/// Topics: `consumer`
+#[contractevent]
+#[derive(Clone)]
+pub struct RateLimitExceededEvent {
+    /// Address that exceeded the rate limit.
+    #[topic]
+    pub consumer: Address,
+    /// Current count of operations.
+    pub current_count: u32,
+    /// The rate limit threshold.
+    pub limit: u32,
+}
+
+/// Emitted when a subscription is created for a consumer.
+///
+/// Topics: `consumer`, `duration`
+#[contractevent]
+#[derive(Clone)]
+pub struct SubscriptionCreatedEvent {
+    /// Address of the consumer who created the subscription.
+    #[topic]
+    pub consumer: Address,
+    /// Duration of the subscription in seconds.
+    #[topic]
+    pub duration: u64,
+}
+
+/// Emitted when a subscription is renewed by a consumer.
+///
+/// Topics: `consumer`
+#[contractevent]
+#[derive(Clone)]
+pub struct SubscriptionRenewedEvent {
+    /// Address of the consumer who renewed the subscription.
+    #[topic]
+    pub consumer: Address,
+}
+
+/// Emitted when a subscription expires for a consumer.
+///
+/// Topics: `consumer`
+#[contractevent]
+#[derive(Clone)]
+pub struct SubscriptionExpiredEvent {
+    /// Address of the consumer whose subscription expired.
+    #[topic]
+    pub consumer: Address,
+// --- #67: Per-asset resolution ---
+
+/// Emitted when the per-asset resolution is set or cleared.
+#[contractevent]
+#[derive(Clone)]
+pub struct AssetResolutionSetEvent {
+    #[topic]
+    pub asset: Address,
+    #[topic]
+    pub admin: Address,
+    /// Resolution in seconds (0 = cleared, falls back to contract-wide).
+    pub resolution: u32,
+}
+
+// --- #69: Periodic aggregation trigger ---
+
+/// Emitted when trigger_aggregation is called and aggregation succeeds.
+#[contractevent]
+#[derive(Clone)]
+pub struct AggregationTriggeredEvent {
+    #[topic]
+    pub asset: Address,
+    pub price: i128,
+    pub num_sources: u32,
+    pub triggered_at_ledger: u32,
+}
+
+/// Emitted when the aggregation cooldown is updated.
+#[contractevent]
+#[derive(Clone)]
+pub struct AggregationCooldownChangedEvent {
+    pub cooldown_ledgers: u32,
+}
+
+// --- #70: Min submission interval ---
+
+/// Emitted when the minimum submission interval is updated.
+#[contractevent]
+#[derive(Clone)]
+pub struct MinSubmissionIntervalChangedEvent {
+    pub interval_ledgers: u32,
+}
+
+/// Emitted when a source is flagged as non-compliant for an asset.
+#[contractevent]
+#[derive(Clone)]
+pub struct SourceNonCompliantEvent {
+    #[topic]
+    pub source: Address,
+    #[topic]
+    pub asset: Address,
+    pub last_submission_ledger: u32,
+    pub required_interval: u32,
+}
+
+// --- #68: Batch operations ---
+
+/// Emitted when an admin proposes a new batch of operations.
+#[contractevent]
+#[derive(Clone)]
+pub struct BatchProposedEvent {
+    pub batch_id: u32,
+    pub num_operations: u32,
+    #[topic]
+    pub proposed_by: Address,
+    pub proposed_ledger: u32,
+}
+
+/// Emitted when a batch is successfully executed.
+#[contractevent]
+#[derive(Clone)]
+pub struct BatchExecutedEvent {
+    pub batch_id: u32,
+    pub num_operations: u32,
+    #[topic]
+    pub executed_by: Address,
+}
+
+/// Emitted when a pending batch is cancelled.
+#[contractevent]
+#[derive(Clone)]
+pub struct BatchCancelledEvent {
+    pub batch_id: u32,
+    #[topic]
+    pub cancelled_by: Address,
+}
+
+// #65 reputation events
+#[contractevent]
+#[derive(Clone)]
+pub struct SourceReputationUpdatedEvent {
+    #[topic]
+    pub source: Address,
+    pub old_score: i128,
+    pub new_score: i128,
+}
+
+#[contractevent]
+#[derive(Clone)]
+pub struct ReputationDecayChangedEvent {
+    pub value: u32,
+}
+
+// #66 phased removal events
+#[contractevent]
+#[derive(Clone)]
+pub struct SourceMarkedForRemovalEvent {
+    #[topic]
+    pub source: Address,
+    #[topic]
+    pub admin: Address,
+    pub eligible_at_ledger: u32,
+}
+
+#[contractevent]
+#[derive(Clone)]
+pub struct SourceRemovalCancelledEvent {
+    #[topic]
+    pub source: Address,
+    #[topic]
+    pub admin: Address,
+}
+
+#[contractevent]
+#[derive(Clone)]
+pub struct RemovalCooldownChangedEvent {
+    pub value: u32,
 }

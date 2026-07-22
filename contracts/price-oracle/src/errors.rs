@@ -42,5 +42,17 @@ pub enum ErrorCode {
     OperationNotFound = 14,
     /// The submitted price is below the asset's configured minimum price floor.
     PriceBelowMinimum = 15,
-    InvalidNonce = 16,
+    /// Rate limit exceeded for an operation (e.g., too many price submissions).
+    RateLimitExceeded = 16,
+    /// The requested subscription plan duration does not exist.
+    InvalidDuration = 17,
+    /// The consumer's subscription has expired.
+    SubscriptionExpired = 18,
+    Reentrant = 16,
+    /// The `op_type` discriminant passed to `propose_operation` is not in `[0, 7]`.
+    InvalidOperationType = 17,
+    /// A migration is already in progress; complete or resume it before starting another.
+    MigrationInProgress = 18,
+    /// No migration is currently in progress.
+    NoMigrationInProgress = 19,
 }
