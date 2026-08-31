@@ -2240,3 +2240,34 @@ pub struct SeverityThresholds {
     pub emergency_bps: u32,
 }
 
+// =============================================================================
+// Market impact / slippage analytics
+// =============================================================================
+
+/// Estimated market impact of trading `amount_in` of `asset_in` for `asset_out`
+/// against the depth of the registered Soroswap pool for that pair.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct MarketImpactEstimate {
+    pub asset_in: Address,
+    pub asset_out: Address,
+    pub amount_in: i128,
+    /// Amount of `asset_out` received after the pool fee and slippage.
+    pub amount_out: i128,
+    /// Current pool spot price of `asset_in` denominated in `asset_out`, scaled by 1e18.
+    pub spot_price: i128,
+    /// Effective execution price (`amount_out` / `amount_in`), scaled by 1e18.
+    pub execution_price: i128,
+    /// Deviation of the execution price from the spot price, in basis points.
+    pub price_impact_bps: u32,
+}
+
+/// A single point on a market-impact curve: trade size vs. resulting price impact.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct ImpactCurvePoint {
+    pub amount_in: i128,
+    pub amount_out: i128,
+    pub price_impact_bps: u32,
+}
+

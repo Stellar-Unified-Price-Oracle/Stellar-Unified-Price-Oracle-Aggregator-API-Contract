@@ -22,6 +22,7 @@ use soroban_sdk::contracterror;
 /// | 102, 116–118 | Freeze/pagination/notify (#223,#229,#243) — 116–118 renumbered off the 99–101 collision |
 /// | 103–107 | Relayer batch/bond/fee market (#264,#265,#266) |
 /// | 200 | Severity-aware alerting |
+/// | 210 | Market impact / slippage analytics |
 #[contracterror]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ErrorCode {
@@ -249,4 +250,8 @@ pub enum ErrorCode {
     // ── 200: Severity-aware alerting ──────────────────────────────────────────
     /// Severity thresholds are not strictly increasing, or one of them is zero.
     InvalidSeverityThresholds = 200,
+
+    // ── 210: Market impact / slippage analytics ───────────────────────────────
+    /// The requested trade size is non-positive or exceeds the pool's reserve.
+    InvalidTradeSize = 210,
 }

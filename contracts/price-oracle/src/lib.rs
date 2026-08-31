@@ -35,6 +35,7 @@ mod freeze;
 mod gas_metering;
 mod health;
 mod history;
+mod market_impact;
 mod migration;
 mod multisig;
 mod notifications;
@@ -4818,6 +4819,41 @@ impl PriceOracleContract {
     /// if no movement has been evaluated for it yet.
     pub fn get_last_alert_severity(env: Env, asset: Address) -> Option<crate::types::AlertSeverity> {
         alert_severity::get_last_alert_severity(&env, asset)
+    }
+
+    // =========================================================================
+    // Market impact / slippage analytics
+    // =========================================================================
+
+    /// Estimates the market impact of trading `amount_in` of `asset_in` for
+    /// `asset_out`, using the depth of the registered Soroswap pool for that pair.
+    ///
+    /// # Errors
+    /// * [`ErrorCode::PoolNotFound`] — no enabled pool is registered for the pair.
+    /// * [`ErrorCode::InvalidTradeSize`] — `amount_in <= 0`, or the trade would
+    ///   fully drain the pool.
+    pub fn estimate_market_impact(
+        env: Env,
+        asset_in: Address,
+        asset_out: Address,
+        amount_in: i128,
+    ) -> crate::types::MarketImpactEstimate {
+        market_impact::estimate_market_impact(&env, asset_in, asset_out, amount_in)
+    }
+
+    /// Computes a market-impact curve: price impact at each of `sizes` (units of
+    /// `asset_in`). When `sizes` is empty, defaults to a fixed set of trade sizes
+    /// expressed as basis points of the pool's `asset_in` reserve.
+    ///
+    /// # Errors
+    /// * [`ErrorCode::PoolNotFound`] — no enabled pool is registered for the pair.
+    pub fn get_market_impact_curve(
+        env: Env,
+        asset_in: Address,
+        asset_out: Address,
+        sizes: Vec<i128>,
+    ) -> Vec<crate::types::ImpactCurvePoint> {
+        market_impact::get_market_impact_curve(&env, asset_in, asset_out, sizes)
     }
 }
 
