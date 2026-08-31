@@ -39,6 +39,7 @@ mod market_impact;
 mod migration;
 mod multisig;
 mod notifications;
+mod ohlcv;
 mod optimistic;
 mod pause;
 mod per_asset_decimals;
@@ -4854,6 +4855,38 @@ impl PriceOracleContract {
         sizes: Vec<i128>,
     ) -> Vec<crate::types::ImpactCurvePoint> {
         market_impact::get_market_impact_curve(&env, asset_in, asset_out, sizes)
+    }
+
+    // =========================================================================
+    // OHLCV aggregation
+    // =========================================================================
+
+    /// Returns OHLCV bars for `asset` covering `[from_ts, to_ts]`, bucketed into
+    /// `bucket_seconds`-wide windows (e.g. `3600` hourly, `86400` daily). Closed
+    /// bars are cached; the in-progress bucket is always recomputed.
+    ///
+    /// # Errors
+    /// * [`ErrorCode::AssetNotRegistered`] — `asset` is not registered.
+    /// * [`ErrorCode::InvalidOhlcvRange`] — `bucket_seconds == 0` or `to_ts < from_ts`.
+    pub fn get_ohlcv(
+        env: Env,
+        asset: Address,
+        bucket_seconds: u64,
+        from_ts: u64,
+        to_ts: u64,
+    ) -> Vec<crate::types::OhlcvBar> {
+        ohlcv::get_ohlcv(&env, asset, bucket_seconds, from_ts, to_ts)
+    }
+
+    /// Returns a cached, previously closed OHLCV bar for
+    /// `(asset, bucket_seconds, bucket_start)`, or `None` if it was never computed.
+    pub fn get_cached_ohlcv_bar(
+        env: Env,
+        asset: Address,
+        bucket_seconds: u64,
+        bucket_start: u64,
+    ) -> Option<crate::types::OhlcvBar> {
+        ohlcv::get_cached_ohlcv_bar(&env, asset, bucket_seconds, bucket_start)
     }
 }
 

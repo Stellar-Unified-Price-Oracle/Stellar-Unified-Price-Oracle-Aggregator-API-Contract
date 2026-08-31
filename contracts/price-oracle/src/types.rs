@@ -573,6 +573,14 @@ pub enum DataKey {
     AssetSeverityThresholds(Address),
     /// Most recent severity classification emitted for an asset.
     LastAlertSeverity(Address),
+
+    // -------------------------------------------------------------------------
+    // OHLCV aggregation
+    // -------------------------------------------------------------------------
+    /// Cached, previously-closed OHLCV bar for `(asset, bucket_seconds, bucket_start)`.
+    OhlcvBar(Address, u64, u64),
+    /// Ordered list of cached bucket-start timestamps for `(asset, bucket_seconds)`.
+    OhlcvBucketIndex(Address, u64),
 }
 
 /// A price submission from a single oracle source for a specific asset.
@@ -2269,5 +2277,23 @@ pub struct ImpactCurvePoint {
     pub amount_in: i128,
     pub amount_out: i128,
     pub price_impact_bps: u32,
+}
+
+// =============================================================================
+// OHLCV aggregation
+// =============================================================================
+
+/// An open/high/low/close/volume bar for a single time bucket.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct OhlcvBar {
+    /// Unix timestamp of the start of this bucket.
+    pub bucket_start: u64,
+    pub open: i128,
+    pub high: i128,
+    pub low: i128,
+    pub close: i128,
+    /// Number of price-history snapshots that fell into this bucket.
+    pub sample_count: u32,
 }
 

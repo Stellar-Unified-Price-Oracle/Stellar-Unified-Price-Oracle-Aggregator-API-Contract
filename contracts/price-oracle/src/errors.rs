@@ -23,6 +23,7 @@ use soroban_sdk::contracterror;
 /// | 103–107 | Relayer batch/bond/fee market (#264,#265,#266) |
 /// | 200 | Severity-aware alerting |
 /// | 210 | Market impact / slippage analytics |
+/// | 211 | OHLCV aggregation |
 #[contracterror]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ErrorCode {
@@ -254,4 +255,8 @@ pub enum ErrorCode {
     // ── 210: Market impact / slippage analytics ───────────────────────────────
     /// The requested trade size is non-positive or exceeds the pool's reserve.
     InvalidTradeSize = 210,
+
+    // ── 211: OHLCV aggregation ─────────────────────────────────────────────────
+    /// `bucket_seconds == 0`, or `to_ts < from_ts`.
+    InvalidOhlcvRange = 211,
 }
