@@ -30,6 +30,7 @@ mod export_history;
 mod fee_market;
 mod finality;
 mod freeze;
+mod eth_bridge;
 mod gas_metering;
 mod health;
 mod history;
@@ -197,6 +198,8 @@ pub use types::{
     DexPrice, AmmWeightConfig, SoroswapPool,
     // Cosmos/IBC light-client price feeds
     TendermintValidator, IbcClientState, IbcConsensusState, IbcPricePacket, IbcPriceEntry,
+    // Ethereum bridge price feeds
+    EthBridgeConfig, EthPriceMessage, EthBridgedPrice,
 };
 
 use soroban_sdk::{
@@ -4837,6 +4840,50 @@ impl PriceOracleContract {
     /// Returns the latest verified IBC price for a denom, or `None`.
     pub fn ibc_get_price(env: Env, denom: String) -> Option<IbcPriceEntry> {
         ibc_oracle::get_ibc_price(&env, denom)
+    }
+
+    // =========================================================================
+    // Ethereum Bridge Price Feeds
+    // =========================================================================
+
+    /// Sets the Ethereum bridge configuration (relayer, finality/staleness). Admin-only.
+    pub fn eth_set_bridge_config(env: Env, config: EthBridgeConfig) {
+        eth_bridge::set_eth_bridge_config(&env, config);
+    }
+
+    /// Returns the current Ethereum bridge configuration, or `None`.
+    pub fn eth_get_bridge_config(env: Env) -> Option<EthBridgeConfig> {
+        eth_bridge::get_eth_bridge_config(&env)
+    }
+
+    /// Maps an ERC-20 token address to a registered Stellar asset. Admin-only.
+    pub fn eth_map_asset(env: Env, erc20: BytesN<20>, asset: Address) {
+        eth_bridge::map_erc20_asset(&env, erc20, asset);
+    }
+
+    /// Returns the ERC-20 address mapped to a Stellar asset, or `None`.
+    pub fn eth_get_erc20_for_asset(env: Env, asset: Address) -> Option<BytesN<20>> {
+        eth_bridge::get_erc20_for_asset(&env, asset)
+    }
+
+    /// Submits a bridged Ethereum price update. Must be called by the configured relayer.
+    ///
+    /// # Errors
+    /// * [`ErrorCode::EthBridgeNotConfigured`], [`ErrorCode::EthAssetNotMapped`],
+    ///   [`ErrorCode::EthInsufficientFinality`], [`ErrorCode::EthPriceStale`],
+    ///   [`ErrorCode::EthOutOfOrder`], [`ErrorCode::InvalidPrice`].
+    pub fn eth_submit_price(env: Env, msg: EthPriceMessage) {
+        eth_bridge::submit_eth_price(&env, msg);
+    }
+
+    /// Returns the latest bridged Ethereum price for an ERC-20 address, or `None`.
+    pub fn eth_get_price(env: Env, erc20: BytesN<20>) -> Option<EthBridgedPrice> {
+        eth_bridge::get_eth_price(&env, erc20)
+    }
+
+    /// Returns the latest bridged Ethereum price for a mapped Stellar asset, or `None`.
+    pub fn eth_get_price_for_asset(env: Env, asset: Address) -> Option<EthBridgedPrice> {
+        eth_bridge::get_eth_price_for_asset(&env, asset)
     }
 }
 

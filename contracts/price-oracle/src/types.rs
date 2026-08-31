@@ -578,6 +578,18 @@ pub enum DataKey {
     IbcLatestPrice(String),
     /// Last accepted packet sequence for a denom (replay protection).
     IbcLastSequence(String),
+
+    // -------------------------------------------------------------------------
+    // Ethereum bridge price feeds
+    // -------------------------------------------------------------------------
+    /// Ethereum bridge configuration (relayer, finality/staleness parameters).
+    EthBridgeConfig,
+    /// ERC-20 token address -> mapped Stellar asset address.
+    EthAssetMapping(BytesN<20>),
+    /// Stellar asset address -> ERC-20 token address (reverse lookup).
+    EthAssetReverse(Address),
+    /// Latest bridged Ethereum price for an ERC-20 token address.
+    EthLatestPrice(BytesN<20>),
 }
 
 /// A price submission from a single oracle source for a specific asset.
@@ -2271,5 +2283,52 @@ pub struct IbcPriceEntry {
     pub decimals: u32,
     pub timestamp: u64,
     pub revision_height: u64,
+}
+
+// =============================================================================
+// Ethereum bridge price feeds
+// =============================================================================
+
+/// Configuration for the Ethereum bridge relayer that submits ETH-sourced
+/// oracle prices (e.g. relayed from a Chainlink aggregator on Ethereum).
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct EthBridgeConfig {
+    /// Stellar address authorized to submit ETH price messages.
+    pub relayer: Address,
+    /// Minimum Ethereum block confirmations required for finality.
+    pub min_confirmations: u64,
+    /// Maximum age (seconds) of the Ethereum block timestamp before a price
+    /// message is rejected as stale.
+    pub max_staleness: u64,
+}
+
+/// A price update relayed from an Ethereum-based oracle via the bridge.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct EthPriceMessage {
+    /// 20-byte ERC-20 token contract address.
+    pub erc20: BytesN<20>,
+    pub price: i128,
+    pub decimals: u32,
+    pub eth_block_number: u64,
+    /// Unix seconds of the Ethereum block.
+    pub eth_block_timestamp: u64,
+    /// Confirmation count at the time of relay.
+    pub confirmations: u64,
+}
+
+/// A stored, bridged Ethereum price observation, normalized to the oracle's
+/// decimal scale and mapped to a Stellar asset address.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct EthBridgedPrice {
+    pub erc20: BytesN<20>,
+    pub asset: Address,
+    pub price: i128,
+    pub decimals: u32,
+    pub eth_block_number: u64,
+    pub eth_block_timestamp: u64,
+    pub received_ledger: u32,
 }
 

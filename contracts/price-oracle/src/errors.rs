@@ -258,4 +258,16 @@ pub enum ErrorCode {
     IbcQuorumNotMet = 121,
     /// No Stellar asset is mapped to the given IBC denom.
     IbcDenomNotMapped = 122,
+
+    // ── 123–128: Ethereum bridge price feeds ──────────────────────────────────
+    /// No Ethereum bridge configuration has been set yet.
+    EthBridgeNotConfigured = 123,
+    /// No Stellar asset is mapped to the given ERC-20 address.
+    EthAssetNotMapped = 124,
+    /// The relayed price does not have enough confirmations for finality.
+    EthInsufficientFinality = 125,
+    /// The relayed Ethereum block timestamp is older than `max_staleness`.
+    EthPriceStale = 126,
+    /// The relayed Ethereum block number is not newer than the last accepted one.
+    EthOutOfOrder = 127,
 }

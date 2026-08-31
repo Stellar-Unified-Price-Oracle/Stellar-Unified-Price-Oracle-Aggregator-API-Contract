@@ -1811,3 +1811,37 @@ pub struct IbcPriceVerifiedEvent {
     pub revision_height: u64,
     pub sequence: u64,
 }
+
+// =============================================================================
+// Ethereum bridge price feeds
+// =============================================================================
+
+/// Emitted when the Ethereum bridge configuration is set or updated.
+#[contractevent]
+#[derive(Clone)]
+pub struct EthBridgeConfigUpdatedEvent {
+    #[topic]
+    pub relayer: Address,
+    pub min_confirmations: u64,
+    pub max_staleness: u64,
+}
+
+/// Emitted when an ERC-20 token address is mapped to a Stellar asset.
+#[contractevent]
+#[derive(Clone)]
+pub struct EthAssetMappedEvent {
+    #[topic]
+    pub asset: Address,
+    pub erc20: BytesN<20>,
+}
+
+/// Emitted when a bridged Ethereum price is accepted and stored.
+#[contractevent]
+#[derive(Clone)]
+pub struct EthPriceSubmittedEvent {
+    #[topic]
+    pub asset: Address,
+    pub price: i128,
+    pub eth_block_number: u64,
+    pub eth_block_timestamp: u64,
+}
