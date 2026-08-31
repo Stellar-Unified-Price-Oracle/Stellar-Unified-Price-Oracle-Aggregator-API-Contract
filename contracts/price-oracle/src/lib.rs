@@ -21,6 +21,7 @@ mod audit_log;
 mod config_history;
 #[cfg_attr(feature = "fuzz", allow(dead_code))]
 pub(crate) mod core;
+mod cross_chain_verify;
 mod cross_reference;
 mod deadline_rebate;
 mod dex;
@@ -68,13 +69,9 @@ mod ttl_batching;
 mod types;
 mod vdf_sampler;
 mod whitelisting;
+mod wormhole_relay;
 mod zk_verify;
-mod audit_log;
-mod rbac;
 mod emergency_pause;
-mod freeze;
-mod notifications;
-mod config_history;
 mod batch_storage;
 mod price_proof;
 mod price_callback;
@@ -4887,6 +4884,59 @@ impl PriceOracleContract {
         bucket_start: u64,
     ) -> Option<crate::types::OhlcvBar> {
         ohlcv::get_cached_ohlcv_bar(&env, asset, bucket_seconds, bucket_start)
+    }
+
+    // =========================================================================
+    // Wormhole price relay
+    // =========================================================================
+
+    /// Registers (or rotates) the Wormhole guardian set. Admin-only.
+    ///
+    /// # Errors
+    /// * [`ErrorCode::NotAuthorized`] — caller is not the admin.
+    /// * [`ErrorCode::InvalidConfiguration`] — `guardians` is empty, or `quorum` is
+    ///   `0` or exceeds `guardians.len()`.
+    pub fn set_wormhole_guardian_set(env: Env, guardians: Vec<BytesN<32>>, quorum: u32) {
+        wormhole_relay::set_guardian_set(&env, guardians, quorum);
+    }
+
+    /// Returns the currently registered Wormhole guardian set, or `None` if never configured.
+    pub fn get_wormhole_guardian_set(env: Env) -> Option<crate::types::WormholeGuardianSet> {
+        wormhole_relay::get_guardian_set(&env)
+    }
+
+    /// Returns the currently configured Wormhole guardian quorum.
+    pub fn get_wormhole_guardian_quorum(env: Env) -> u32 {
+        wormhole_relay::get_guardian_quorum(&env)
+    }
+
+    /// Maps a Wormhole chain id (e.g. `2` = Ethereum) to the oracle-chain address
+    /// used for `submit_cross_chain_price`-style storage. Admin-only.
+    pub fn set_wormhole_chain_mapping(env: Env, wormhole_chain_id: u32, oracle_chain: Address) {
+        wormhole_relay::set_chain_mapping(&env, wormhole_chain_id, oracle_chain);
+    }
+
+    /// Returns the oracle-chain address mapped to `wormhole_chain_id`, if any.
+    pub fn get_wormhole_chain_mapping(env: Env, wormhole_chain_id: u32) -> Option<Address> {
+        wormhole_relay::get_chain_mapping(&env, wormhole_chain_id)
+    }
+
+    /// Verifies `vaa` against the registered guardian quorum and, on success,
+    /// relays its price payload into this oracle's cross-chain price storage for
+    /// `asset`. Callable by anyone — the verified guardian quorum is the
+    /// authorization, not the caller's identity.
+    ///
+    /// # Errors
+    /// * [`ErrorCode::GuardianSetNotConfigured`] / [`ErrorCode::InvalidGuardianSignatureSet`]
+    ///   — guardian set missing, or malformed signature/index arrays.
+    /// * [`ErrorCode::GuardianQuorumNotMet`] — insufficient valid guardian signatures.
+    /// * [`ErrorCode::UnmappedWormholeChain`] — no oracle-chain mapping for `vaa.emitter_chain`.
+    /// * [`ErrorCode::VaaAlreadyProcessed`] — `vaa.sequence` has already been relayed (replay).
+    /// * [`ErrorCode::InvalidVaaPayload`] — payload is not a validly encoded price.
+    /// * [`ErrorCode::AssetNotRegistered`] / [`ErrorCode::InvalidPrice`] — see
+    ///   `submit_cross_chain_price`.
+    pub fn submit_price_via_wormhole(env: Env, asset: Address, vaa: crate::types::WormholeVaa) {
+        wormhole_relay::submit_price_via_wormhole(&env, asset, vaa);
     }
 }
 

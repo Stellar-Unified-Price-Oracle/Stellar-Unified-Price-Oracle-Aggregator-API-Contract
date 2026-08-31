@@ -581,6 +581,18 @@ pub enum DataKey {
     OhlcvBar(Address, u64, u64),
     /// Ordered list of cached bucket-start timestamps for `(asset, bucket_seconds)`.
     OhlcvBucketIndex(Address, u64),
+
+    // -------------------------------------------------------------------------
+    // Wormhole price relay
+    // -------------------------------------------------------------------------
+    /// The currently registered Wormhole guardian set.
+    WormholeGuardianSet,
+    /// The currently configured guardian quorum (minimum valid signatures).
+    WormholeGuardianQuorum,
+    /// Maps a Wormhole chain id to the oracle-chain address used in `CrossChainPrice` keys.
+    WormholeChainMapping(u32),
+    /// Last accepted VAA sequence number for `(emitter_chain, emitter_address)`, for replay protection.
+    WormholeLastSequence(u32, BytesN<32>),
 }
 
 /// A price submission from a single oracle source for a specific asset.
@@ -2295,5 +2307,46 @@ pub struct OhlcvBar {
     pub close: i128,
     /// Number of price-history snapshots that fell into this bucket.
     pub sample_count: u32,
+}
+
+// =============================================================================
+// Wormhole price relay
+// =============================================================================
+
+/// A registered Wormhole guardian set: the public keys authorized to co-sign VAAs,
+/// and a monotonically increasing index bumped on every rotation.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct WormholeGuardianSet {
+    pub guardians: Vec<BytesN<32>>,
+    pub set_index: u32,
+}
+
+/// A decoded Wormhole price payload: `price(16) || decimals(4) || timestamp(8)`.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct WormholePricePayload {
+    pub price: i128,
+    pub decimals: u32,
+    pub timestamp: u64,
+}
+
+/// A Wormhole Verified Action Approval (VAA) carrying a price payload, co-signed
+/// by a subset of the registered guardian set.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct WormholeVaa {
+    /// Wormhole chain id of the emitting chain (e.g. `2` = Ethereum).
+    pub emitter_chain: u32,
+    /// Address of the emitting contract on the source chain.
+    pub emitter_address: BytesN<32>,
+    /// Monotonically increasing sequence number for this emitter, for replay protection.
+    pub sequence: u64,
+    /// Encoded price payload — see [`WormholePricePayload`].
+    pub payload: Bytes,
+    /// Ed25519 signatures from the guardians named in `guardian_indices`, same order.
+    pub signatures: Vec<BytesN<64>>,
+    /// Indices into the registered guardian set corresponding to each signature.
+    pub guardian_indices: Vec<u32>,
 }
 

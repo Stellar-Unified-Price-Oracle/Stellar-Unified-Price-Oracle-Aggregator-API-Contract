@@ -1859,3 +1859,33 @@ pub struct SeverityThresholdsSetEvent {
     pub critical_bps: u32,
     pub emergency_bps: u32,
 }
+
+// =============================================================================
+// Wormhole price relay
+// =============================================================================
+
+/// Emitted when the Wormhole guardian set is registered or rotated.
+///
+/// Topics: `set_index`.
+#[contractevent]
+#[derive(Clone)]
+pub struct WormholeGuardianSetEvent {
+    #[topic]
+    pub set_index: u32,
+    pub guardian_count: u32,
+    pub quorum: u32,
+}
+
+/// Emitted when a Wormhole VAA is successfully relayed into the oracle.
+///
+/// Topics: `asset`, `emitter_chain`.
+#[contractevent]
+#[derive(Clone)]
+pub struct WormholePriceRelayedEvent {
+    #[topic]
+    pub asset: Address,
+    #[topic]
+    pub emitter_chain: u32,
+    pub price: i128,
+    pub sequence: u64,
+}

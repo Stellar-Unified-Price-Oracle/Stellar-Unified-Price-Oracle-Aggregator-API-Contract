@@ -24,6 +24,7 @@ use soroban_sdk::contracterror;
 /// | 200 | Severity-aware alerting |
 /// | 210 | Market impact / slippage analytics |
 /// | 211 | OHLCV aggregation |
+/// | 212–217 | Wormhole price relay |
 #[contracterror]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ErrorCode {
@@ -259,4 +260,18 @@ pub enum ErrorCode {
     // ── 211: OHLCV aggregation ─────────────────────────────────────────────────
     /// `bucket_seconds == 0`, or `to_ts < from_ts`.
     InvalidOhlcvRange = 211,
+
+    // ── 212–217: Wormhole price relay ──────────────────────────────────────────
+    /// No Wormhole guardian set has been registered.
+    GuardianSetNotConfigured = 212,
+    /// Guardian signature/index arrays are empty, mismatched, or an index is out of range.
+    InvalidGuardianSignatureSet = 213,
+    /// Fewer than the configured quorum of guardians validly signed the VAA.
+    GuardianQuorumNotMet = 214,
+    /// No oracle-chain mapping is registered for the VAA's emitter chain.
+    UnmappedWormholeChain = 215,
+    /// The VAA's sequence number does not exceed the last accepted sequence (replay).
+    VaaAlreadyProcessed = 216,
+    /// The VAA payload is not a validly encoded price (wrong length).
+    InvalidVaaPayload = 217,
 }

@@ -56,9 +56,16 @@ pub fn get_cross_chain_deviation_threshold(env: &Env) -> u32 {
         .unwrap_or(DEFAULT_CROSS_CHAIN_DEVIATION_THRESHOLD)
 }
 
-/// Store a cross-chain price observation for later verification.
-/// Called externally with prices fetched from other chains.
-pub fn submit_cross_chain_price(
+/// Store a cross-chain price observation for later verification, without any
+/// authorization check. Callers are responsible for establishing their own
+/// authorization before calling this — the admin-gated [`submit_cross_chain_price`]
+/// checks `admin.require_auth()`, while [`crate::wormhole_relay::submit_price_via_wormhole`]
+/// relies on a verified Wormhole guardian quorum instead.
+///
+/// # Panics
+/// * [`ErrorCode::AssetNotRegistered`] — `asset` is not registered.
+/// * [`ErrorCode::InvalidPrice`] — `price <= 0`.
+pub(crate) fn store_cross_chain_price(
     env: &Env,
     asset: Address,
     oracle_chain: Address,
@@ -67,9 +74,6 @@ pub fn submit_cross_chain_price(
     chain_id: String,
     timestamp: u64,
 ) {
-    let admin = get_admin(env);
-    admin.require_auth();
-
     crate::storage::check_registered_asset(env, &asset);
 
     if price <= 0 {
@@ -89,11 +93,28 @@ pub fn submit_cross_chain_price(
         &entry,
     );
 
-    env.storage().persistent().bump(
+    env.storage().persistent().extend_ttl(
         &DataKey::CrossChainPrice(asset, oracle_chain),
         LEDGER_THRESHOLD,
         LEDGER_BUMP,
     );
+}
+
+/// Store a cross-chain price observation for later verification.
+/// Called externally (by the admin) with prices fetched from other chains.
+pub fn submit_cross_chain_price(
+    env: &Env,
+    asset: Address,
+    oracle_chain: Address,
+    price: i128,
+    decimals: u32,
+    chain_id: String,
+    timestamp: u64,
+) {
+    let admin = get_admin(env);
+    admin.require_auth();
+
+    store_cross_chain_price(env, asset, oracle_chain, price, decimals, chain_id, timestamp);
 }
 
 /// Get the most recent cross-chain price for an asset from a specific oracle.
