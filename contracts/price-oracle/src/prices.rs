@@ -1290,7 +1290,10 @@ pub fn get_aggregate_with_version(
     crate::types::VersionedAggregatePrice { aggregate, version }
 }
 
-
+/// Returns the current aggregate price together with a confidence score (in basis
+/// points) derived from the dispersion of per-source submissions (#... see lib.rs
+/// `get_price_with_confidence`). Returns `None` if no aggregate exists.
+pub fn get_price_with_confidence(env: &Env, asset: Address) -> Option<(AggregatePrice, u32)> {
     let aggregate = get_price(env, asset.clone(), 0)?;
 
     let mut prices: Vec<i128> = Vec::new(env);
