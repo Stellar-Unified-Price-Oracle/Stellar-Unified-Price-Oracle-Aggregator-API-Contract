@@ -3,7 +3,7 @@
 //! Monitors for price deviations vs external references and triggers alerts
 //! when thresholds are exceeded. Supports multiple notification channels.
 
-use soroban_sdk::{Address, Env, String};
+use soroban_sdk::{Address, Env};
 
 use crate::events::PriceDeviationAlertEvent;
 use crate::storage::LEDGER_BUMP;
@@ -38,6 +38,8 @@ pub fn check_and_alert_deviation(
     if deviation_bps as u32 > deviation_threshold_bps {
         // Trigger alert
         record_deviation_alert(env, &asset, our_price, reference_price, deviation_bps as u32);
+        // Classify the deviation by severity and route it to the appropriate channel.
+        crate::alert_severity::evaluate_and_route(env, &asset, deviation_bps as u32);
         true
     } else {
         false

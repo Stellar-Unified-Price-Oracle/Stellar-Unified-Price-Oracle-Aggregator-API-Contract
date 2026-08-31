@@ -19,8 +19,9 @@ use soroban_sdk::contracterror;
 /// | 62–74  | Asset/price bounds     |
 /// | 75–98  | Advanced features      |
 /// | 99–101 | Signed submission (#216) |
-/// | 99–102 | Freeze/pagination/notify (#223,#229,#243) |
+/// | 102, 116–118 | Freeze/pagination/notify (#223,#229,#243) — 116–118 renumbered off the 99–101 collision |
 /// | 103–107 | Relayer batch/bond/fee market (#264,#265,#266) |
+/// | 200 | Severity-aware alerting |
 #[contracterror]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ErrorCode {
@@ -211,13 +212,15 @@ pub enum ErrorCode {
     InvalidNonce = 100,
     /// `source` has not registered an Ed25519 key for signed submissions.
     SigningKeyNotRegistered = 101,
-    // ── 99–105: Freeze, pagination & notifications ────────────────────────────
+    // ── 116–118: Freeze & pagination (renumbered off the 99–101 range, which
+    // collided with the Signed price submission block above and would not
+    // compile — see the discriminant registry note at the top of this file) ──
     /// The asset's price is currently frozen (#223).
-    PriceFrozen = 99,
+    PriceFrozen = 116,
     /// The asset's price is not currently frozen (#223).
-    PriceNotFrozen = 100,
+    PriceNotFrozen = 117,
     /// The requested pagination limit is `0` or exceeds the configured maximum (#229).
-    InvalidPageSize = 101,
+    InvalidPageSize = 118,
     /// A notification `channel` or `target` string exceeds the maximum allowed length (#243).
     NotificationConfigInvalid = 102,
 
@@ -242,4 +245,8 @@ pub enum ErrorCode {
     TooManyCallbacks = 114,
     /// No callback registration found for the given (consumer, asset) pair (#297).
     CallbackNotFound = 115,
+
+    // ── 200: Severity-aware alerting ──────────────────────────────────────────
+    /// Severity thresholds are not strictly increasing, or one of them is zero.
+    InvalidSeverityThresholds = 200,
 }

@@ -109,7 +109,7 @@ pub fn set_min_priority_fee(env: &Env, min_fee: u128) {
     env.storage()
         .persistent()
         .set(&DataKey::FmMinPriorityFee, &min_fee);
-    crate::events::FmMinPriorityFeeChangedEvent { value: min_fee }.publish(env);
+    crate::events::FmMinPriorityFeeEvent { value: min_fee }.publish(env);
 }
 
 pub fn get_fee_distribution_ratio(env: &Env) -> u32 {
@@ -128,7 +128,7 @@ pub fn set_fee_distribution_ratio(env: &Env, ratio: u32) {
     env.storage()
         .persistent()
         .set(&DataKey::FmFeeDistributionRatio, &ratio);
-    crate::events::FmFeeDistributionRatioChangedEvent { value: ratio }.publish(env);
+    crate::events::FmFeeDistRatioChangedEvent { value: ratio }.publish(env);
 }
 
 pub fn get_treasury_address(env: &Env) -> Option<Address> {

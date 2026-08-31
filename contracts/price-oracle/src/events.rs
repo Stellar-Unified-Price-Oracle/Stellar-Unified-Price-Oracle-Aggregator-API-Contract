@@ -1042,7 +1042,7 @@ pub struct DemeritConfigChangedEvent {
 /// Emitted when an invalid price submission is recorded against a source.
 #[contractevent]
 #[derive(Clone)]
-pub struct InvalidSubmissionRecordedEvent {
+pub struct InvalidSubmissionEvent {
     #[topic]
     pub source: Address,
     pub demerits: u32,
@@ -1181,7 +1181,7 @@ pub struct CircuitBreakerEventEntry {
 /// Emitted when a price is submitted with a deadline (#202).
 #[contractevent]
 #[derive(Clone)]
-pub struct PriceSubmittedWithDeadlineEvent {
+pub struct PriceSubmitDeadlineEvent {
     #[topic]
     pub asset: Address,
     #[topic]
@@ -1215,14 +1215,14 @@ pub struct ExoticAssetConfigSetEvent {
 /// Emitted when the fee market minimum priority fee is changed (#176).
 #[contractevent]
 #[derive(Clone)]
-pub struct FmMinPriorityFeeChangedEvent {
+pub struct FmMinPriorityFeeEvent {
     pub value: u128,
 }
 
 /// Emitted when the fee distribution ratio is changed (#176).
 #[contractevent]
 #[derive(Clone)]
-pub struct FmFeeDistributionRatioChangedEvent {
+pub struct FmFeeDistRatioChangedEvent {
     pub ratio_bps: u32,
 }
 
@@ -1387,7 +1387,7 @@ pub struct RewardsClaimedEvent {
 /// Emitted when a source rotation schedule is set (#206).
 #[contractevent]
 #[derive(Clone)]
-pub struct SourceRotationScheduleSetEvent {
+pub struct SourceRotationSetEvent {
     #[topic]
     pub asset: Address,
     #[topic]
@@ -1481,7 +1481,7 @@ pub struct RateLimitTierChangedEvent {
 
 // Emitted when an invalid submission is recorded against a source (re-export from events).
 // Already defined elsewhere, but needed here as well.
-// Note: InvalidSubmissionRecordedEvent is already defined above; this is the canonical copy.
+// Note: InvalidSubmissionEvent is already defined above; this is the canonical copy.
 
 // --- #217: Configurable optimistic-oracle parameters ---
 
@@ -1497,7 +1497,7 @@ pub struct DisputeWindowChangedEvent {
 /// Emitted when the admin updates the optimistic proposal minimum bond.
 #[contractevent]
 #[derive(Clone)]
-pub struct OptimisticMinBondChangedEvent {
+pub struct OptimisticBondChangedEvent {
     #[topic]
     pub admin: Address,
     pub min_bond: i128,
@@ -1628,14 +1628,6 @@ pub struct OperationQueuedEvent {
     pub expires_at_ledger: u32,
 }
 
-/// Emitted when a pending operation is successfully executed.
-#[contractevent]
-#[derive(Clone)]
-pub struct OperationExecutedEvent {
-    #[topic]
-    pub operation_id: u64,
-}
-
 /// Emitted when a pending operation is expired (either on-demand or via maintenance sweep).
 #[contractevent]
 #[derive(Clone)]
@@ -1764,4 +1756,106 @@ pub struct FeedMetadataUpdatedEvent {
     pub asset: Address,
     pub symbol: String,
     pub updated_at: u64,
+}
+
+// =============================================================================
+// Alert subscriptions (#174) / off-chain deviation alerting (#199)
+//
+// `alerts.rs` and `alerting.rs` referenced these events but the definitions
+// were missing from this file (dropped in the same botched merge noted in
+// `lib.rs`), which meant neither module could compile. Restored here so both
+// modules — and the severity-aware alerting extension below — build and run.
+// =============================================================================
+
+/// Emitted when a consumer (re)subscribes to on-chain price-deviation alerts.
+///
+/// Topics: `consumer`, `asset`.
+#[contractevent]
+#[derive(Clone)]
+pub struct AlertSubscribedEvent {
+    #[topic]
+    pub consumer: Address,
+    #[topic]
+    pub asset: Address,
+    pub threshold_bps: u32,
+    pub ttl_ledgers: u32,
+}
+
+/// Emitted when an alert subscription is pruned after exceeding its TTL.
+///
+/// Topics: `consumer`, `asset`.
+#[contractevent]
+#[derive(Clone)]
+pub struct AlertSubscriptionExpiredEvent {
+    #[topic]
+    pub consumer: Address,
+    #[topic]
+    pub asset: Address,
+    pub expired_ledger: u32,
+}
+
+/// Emitted when a subscribed consumer's callback is invoked after a price
+/// movement breaches its configured threshold.
+///
+/// Topics: `consumer`, `asset`.
+#[contractevent]
+#[derive(Clone)]
+pub struct AlertTriggeredEvent {
+    #[topic]
+    pub consumer: Address,
+    #[topic]
+    pub asset: Address,
+    pub old_price: i128,
+    pub new_price: i128,
+    pub movement_bps: u32,
+    pub threshold_bps: u32,
+}
+
+/// Emitted when an off-chain reference-price deviation check exceeds its
+/// configured threshold.
+///
+/// Topics: `asset`.
+#[contractevent]
+#[derive(Clone)]
+pub struct PriceDeviationAlertEvent {
+    #[topic]
+    pub asset: Address,
+    pub our_price: i128,
+    pub reference_price: i128,
+    pub deviation_bps: u32,
+    pub ledger: u32,
+}
+
+// =============================================================================
+// Severity-aware alerting
+// =============================================================================
+
+/// Emitted whenever a price-movement anomaly is classified and routed.
+///
+/// Topics: `asset`, `severity` (0=Info, 1=Warning, 2=Critical, 3=Emergency).
+#[contractevent]
+#[derive(Clone)]
+pub struct SeverityAlertEvent {
+    #[topic]
+    pub asset: Address,
+    #[topic]
+    pub severity: u32,
+    /// Routing channel: 0 = Dashboard, 1 = Page.
+    pub channel: u32,
+    /// Price movement that triggered this classification, in basis points.
+    pub movement_bps: u32,
+    pub ledger: u32,
+}
+
+/// Emitted when severity thresholds are (re)configured.
+///
+/// Topics: `is_asset_override`.
+#[contractevent]
+#[derive(Clone)]
+pub struct SeverityThresholdsSetEvent {
+    #[topic]
+    pub is_asset_override: bool,
+    pub warning_bps: u32,
+    pub critical_bps: u32,
+    pub emergency_bps: u32,
 }

@@ -5,7 +5,7 @@ use crate::events::{
     SourceHeartbeatEvent, SourceInactiveEvent, SourceMarkedForRemovalEvent,
     SourceRemovalCancelledEvent, SourceRemovedEvent,
     SourceWarningEvent, SourceProbationEvent, SourceDisqualifiedEvent, SourceDemeritsResetEvent,
-    DemeritConfigChangedEvent, InvalidSubmissionRecordedEvent,
+    DemeritConfigChangedEvent, InvalidSubmissionEvent,
     SourceGovConfigChangedEvent, SourceProposalCreatedEvent, SourceProposalApprovedEvent, SourceProposalExecutedEvent,
     SourceGeoUpdatedEvent,
     SourceBondConfigChangedEvent, SourceBondDepositedEvent, SourceBondForfeitedEvent, SourceBondReturnedEvent,
@@ -690,7 +690,7 @@ pub fn record_invalid_submission(env: &Env, source: Address) {
         .persistent()
         .extend_ttl(&key, LEDGER_THRESHOLD, LEDGER_BUMP);
 
-    InvalidSubmissionRecordedEvent {
+    InvalidSubmissionEvent {
         source: source.clone(),
         demerits: state.demerits,
     }

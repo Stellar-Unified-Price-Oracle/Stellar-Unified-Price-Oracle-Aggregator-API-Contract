@@ -65,3 +65,30 @@ groups:
           severity: critical
         annotations:
           summary: "Oracle contract upgraded — verify wasm hash"
+
+      # ── Severity-aware alerting ────────────────────────────────────────────
+      # Driven by the on-chain `SeverityAlertEvent` (severity: 0=Info, 1=Warning,
+      # 2=Critical, 3=Emergency) classified against `get_asset_severity_thresholds`.
+      # `oracle_severity_alert_total` is expected to carry `asset`, `severity`, and
+      # `channel` (0=dashboard, 1=page) labels from the indexer. See
+      # docs/monitoring/README.md#severity-aware-alerting.
+      - alert: OracleSeverityWarning
+        expr: increase(oracle_severity_alert_total{severity="warning"}[5m]) > 0
+        labels:
+          severity: warning
+        annotations:
+          summary: "Oracle price movement for {{ $labels.asset }} classified Warning — surfaced on dashboard only"
+
+      - alert: OracleSeverityCritical
+        expr: increase(oracle_severity_alert_total{severity="critical"}[1m]) > 0
+        labels:
+          severity: critical
+        annotations:
+          summary: "Oracle price movement for {{ $labels.asset }} classified Critical — page on-call"
+
+      - alert: OracleSeverityEmergency
+        expr: increase(oracle_severity_alert_total{severity="emergency"}[1m]) > 0
+        labels:
+          severity: critical
+        annotations:
+          summary: "Oracle price movement for {{ $labels.asset }} classified Emergency — page on-call immediately"

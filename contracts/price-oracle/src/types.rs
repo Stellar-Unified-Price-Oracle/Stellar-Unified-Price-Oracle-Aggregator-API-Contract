@@ -562,6 +562,17 @@ pub enum DataKey {
     // -------------------------------------------------------------------------
     /// Stellar ecosystem metadata registry entry.
     EcosystemMetadata,
+
+    // -------------------------------------------------------------------------
+    // Severity-aware alerting
+    // -------------------------------------------------------------------------
+    /// Global default severity thresholds (basis points) used when no per-asset
+    /// override is configured.
+    CfgSeverityThresholds,
+    /// Per-asset severity threshold override.
+    AssetSeverityThresholds(Address),
+    /// Most recent severity classification emitted for an asset.
+    LastAlertSeverity(Address),
 }
 
 /// A price submission from a single oracle source for a specific asset.
@@ -2183,5 +2194,49 @@ pub struct SoroswapPool {
     pub reserve_b: i128,
     pub fee_bps: u32,
     pub enabled: bool,
+}
+
+// =============================================================================
+// Severity-aware alerting
+// =============================================================================
+
+/// Anomaly severity classification for a price-deviation alert.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[contracttype]
+pub enum AlertSeverity {
+    /// Movement below the warning threshold — informational only.
+    Info = 0,
+    /// Movement exceeds the warning threshold — routed to the dashboard.
+    Warning = 1,
+    /// Movement exceeds the critical threshold — routed to the paging channel.
+    Critical = 2,
+    /// Movement exceeds the emergency threshold — routed to the paging channel
+    /// with the highest urgency.
+    Emergency = 3,
+}
+
+/// Notification channel an alert is routed to based on its classified severity.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[contracttype]
+pub enum AlertChannel {
+    /// Non-urgent — surfaced on the monitoring dashboard only.
+    Dashboard = 0,
+    /// Urgent — routed to an on-call paging channel.
+    Page = 1,
+}
+
+/// Basis-point movement thresholds used to classify an anomaly's severity.
+///
+/// Must satisfy `warning_bps < critical_bps < emergency_bps`; all three greater
+/// than zero.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct SeverityThresholds {
+    /// Movement at/above this level (bps) is at least `Warning`.
+    pub warning_bps: u32,
+    /// Movement at/above this level (bps) is at least `Critical`.
+    pub critical_bps: u32,
+    /// Movement at/above this level (bps) is `Emergency`.
+    pub emergency_bps: u32,
 }
 

@@ -5,7 +5,7 @@
 
 use soroban_sdk::{panic_with_error, Address, Env, Vec};
 
-use crate::events::{SourceRotationScheduleSetEvent, SourcesRotatedEvent};
+use crate::events::{SourceRotationSetEvent, SourcesRotatedEvent};
 use crate::storage::{get_admin, LEDGER_BUMP, LEDGER_THRESHOLD};
 use crate::types::{DataKey, ErrorCode, SourceRotationSchedule};
 
@@ -63,7 +63,7 @@ pub fn set_source_schedule(
         .persistent()
         .extend_ttl(&active_key, LEDGER_THRESHOLD, LEDGER_BUMP);
 
-    SourceRotationScheduleSetEvent {
+    SourceRotationSetEvent {
         asset,
         rotation_interval,
         overlap_period,

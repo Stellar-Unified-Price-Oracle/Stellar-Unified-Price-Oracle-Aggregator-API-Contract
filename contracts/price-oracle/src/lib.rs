@@ -8,6 +8,8 @@
 
 mod admin;
 mod admin_op_limits;
+mod alert_severity;
+mod alerting;
 mod alerts;
 mod amm;
 mod asset_inactivity;
@@ -4770,6 +4772,52 @@ impl PriceOracleContract {
     /// Returns feed metadata for a specific asset, or `None`.
     pub fn metadata_get_feed(env: Env, asset: Address) -> Option<FeedMetadata> {
         ecosystem_metadata::get_feed_metadata(&env, asset)
+    }
+
+    // =========================================================================
+    // Severity-aware alerting
+    // =========================================================================
+
+    /// Sets the global default severity thresholds (basis points). Admin-only.
+    ///
+    /// Movement classifies as `Warning` at/above `warning_bps`, `Critical` at/above
+    /// `critical_bps`, and `Emergency` at/above `emergency_bps`. `Warning` routes to
+    /// the monitoring dashboard; `Critical`/`Emergency` route to the paging channel.
+    ///
+    /// # Errors
+    /// * [`ErrorCode::NotAuthorized`] — caller is not the admin.
+    /// * [`ErrorCode::InvalidSeverityThresholds`] — thresholds are not strictly
+    ///   increasing, or `warning_bps == 0`.
+    pub fn set_severity_thresholds(env: Env, warning_bps: u32, critical_bps: u32, emergency_bps: u32) {
+        alert_severity::set_severity_thresholds(&env, warning_bps, critical_bps, emergency_bps);
+    }
+
+    /// Returns the global default severity thresholds.
+    pub fn get_severity_thresholds(env: Env) -> crate::types::SeverityThresholds {
+        alert_severity::get_severity_thresholds(&env)
+    }
+
+    /// Sets a per-asset severity threshold override. Admin-only.
+    pub fn set_asset_severity_thresholds(
+        env: Env,
+        asset: Address,
+        warning_bps: u32,
+        critical_bps: u32,
+        emergency_bps: u32,
+    ) {
+        alert_severity::set_asset_severity_thresholds(&env, asset, warning_bps, critical_bps, emergency_bps);
+    }
+
+    /// Returns the effective severity thresholds for `asset` (per-asset override
+    /// if configured, otherwise the global default).
+    pub fn get_asset_severity_thresholds(env: Env, asset: Address) -> crate::types::SeverityThresholds {
+        alert_severity::get_asset_severity_thresholds(&env, asset)
+    }
+
+    /// Returns the most recently classified alert severity for `asset`, or `None`
+    /// if no movement has been evaluated for it yet.
+    pub fn get_last_alert_severity(env: Env, asset: Address) -> Option<crate::types::AlertSeverity> {
+        alert_severity::get_last_alert_severity(&env, asset)
     }
 }
 
