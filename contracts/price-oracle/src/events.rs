@@ -1765,3 +1765,49 @@ pub struct FeedMetadataUpdatedEvent {
     pub symbol: String,
     pub updated_at: u64,
 }
+
+// =============================================================================
+// Cosmos/IBC light-client price feeds
+// =============================================================================
+
+/// Emitted when the IBC light client configuration is set or updated.
+#[contractevent]
+#[derive(Clone)]
+pub struct IbcClientUpdatedEvent {
+    pub chain_id: String,
+    pub trust_threshold_pct: u32,
+    pub trusting_period: u64,
+}
+
+/// Emitted when a new trusted consensus state is accepted for a revision height.
+#[contractevent]
+#[derive(Clone)]
+pub struct IbcConsensusUpdatedEvent {
+    #[topic]
+    pub revision_height: u64,
+    pub app_hash: BytesN<32>,
+    pub valid_signatures: u32,
+    pub total_validators: u32,
+}
+
+/// Emitted when an IBC denom is mapped to a Stellar asset.
+#[contractevent]
+#[derive(Clone)]
+pub struct IbcAssetMappedEvent {
+    #[topic]
+    pub asset: Address,
+    pub denom: String,
+}
+
+/// Emitted when an IBC-sourced price packet passes light-client verification
+/// and is stored.
+#[contractevent]
+#[derive(Clone)]
+pub struct IbcPriceVerifiedEvent {
+    #[topic]
+    pub asset: Address,
+    pub price: i128,
+    pub timestamp: u64,
+    pub revision_height: u64,
+    pub sequence: u64,
+}

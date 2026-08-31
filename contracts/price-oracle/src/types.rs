@@ -562,6 +562,22 @@ pub enum DataKey {
     // -------------------------------------------------------------------------
     /// Stellar ecosystem metadata registry entry.
     EcosystemMetadata,
+
+    // -------------------------------------------------------------------------
+    // Cosmos/IBC light-client price feeds
+    // -------------------------------------------------------------------------
+    /// Tracked IBC light client state (chain id, trust threshold, latest height).
+    IbcClientState,
+    /// Trusted consensus state at a given revision height.
+    IbcConsensusState(u64),
+    /// IBC denom -> mapped Stellar asset address.
+    IbcDenomAsset(String),
+    /// Stellar asset address -> IBC denom (reverse lookup).
+    IbcAssetDenom(Address),
+    /// Latest verified IBC-sourced price for a denom.
+    IbcLatestPrice(String),
+    /// Last accepted packet sequence for a denom (replay protection).
+    IbcLastSequence(String),
 }
 
 /// A price submission from a single oracle source for a specific asset.
@@ -2183,5 +2199,77 @@ pub struct SoroswapPool {
     pub reserve_b: i128,
     pub fee_bps: u32,
     pub enabled: bool,
+}
+
+// =============================================================================
+// Cosmos/IBC light-client price feeds
+// =============================================================================
+
+/// A Tendermint validator's Ed25519 public key and voting power, used for
+/// voting-power-weighted quorum checks on IBC consensus state updates.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct TendermintValidator {
+    pub pubkey: BytesN<32>,
+    pub voting_power: u64,
+}
+
+/// IBC light client configuration for a single counterparty Cosmos chain.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct IbcClientState {
+    /// Counterparty chain id (e.g. "cosmoshub-4").
+    pub chain_id: String,
+    /// Percentage (0-100) of total voting power that must sign a header for
+    /// it to be accepted (Tendermint default: 67, i.e. 2/3 + 1).
+    pub trust_threshold_pct: u32,
+    /// Seconds after which a submitted consensus state is no longer trusted.
+    pub trusting_period: u64,
+    /// Highest revision height with a stored consensus state.
+    pub latest_height: u64,
+}
+
+/// A trusted consensus state (from a Tendermint light client header) at a
+/// given revision height. `app_hash` is the Merkle root of the source
+/// chain's application state — price packets are proven against it via
+/// `verify_and_submit_price`.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct IbcConsensusState {
+    pub revision_number: u64,
+    pub revision_height: u64,
+    pub app_hash: BytesN<32>,
+    pub next_validators_hash: BytesN<32>,
+    /// Cosmos block time (unix seconds) for this height.
+    pub timestamp: u64,
+}
+
+/// A price packet relayed from a Cosmos/IBC chain's price feed module,
+/// accompanied by a Merkle inclusion proof against a trusted `app_hash`.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct IbcPricePacket {
+    /// IBC denom, e.g. "ibc/27394FB092D2ECCD56123C74F36E4C1F926001CEADA9CA97EA622B25F41E5EB2".
+    pub denom: String,
+    pub price: i128,
+    pub decimals: u32,
+    /// Source-chain block time (unix seconds) the price was observed at.
+    pub timestamp: u64,
+    /// Revision height whose consensus state (`app_hash`) proves this packet.
+    pub revision_height: u64,
+    /// Packet sequence number — must be strictly increasing per denom.
+    pub sequence: u64,
+}
+
+/// A verified and stored IBC-sourced price observation.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct IbcPriceEntry {
+    pub denom: String,
+    pub asset: Address,
+    pub price: i128,
+    pub decimals: u32,
+    pub timestamp: u64,
+    pub revision_height: u64,
 }
 

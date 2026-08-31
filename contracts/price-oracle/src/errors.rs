@@ -242,4 +242,20 @@ pub enum ErrorCode {
     TooManyCallbacks = 114,
     /// No callback registration found for the given (consumer, asset) pair (#297).
     CallbackNotFound = 115,
+
+    // ── 116–122: Cosmos/IBC light-client price feeds ─────────────────────────
+    /// No IBC light client has been configured yet.
+    IbcClientNotSet = 116,
+    /// No trusted consensus state exists for the requested revision height.
+    IbcConsensusStateNotFound = 117,
+    /// The trusted consensus state has exceeded its trusting period.
+    IbcClientExpired = 118,
+    /// The packet sequence has already been consumed (replay protection).
+    IbcPacketReplayed = 119,
+    /// The Merkle inclusion proof did not resolve to the trusted app hash.
+    IbcInvalidProof = 120,
+    /// The submitted validator signatures do not meet the trust threshold.
+    IbcQuorumNotMet = 121,
+    /// No Stellar asset is mapped to the given IBC denom.
+    IbcDenomNotMapped = 122,
 }

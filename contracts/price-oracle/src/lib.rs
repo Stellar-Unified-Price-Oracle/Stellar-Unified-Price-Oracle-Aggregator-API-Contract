@@ -33,6 +33,7 @@ mod freeze;
 mod gas_metering;
 mod health;
 mod history;
+mod ibc_oracle;
 mod migration;
 mod multisig;
 mod notifications;
@@ -194,6 +195,8 @@ pub use types::{
     StateDump, StateAnalysis, StateDiff, StateDiffEntry,
     // DEX / AMM integration
     DexPrice, AmmWeightConfig, SoroswapPool,
+    // Cosmos/IBC light-client price feeds
+    TendermintValidator, IbcClientState, IbcConsensusState, IbcPricePacket, IbcPriceEntry,
 };
 
 use soroban_sdk::{
@@ -4770,6 +4773,70 @@ impl PriceOracleContract {
     /// Returns feed metadata for a specific asset, or `None`.
     pub fn metadata_get_feed(env: Env, asset: Address) -> Option<FeedMetadata> {
         ecosystem_metadata::get_feed_metadata(&env, asset)
+    }
+
+    // =========================================================================
+    // Cosmos/IBC Light-Client Verified Price Feeds
+    // =========================================================================
+
+    /// Configures the IBC light client for a counterparty Cosmos chain. Admin-only.
+    pub fn ibc_update_light_client(env: Env, client_state: IbcClientState) {
+        ibc_oracle::update_light_client(&env, client_state);
+    }
+
+    /// Returns the current IBC light client configuration, or `None`.
+    pub fn ibc_get_light_client(env: Env) -> Option<IbcClientState> {
+        ibc_oracle::get_light_client(&env)
+    }
+
+    /// Submits a validator-signed consensus state for a revision height. Admin-only.
+    ///
+    /// # Errors
+    /// * [`ErrorCode::IbcClientNotSet`] — no light client configured.
+    /// * [`ErrorCode::IbcQuorumNotMet`] — signed voting power below the trust threshold.
+    pub fn ibc_submit_consensus_state(
+        env: Env,
+        consensus_state: IbcConsensusState,
+        validators: Vec<TendermintValidator>,
+        signatures: Vec<BytesN<64>>,
+    ) {
+        ibc_oracle::submit_consensus_state(&env, consensus_state, validators, signatures);
+    }
+
+    /// Returns the trusted consensus state at a revision height, or `None`.
+    pub fn ibc_get_consensus_state(env: Env, revision_height: u64) -> Option<IbcConsensusState> {
+        ibc_oracle::get_consensus_state(&env, revision_height)
+    }
+
+    /// Maps an IBC denom to a registered Stellar asset. Admin-only.
+    pub fn ibc_register_asset(env: Env, denom: String, asset: Address) {
+        ibc_oracle::register_ibc_asset_mapping(&env, denom, asset);
+    }
+
+    /// Returns the Stellar asset mapped to an IBC denom, or `None`.
+    pub fn ibc_get_asset(env: Env, denom: String) -> Option<Address> {
+        ibc_oracle::get_ibc_asset(&env, denom)
+    }
+
+    /// Verifies an IBC price packet's Merkle proof against the trusted app hash
+    /// for its revision height, then stores the resulting price.
+    ///
+    /// # Errors
+    /// * [`ErrorCode::IbcDenomNotMapped`], [`ErrorCode::IbcConsensusStateNotFound`],
+    ///   [`ErrorCode::IbcClientExpired`], [`ErrorCode::IbcPacketReplayed`],
+    ///   [`ErrorCode::IbcInvalidProof`], [`ErrorCode::InvalidPrice`].
+    pub fn ibc_submit_price(
+        env: Env,
+        packet: IbcPricePacket,
+        proof: Vec<BytesN<32>>,
+        path_bits: u32,
+    ) {
+        ibc_oracle::verify_and_submit_price(&env, packet, proof, path_bits);
+    }
+
+    /// Returns the latest verified IBC price for a denom, or `None`.
+    pub fn ibc_get_price(env: Env, denom: String) -> Option<IbcPriceEntry> {
+        ibc_oracle::get_ibc_price(&env, denom)
     }
 }
 
