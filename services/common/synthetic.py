@@ -8,10 +8,11 @@ indexed event stream.
 """
 from __future__ import annotations
 
+import math
 import random
 from typing import Dict, Iterable, List, Optional, Set
 
-from services.common.events import TOPIC_PRICE_SUBMITTED
+from services.common.events import TOPIC_PRICE_AGGREGATED, TOPIC_PRICE_SUBMITTED
 
 DEFAULT_CONTRACT_ID = "CDEMOCONTRACTIDXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX"
 
@@ -78,5 +79,45 @@ def generate_submissions(
                 }
             )
         ledger += 1
+
+    return events
+
+
+def generate_price_series(
+    asset: str = "CDEMOASSETXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX",
+    n_points: int = 200,
+    start_price: float = 100_000_000.0,
+    interval_secs: int = 3600,
+    start_ts: int = 1_700_000_000,
+    period_volatility: float = 0.01,
+    drift_per_period: float = 0.0,
+    seed: int = 1234,
+    contract_id: str = DEFAULT_CONTRACT_ID,
+    ledger_start: int = 1,
+) -> List[dict]:
+    """Generates a geometric-Brownian-motion aggregate price series as
+    `price_aggregated` event envelopes, for volatility-forecast and
+    reliability-score tests/demos.
+
+    `period_volatility` is the per-period (per `interval_secs`) log-return
+    stdev — e.g. `0.01` means roughly 1% typical move between points.
+    """
+    rng = random.Random(seed)
+    price = start_price
+    events: List[dict] = []
+
+    for i in range(n_points):
+        if i > 0:
+            shock = rng.gauss(drift_per_period, period_volatility)
+            price *= math.exp(shock)
+        events.append(
+            {
+                "ledger": ledger_start + i,
+                "timestamp": start_ts + i * interval_secs,
+                "contract_id": contract_id,
+                "topic": TOPIC_PRICE_AGGREGATED,
+                "data": {"asset": asset, "price": int(round(price)), "num_sources": 3},
+            }
+        )
 
     return events

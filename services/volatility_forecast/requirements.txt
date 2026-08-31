@@ -1,0 +1,5 @@
+# Off-chain volatility-forecast service dependencies.
+# Pure standard library — no hard runtime dependencies.
+
+# Optional extra (enables streaming from the oracle_events Postgres table):
+#   pip install psycopg2-binary==2.9.9
