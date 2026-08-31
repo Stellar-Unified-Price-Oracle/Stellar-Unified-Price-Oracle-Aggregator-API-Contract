@@ -1,0 +1,197 @@
+{
+  "__inputs": [
+    {
+      "name": "DS_PROMETHEUS",
+      "label": "Prometheus",
+      "description": "Prometheus datasource scraped from scripts/metrics_exporter.py",
+      "type": "datasource",
+      "pluginId": "prometheus",
+      "pluginName": "Prometheus"
+    }
+  ],
+  "__requires": [
+    { "type": "grafana",    "id": "grafana",    "name": "Grafana",    "version": "10.0.0" },
+    { "type": "datasource", "id": "prometheus", "name": "Prometheus", "version": "1.0.0" },
+    { "type": "panel",      "id": "timeseries", "name": "Time series", "version": "" },
+    { "type": "panel",      "id": "stat",       "name": "Stat",        "version": "" },
+    { "type": "panel",      "id": "table",      "name": "Table",       "version": "" }
+  ],
+  "annotations": {
+    "list": [
+      {
+        "builtIn": 1,
+        "datasource": { "type": "grafana", "uid": "-- Grafana --" },
+        "enable": true,
+        "hide": true,
+        "iconColor": "rgba(0, 211, 255, 1)",
+        "name": "Annotations & Alerts",
+        "type": "dashboard"
+      }
+    ]
+  },
+  "description": "Stellar Unified Price Oracle v2 — SLO overview (freshness, deviation, source health) driven by docs/SLA.md and docs/monitoring/alerts-v2.yml",
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "id": null,
+  "links": [],
+  "panels": [
+    {
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 0 },
+      "id": 100,
+      "title": "SLA Status",
+      "type": "row"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [
+            { "type": "value", "options": { "0": { "text": "OK", "color": "green" }, "1": { "text": "PAUSED", "color": "red" } } }
+          ],
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "red", "value": 1 }] }
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 4, "w": 6, "x": 0, "y": 1 },
+      "id": 1,
+      "options": { "colorMode": "background", "graphMode": "none", "reduceOptions": { "calcs": ["lastNotNull"] } },
+      "title": "Contract Paused (SLA §4.2, §5 P0)",
+      "type": "stat",
+      "targets": [
+        { "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" }, "expr": "oracle_paused{contract_id=\"$contract_id\"}", "legendFormat": "Paused" }
+      ]
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "fieldConfig": {
+        "defaults": { "mappings": [], "thresholds": { "mode": "absolute", "steps": [{ "color": "red", "value": null }, { "color": "green", "value": 1 } ] } },
+        "overrides": []
+      },
+      "gridPos": { "h": 4, "w": 6, "x": 6, "y": 1 },
+      "id": 2,
+      "options": { "colorMode": "value", "graphMode": "none", "reduceOptions": { "calcs": ["lastNotNull"] } },
+      "title": "Active vs Min Required Sources (SLA §2)",
+      "type": "stat",
+      "targets": [
+        { "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" }, "expr": "oracle_active_sources_total{contract_id=\"$contract_id\"} - oracle_config_min_sources_required{contract_id=\"$contract_id\"}", "legendFormat": "Headroom" }
+      ]
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "fieldConfig": {
+        "defaults": { "unit": "s", "mappings": [], "thresholds": { "mode": "absolute", "steps": [
+          { "color": "green", "value": null },
+          { "color": "yellow", "value": 60 },
+          { "color": "orange", "value": 3600 },
+          { "color": "red", "value": 86400 }
+        ] } },
+        "overrides": []
+      },
+      "gridPos": { "h": 4, "w": 12, "x": 12, "y": 1 },
+      "id": 3,
+      "options": { "colorMode": "value", "graphMode": "area", "reduceOptions": { "calcs": ["lastNotNull"] } },
+      "title": "Max Price Age Across Assets (SLA §1.2 target: 60s)",
+      "type": "stat",
+      "targets": [
+        { "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" }, "expr": "max(time() - oracle_last_price_timestamp_seconds{contract_id=\"$contract_id\"})", "legendFormat": "Oldest price age" }
+      ]
+    },
+    {
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 5 },
+      "id": 101,
+      "title": "Freshness",
+      "type": "row"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "fieldConfig": {
+        "defaults": { "unit": "s", "custom": { "drawStyle": "line", "fillOpacity": 10 }, "thresholds": { "mode": "absolute", "steps": [
+          { "color": "green", "value": null },
+          { "color": "orange", "value": 3600 },
+          { "color": "red", "value": 86400 }
+        ] } },
+        "overrides": []
+      },
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 6 },
+      "id": 4,
+      "options": { "legend": { "displayMode": "table", "placement": "right" }, "tooltip": { "mode": "multi" } },
+      "title": "Price Age per Asset",
+      "type": "timeseries",
+      "targets": [
+        { "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" }, "expr": "time() - oracle_last_price_timestamp_seconds{contract_id=\"$contract_id\"}", "legendFormat": "{{asset}}" }
+      ]
+    },
+    {
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 14 },
+      "id": 102,
+      "title": "Deviation",
+      "type": "row"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "fieldConfig": {
+        "defaults": { "unit": "none", "custom": { "drawStyle": "line", "fillOpacity": 10 }, "thresholds": { "mode": "absolute", "steps": [
+          { "color": "green", "value": null },
+          { "color": "yellow", "value": 500 },
+          { "color": "red", "value": 1000 }
+        ] } },
+        "overrides": []
+      },
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 15 },
+      "id": 5,
+      "options": { "legend": { "displayMode": "table", "placement": "right" }, "tooltip": { "mode": "multi" } },
+      "title": "Source Deviation from Aggregate (bps) — flag at 500, breach at 1000 (SLA §3, §6.3)",
+      "type": "timeseries",
+      "targets": [
+        { "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" }, "expr": "oracle_source_deviation_bps{contract_id=\"$contract_id\"}", "legendFormat": "{{asset}} / {{source_name}}" }
+      ]
+    },
+    {
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 23 },
+      "id": 103,
+      "title": "Source Health Summary",
+      "type": "row"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "fieldConfig": { "defaults": { "custom": { "align": "auto" } }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 24 },
+      "id": 6,
+      "options": { "showHeader": true },
+      "title": "Per-Source Submission Rate (15m)",
+      "type": "table",
+      "targets": [
+        { "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" }, "expr": "rate(oracle_price_submissions_total{contract_id=\"$contract_id\"}[15m])", "format": "table", "instant": true }
+      ]
+    }
+  ],
+  "templating": {
+    "list": [
+      {
+        "current": {},
+        "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+        "definition": "label_values(oracle_registered_sources_total, contract_id)",
+        "hide": 0,
+        "includeAll": false,
+        "name": "contract_id",
+        "label": "Contract ID",
+        "options": [],
+        "query": { "query": "label_values(oracle_registered_sources_total, contract_id)", "refId": "StandardVariableQuery" },
+        "refresh": 1,
+        "sort": 1,
+        "type": "query"
+      }
+    ]
+  },
+  "time": { "from": "now-3h", "to": "now" },
+  "timepicker": {},
+  "timezone": "browser",
+  "title": "Stellar Price Oracle v2 — Overview",
+  "uid": "stellar-price-oracle-v2-overview",
+  "version": 1
+}

@@ -1,0 +1,144 @@
+# Prometheus alerting rules v2 for the Stellar Unified Price Oracle.
+#
+# Supersedes alerts.yml (kept for reference / backward compatibility) by adding
+# SLO-driven alerts for the three pillars called out in docs/SLA.md:
+#   - freshness   (SLA §1 Price Freshness Guarantees, §6.2 Freshness Breach credits)
+#   - deviation   (SLA §3 Maximum Price Deviation Thresholds, §6.3 Accuracy Breach credits)
+#   - source health (SLA §2 Minimum Source Count Commitments, §5 Incident Response)
+#
+# Severity labels map directly onto the SLA §5 incident classes so Alertmanager
+# routing/paging policy can key off `severity` and `sla_class` without re-deriving
+# them per alert. Requires the metrics exposed by scripts/metrics_exporter.py
+# (see docs/monitoring/README.md#v2-metrics-reference for the full list).
+#
+# Validate with: promtool check rules docs/monitoring/alerts-v2.yml
+# Synthetic violation tests: promtool test rules docs/monitoring/alerts-v2_test.yml
+groups:
+  # ─── Freshness (SLA §1, §6.2) ────────────────────────────────────────────────
+  - name: oracle-freshness
+    rules:
+      - alert: OracleFreshnessTargetMissed
+        expr: (time() - oracle_last_price_timestamp_seconds) > 60
+        for: 5m
+        labels:
+          severity: warning
+          sla_class: P3
+        annotations:
+          summary: "Oracle price for {{ $labels.asset }} has not updated within the 60s SLA target (SLA §1.2)"
+          runbook: "Check submission activity: rate(oracle_price_submissions_total{asset=\"{{ $labels.asset }}\"}[5m])"
+
+      - alert: OracleFreshnessBreach1h
+        expr: (time() - oracle_last_price_timestamp_seconds) > 3600
+        for: 5m
+        labels:
+          severity: critical
+          sla_class: P1
+        annotations:
+          summary: "Oracle price for {{ $labels.asset }} stale for over 1h — SLA §6.2 credit tier (1-4h) engaged"
+          runbook: "Escalate per SLA §5 P1 (1h first response, 4h resolution target)"
+
+      - alert: OracleFreshnessBreach24h
+        expr: (time() - oracle_last_price_timestamp_seconds) > 86400
+        for: 5m
+        labels:
+          severity: critical
+          sla_class: P0
+        annotations:
+          summary: "Oracle price for {{ $labels.asset }} stale for over 24h — SLA §6.2 top credit tier (>24h)"
+          runbook: "Page on-call immediately; SLA §5 P0 (30m first response, 2h resolution target)"
+
+  # ─── Deviation (SLA §3, §6.3) ────────────────────────────────────────────────
+  - name: oracle-deviation
+    rules:
+      - alert: OracleSourceDeviationFlagged
+        expr: abs(oracle_source_deviation_bps) > 500
+        for: 5m
+        labels:
+          severity: warning
+          sla_class: P3
+        annotations:
+          summary: "Source {{ $labels.source_name }} deviates >5% (500bps) from aggregate for {{ $labels.asset }} (SLA §3 default max_price_deviation)"
+          runbook: "Cross-check the source's feed against an independent reference before it accumulates reputation penalties"
+
+      - alert: OracleDataAccuracyBreach
+        expr: abs(oracle_source_deviation_bps) > 1000
+        for: 5m
+        labels:
+          severity: critical
+          sla_class: P1
+        annotations:
+          summary: "Source {{ $labels.source_name }} deviates >2x the configured max_price_deviation for {{ $labels.asset }} (SLA §6.3 data accuracy breach)"
+          runbook: "Verify against independent reference prices; consider emergency source removal or asset pause"
+
+  # ─── Source health (SLA §2, §5) ──────────────────────────────────────────────
+  - name: oracle-source-health
+    rules:
+      - alert: OracleSingleSourceOffline
+        expr: |
+          (rate(oracle_price_submissions_total[15m]) == 0)
+          and on(contract_id) (oracle_active_sources_total >= oracle_config_min_sources_required)
+        for: 15m
+        labels:
+          severity: warning
+          sla_class: P2
+        annotations:
+          summary: "Source {{ $labels.source_name }} has stopped submitting but aggregation is still functional (SLA §5 P2)"
+          runbook: "Notify source operator; target 4h resolution per SLA §5 P2"
+
+      - alert: OracleBelowMinSourcesRequired
+        expr: oracle_active_sources_total < oracle_config_min_sources_required
+        for: 5m
+        labels:
+          severity: critical
+          sla_class: P1
+        annotations:
+          summary: "Active source count ({{ $value }}) is below min_sources_required for contract {{ $labels.contract_id }} (SLA §2, §5 P1)"
+          runbook: "Emergency source addition target: 4h (SLA §2). Aggregation is halted until minimum is met."
+
+      - alert: OracleAllSourcesDown
+        expr: oracle_registered_sources_total == 0
+        for: 1m
+        labels:
+          severity: critical
+          sla_class: P0
+        annotations:
+          summary: "No registered oracle sources for {{ $labels.contract_id }} — aggregation cannot proceed (SLA §5 P0)"
+          runbook: "Page on-call immediately; 30m first response target"
+
+      - alert: OracleContractPausedUnexpectedly
+        expr: oracle_paused == 1
+        for: 1m
+        labels:
+          severity: critical
+          sla_class: P0
+        annotations:
+          summary: "Contract {{ $labels.contract_id }} is paused — verify this was a planned maintenance window (SLA §4.2, §5 P0)"
+          runbook: "Cross-check against the announced pause schedule; if unplanned, treat as P0"
+
+  # ─── Carried forward from v1 (governance / audit) ────────────────────────────
+  - name: oracle-governance
+    rules:
+      - alert: OracleAdminChanged
+        expr: increase(oracle_config_change_events_total{event_type="AdminChanged"}[1m]) > 0
+        labels:
+          severity: critical
+          sla_class: governance
+        annotations:
+          summary: "Oracle admin address changed for {{ $labels.contract_id }} — verify this was intentional"
+
+      - alert: OracleContractUpgraded
+        expr: increase(oracle_config_change_events_total{event_type="ContractUpgraded"}[1m]) > 0
+        labels:
+          severity: critical
+          sla_class: governance
+        annotations:
+          summary: "Oracle contract {{ $labels.contract_id }} upgraded — verify wasm hash"
+
+      - alert: OracleUnauthorizedAttempt
+        expr: rate(oracle_errors_total{error_name="NotAuthorized"}[5m]) > 5
+        for: 5m
+        labels:
+          severity: warning
+          sla_class: governance
+        annotations:
+          summary: "Elevated rate of unauthorized calls against {{ $labels.contract_id }}"

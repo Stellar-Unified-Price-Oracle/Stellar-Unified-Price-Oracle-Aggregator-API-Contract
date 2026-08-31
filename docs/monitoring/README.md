@@ -105,3 +105,75 @@ Consider adding Grafana alerts on:
 - `oracle_errors_total{error_name="InsufficientSources"}` rate > 0 for > 5 min — sources may be offline
 - `oracle_price_submissions_total` rate = 0 for > 15 min per source — source may be down
 - `oracle_latest_price` unchanged for > staleness window — stale price data
+
+For the SLO-backed alert rules (freshness/deviation/source-health) see the **v2** section below.
+
+---
+
+## v2: SLO Dashboards, Alerts & Exporter
+
+v2 upgrades the monitoring stack with a proper Prometheus metrics exporter, an
+SLO-driven alert rule set derived directly from [`docs/SLA.md`](../SLA.md),
+and three purpose-built Grafana dashboards. It supersedes the single v1
+dashboard above for day-to-day operations; v1 is kept for backward
+compatibility.
+
+### Files
+
+| File | Description |
+|------|-------------|
+| `../../scripts/metrics_exporter.py` | Prometheus `/metrics` exporter — polls Soroban RPC `getEvents` per contract and derives all metrics below |
+| `../../scripts/metrics_exporter_config.example.toml` | Example exporter configuration |
+| `../../scripts/test_metrics_exporter.py` | Unit tests for the event → metric derivation logic (`python3 -m unittest scripts/test_metrics_exporter.py`) |
+| `alerts-v2.yml` | SLO alert rules for freshness, deviation, and source health, plus governance rules carried forward from v1 |
+| `alerts-v2_test.yml` | `promtool test rules` synthetic-violation tests for `alerts-v2.yml` |
+| `grafana-dashboard-v2-overview.json` | SLA status, freshness, deviation, and source-health summary |
+| `grafana-dashboard-v2-sources.json` | Per-source drilldown: submission cadence, freshness, price comparison, deviation table |
+| `grafana-dashboard-v2-governance.json` | Admin/upgrade audit trail, unauthorized-call rate, config drift over time |
+
+### v2 metrics reference
+
+In addition to every metric listed in the [Metrics Reference](#metrics-reference) above, the v2 exporter adds:
+
+| Metric | Labels | Description |
+|--------|--------|-------------|
+| `oracle_active_sources_total` | `contract_id` | Registered sources minus suspended/inactive ones (SLA §2) |
+| `oracle_paused` | `contract_id` | `1` while the contract is paused, else `0` (SLA §4.2) |
+| `oracle_last_price_timestamp_seconds` | `contract_id`, `asset` | Unix timestamp of the last aggregate update — freshness source of truth (SLA §1.2) |
+| `oracle_source_last_submission_timestamp_seconds` | `contract_id`, `asset`, `source_name` | Unix timestamp of a source's last submission |
+| `oracle_source_deviation_bps` | `contract_id`, `asset`, `source_name` | Basis-point deviation of a source's last submission from the aggregate at submission time (SLA §3) |
+
+### Running the exporter
+
+```bash
+pip install requests
+cp scripts/metrics_exporter_config.example.toml scripts/metrics_exporter_config.toml
+# edit contract_id(s) in the config, then:
+python3 scripts/metrics_exporter.py --config scripts/metrics_exporter_config.toml
+# metrics now available at http://localhost:9464/metrics
+```
+
+The exporter's XDR event decoding (`_decode_scval`) is left as an integration
+point — wire it to `stellar_sdk.scval.to_native()` for a live deployment. The
+event → metric derivation itself (`EventIndex`) is pure and fully covered by
+`scripts/test_metrics_exporter.py`, independent of that decoding step.
+
+### Validating the alert rules
+
+```bash
+promtool check rules docs/monitoring/alerts-v2.yml
+promtool test rules docs/monitoring/alerts-v2_test.yml
+```
+
+The test file simulates a frozen price feed, a source drifting to 15%
+deviation, an active-source count dropping below `min_sources_required`, all
+sources disappearing, and an unplanned pause — and asserts each alert fires
+(or, for the "not yet past `for:`" checkpoints, does not fire) at the correct
+evaluation time. This is the synthetic-violation proof for the monitoring v2
+acceptance criteria.
+
+### Importing the v2 dashboards
+
+Same steps as [Setup](#setup) above — import each of the three
+`grafana-dashboard-v2-*.json` files individually, pointing them at the
+Prometheus instance scraping `metrics_exporter.py`.
