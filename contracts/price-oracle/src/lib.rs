@@ -40,6 +40,7 @@ mod optimistic;
 mod pause;
 mod per_asset_decimals;
 mod prices;
+mod pruning;
 mod rate_limiting;
 mod rbac;
 mod recovery;
@@ -65,12 +66,7 @@ mod types;
 mod vdf_sampler;
 mod whitelisting;
 mod zk_verify;
-mod audit_log;
-mod rbac;
 mod emergency_pause;
-mod freeze;
-mod notifications;
-mod config_history;
 mod batch_storage;
 mod price_proof;
 mod price_callback;
@@ -2358,6 +2354,28 @@ impl PriceOracleContract {
     /// Returns the most recent compaction metadata for an asset, if any.
     pub fn get_compaction_metadata(env: Env, asset: Address) -> Option<CompactionMetadata> {
         history::get_compaction_metadata(&env, asset)
+    }
+
+    /// Explicitly prunes the oldest history entries for `asset` down to
+    /// `target_entries`, separate from the automatic pruning that runs on
+    /// aggregation. Lets an operator proactively free storage before hitting
+    /// configured limits. Emits a
+    /// [`HistoryPrunedEvent`](crate::events::HistoryPrunedEvent) per removed
+    /// entry. Admin-only.
+    ///
+    /// # Returns
+    ///
+    /// Number of entries pruned.
+    ///
+    /// # Errors
+    ///
+    /// * [`ErrorCode::NotAuthorized`] — caller is not the admin.
+    /// * [`ErrorCode::AssetNotRegistered`] — asset is not registered.
+    pub fn prune_history(env: Env, asset: Address, target_entries: u32) -> u32 {
+        enter_reentrancy_guard(&env);
+        let result = pruning::prune_history(&env, asset, target_entries);
+        exit_reentrancy_guard(&env);
+        result
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -4814,3 +4832,6 @@ mod issue_309_rate_limiting_tests;
 
 #[cfg(test)]
 mod issue_310_fee_market_tests;
+
+#[cfg(test)]
+mod explicit_history_pruning_tests;
