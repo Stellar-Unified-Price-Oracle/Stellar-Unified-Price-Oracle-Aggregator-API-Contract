@@ -105,3 +105,16 @@ Consider adding Grafana alerts on:
 - `oracle_errors_total{error_name="InsufficientSources"}` rate > 0 for > 5 min — sources may be offline
 - `oracle_price_submissions_total` rate = 0 for > 15 min per source — source may be down
 - `oracle_latest_price` unchanged for > staleness window — stale price data
+
+## Related off-chain services
+
+These services scrape into the same Prometheus/Grafana stack described above (add their
+`/metrics` endpoints as additional scrape targets):
+
+| Service | Metrics | Docs |
+|---|---|---|
+| Off-chain anomaly detection | `oracle_anomaly_alerts_total`, `oracle_anomaly_rounds_scored_total` | `docs/anomaly-detection.md` |
+| Volatility forecasting | `oracle_volatility_forecasts_total` | `docs/volatility-forecasting.md` |
+| Source reliability scoring | `oracle_reliability_scores_computed_total` | `docs/source-reliability-score.md` |
+
+`docs/monitoring/alerts.yml` includes alerting rules for all three.
