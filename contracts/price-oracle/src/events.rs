@@ -1845,3 +1845,29 @@ pub struct EthPriceSubmittedEvent {
     pub eth_block_number: u64,
     pub eth_block_timestamp: u64,
 }
+
+// =============================================================================
+// Source accuracy calibration
+// =============================================================================
+
+/// Emitted when a reference benchmark price is set for an asset.
+#[contractevent]
+#[derive(Clone)]
+pub struct CalibrationBenchmarkSetEvent {
+    #[topic]
+    pub asset: Address,
+    pub reference_price: i128,
+    pub timestamp: u64,
+}
+
+/// Emitted when a source's rolling calibration score is updated.
+#[contractevent]
+#[derive(Clone)]
+pub struct CalibrationScoreUpdatedEvent {
+    #[topic]
+    pub asset: Address,
+    #[topic]
+    pub source: Address,
+    pub rolling_accuracy: u32,
+    pub sample_count: u32,
+}

@@ -270,4 +270,10 @@ pub enum ErrorCode {
     EthPriceStale = 126,
     /// The relayed Ethereum block number is not newer than the last accepted one.
     EthOutOfOrder = 127,
+
+    // ── 129–132: Source accuracy calibration ──────────────────────────────────
+    /// No calibration benchmark has been submitted for the asset.
+    CalibrationBenchmarkNotFound = 129,
+    /// The calibration configuration is invalid (out-of-range percentage/bps).
+    InvalidCalibrationConfig = 130,
 }

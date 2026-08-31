@@ -590,6 +590,16 @@ pub enum DataKey {
     EthAssetReverse(Address),
     /// Latest bridged Ethereum price for an ERC-20 token address.
     EthLatestPrice(BytesN<20>),
+
+    // -------------------------------------------------------------------------
+    // Source accuracy calibration
+    // -------------------------------------------------------------------------
+    /// Global calibration configuration.
+    CalibrationConfig,
+    /// Reference benchmark price for an asset, used to score source accuracy.
+    CalibrationBenchmark(Address),
+    /// Rolling accuracy record for an (asset, source) pair.
+    CalibrationScore(Address, Address),
 }
 
 /// A price submission from a single oracle source for a specific asset.
@@ -2330,5 +2340,47 @@ pub struct EthBridgedPrice {
     pub eth_block_number: u64,
     pub eth_block_timestamp: u64,
     pub received_ledger: u32,
+}
+
+// =============================================================================
+// Source accuracy calibration
+// =============================================================================
+
+/// Global calibration configuration.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct CalibrationConfig {
+    pub enabled: bool,
+    /// EMA smoothing factor in basis points (0-10000); higher reacts faster
+    /// to new samples.
+    pub smoothing_bps: u32,
+    /// Minimum recorded samples before a source's calibration weight is used.
+    pub min_samples_for_weighting: u32,
+    /// Upper bound (bps, out of 10000) on the weight a single source's
+    /// calibration score can contribute.
+    pub max_weight_bps: u32,
+}
+
+/// An admin-submitted reference benchmark price for an asset, used as the
+/// ground truth that source accuracy is scored against.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct CalibrationBenchmark {
+    pub asset: Address,
+    pub reference_price: i128,
+    pub decimals: u32,
+    pub timestamp: u64,
+}
+
+/// Rolling accuracy record for a single (asset, source) pair.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct CalibrationScore {
+    pub asset: Address,
+    pub source: Address,
+    pub sample_count: u32,
+    /// Exponential moving average of per-sample accuracy (0-100).
+    pub rolling_accuracy: u32,
+    pub last_updated: u64,
 }
 

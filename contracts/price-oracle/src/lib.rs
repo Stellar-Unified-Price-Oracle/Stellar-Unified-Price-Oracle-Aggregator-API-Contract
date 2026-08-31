@@ -30,6 +30,7 @@ mod export_history;
 mod fee_market;
 mod finality;
 mod freeze;
+mod calibration;
 mod eth_bridge;
 mod gas_metering;
 mod health;
@@ -200,6 +201,8 @@ pub use types::{
     TendermintValidator, IbcClientState, IbcConsensusState, IbcPricePacket, IbcPriceEntry,
     // Ethereum bridge price feeds
     EthBridgeConfig, EthPriceMessage, EthBridgedPrice,
+    // Source accuracy calibration
+    CalibrationConfig, CalibrationBenchmark, CalibrationScore,
 };
 
 use soroban_sdk::{
@@ -4884,6 +4887,55 @@ impl PriceOracleContract {
     /// Returns the latest bridged Ethereum price for a mapped Stellar asset, or `None`.
     pub fn eth_get_price_for_asset(env: Env, asset: Address) -> Option<EthBridgedPrice> {
         eth_bridge::get_eth_price_for_asset(&env, asset)
+    }
+
+    // =========================================================================
+    // Source Accuracy Calibration
+    // =========================================================================
+
+    /// Sets the global calibration configuration. Admin-only.
+    pub fn calibration_set_config(env: Env, config: CalibrationConfig) {
+        calibration::set_calibration_config(&env, config);
+    }
+
+    /// Returns the current calibration configuration (defaults if unset).
+    pub fn calibration_get_config(env: Env) -> CalibrationConfig {
+        calibration::get_calibration_config(&env)
+    }
+
+    /// Sets the reference benchmark price for an asset. Admin-only.
+    pub fn calibration_set_benchmark(env: Env, asset: Address, reference_price: i128, decimals: u32, timestamp: u64) {
+        calibration::set_calibration_benchmark(&env, asset, reference_price, decimals, timestamp);
+    }
+
+    /// Returns the reference benchmark for an asset, or `None`.
+    pub fn calibration_get_benchmark(env: Env, asset: Address) -> Option<CalibrationBenchmark> {
+        calibration::get_calibration_benchmark(&env, asset)
+    }
+
+    /// Records one accuracy sample for (asset, source) against the stored
+    /// benchmark and updates its rolling calibration score. Admin-only.
+    ///
+    /// # Errors
+    /// * [`ErrorCode::CalibrationBenchmarkNotFound`] — no benchmark set for the asset.
+    pub fn calibration_record_sample(env: Env, asset: Address, source: Address, source_price: i128) {
+        calibration::record_calibration_sample(&env, asset, source, source_price);
+    }
+
+    /// Returns the rolling calibration score for (asset, source) (neutral default if none).
+    pub fn calibration_get_score(env: Env, asset: Address, source: Address) -> CalibrationScore {
+        calibration::get_calibration_score(&env, asset, source)
+    }
+
+    /// Returns the calibration-derived aggregation weight (bps) for (asset, source);
+    /// `0` if calibration is disabled, the source lacks enough samples, or no score exists.
+    pub fn calibration_get_weight(env: Env, asset: Address, source: Address) -> u32 {
+        calibration::get_calibration_weight(&env, asset, source)
+    }
+
+    /// Returns calibration scores for every registered source against `asset`.
+    pub fn calibration_report(env: Env, asset: Address) -> Vec<CalibrationScore> {
+        calibration::calibration_report(&env, asset)
     }
 }
 
