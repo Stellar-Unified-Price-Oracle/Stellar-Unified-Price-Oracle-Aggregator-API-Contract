@@ -59,9 +59,11 @@ pub fn link_source_did(env: &Env, source: Address, did: Address, verified: bool)
     env.storage()
         .persistent()
         .set(&DataKey::SourceDid(source.clone()), &link);
-    env.storage()
-        .persistent()
-        .extend_ttl(&DataKey::SourceDid(source.clone()), LEDGER_THRESHOLD, LEDGER_BUMP);
+    env.storage().persistent().extend_ttl(
+        &DataKey::SourceDid(source.clone()),
+        LEDGER_THRESHOLD,
+        LEDGER_BUMP,
+    );
 
     SourceDidLinkedEvent {
         source: source.clone(),
@@ -104,7 +106,10 @@ pub fn get_all_source_dids(env: &Env) -> Vec<SourceDidLink> {
         .storage()
         .persistent()
         .get(&registry_key)
-        .unwrap_or_else(|| crate::types::OracleSources { sources: Vec::new(env), metadata: Map::new(env) });
+        .unwrap_or_else(|| crate::types::OracleSources {
+            sources: Vec::new(env),
+            metadata: Map::new(env),
+        });
 
     let mut links = Vec::new(env);
     for i in 0..oracle_sources.sources.len() {

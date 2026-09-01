@@ -21,10 +21,9 @@ use soroban_sdk::contracterror;
 /// | 99–101 | Signed submission (#216) |
 /// | 102, 116–118 | Freeze/pagination/notify (#223,#229,#243) — 116–118 renumbered off the 99–101 collision |
 /// | 103–107 | Relayer batch/bond/fee market (#264,#265,#266) |
-/// | 200 | Severity-aware alerting |
-/// | 210 | Market impact / slippage analytics |
-/// | 211 | OHLCV aggregation |
-/// | 212–217 | Wormhole price relay |
+/// | 116–118 | Cross-chain asset registry |
+/// | 119–121 | Axelar GMP integration |
+/// | 122–125 | LayerZero integration |
 #[contracterror]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ErrorCode {
@@ -249,29 +248,29 @@ pub enum ErrorCode {
     /// No callback registration found for the given (consumer, asset) pair (#297).
     CallbackNotFound = 115,
 
-    // ── 200: Severity-aware alerting ──────────────────────────────────────────
-    /// Severity thresholds are not strictly increasing, or one of them is zero.
-    InvalidSeverityThresholds = 200,
+    // ── 116–118: Canonical cross-chain asset registry ─────────────────────────
+    /// A foreign asset mapping already exists for this (chain, foreign_address) pair.
+    ForeignAssetAlreadyMapped = 116,
+    /// No foreign asset mapping exists for this (chain, foreign_address) pair.
+    ForeignAssetNotMapped = 117,
+    /// The foreign asset mapping exists but has been disabled by the admin.
+    ForeignAssetMappingDisabled = 118,
 
-    // ── 210: Market impact / slippage analytics ───────────────────────────────
-    /// The requested trade size is non-positive or exceeds the pool's reserve.
-    InvalidTradeSize = 210,
+    // ── 119–121: Axelar GMP integration ────────────────────────────────────────
+    /// The Axelar Gateway contract address has not been configured.
+    AxelarGatewayNotConfigured = 119,
+    /// This Axelar `command_id` has already been executed (replay).
+    AxelarCommandAlreadyExecuted = 120,
+    /// No trusted bridge source is registered for this (source_chain, source_address).
+    AxelarSourceNotTrusted = 121,
 
-    // ── 211: OHLCV aggregation ─────────────────────────────────────────────────
-    /// `bucket_seconds == 0`, or `to_ts < from_ts`.
-    InvalidOhlcvRange = 211,
-
-    // ── 212–217: Wormhole price relay ──────────────────────────────────────────
-    /// No Wormhole guardian set has been registered.
-    GuardianSetNotConfigured = 212,
-    /// Guardian signature/index arrays are empty, mismatched, or an index is out of range.
-    InvalidGuardianSignatureSet = 213,
-    /// Fewer than the configured quorum of guardians validly signed the VAA.
-    GuardianQuorumNotMet = 214,
-    /// No oracle-chain mapping is registered for the VAA's emitter chain.
-    UnmappedWormholeChain = 215,
-    /// The VAA's sequence number does not exceed the last accepted sequence (replay).
-    VaaAlreadyProcessed = 216,
-    /// The VAA payload is not a validly encoded price (wrong length).
-    InvalidVaaPayload = 217,
+    // ── 122–125: LayerZero integration ─────────────────────────────────────────
+    /// The LayerZero Endpoint contract address has not been configured.
+    LzEndpointNotConfigured = 122,
+    /// The delivered nonce does not match the expected next nonce for this pathway.
+    LzNonceOutOfOrder = 123,
+    /// No trusted bridge source is registered for this (src_eid, sender) pathway.
+    LzRemoteNotTrusted = 124,
+    /// No canonical registry chain name is configured for this LayerZero src_eid.
+    LzChainNameNotConfigured = 125,
 }

@@ -28,9 +28,7 @@ use soroban_sdk::{panic_with_error, symbol_short, Address, Bytes, Env};
 use crate::events::emit_admin_action;
 use crate::prices::submit_price;
 use crate::storage::{check_registered_asset, get_admin, LEDGER_BUMP, LEDGER_THRESHOLD};
-use crate::types::{
-    AssetProofRequirement, DataKey, ErrorCode, PriceProof, ProofType,
-};
+use crate::types::{AssetProofRequirement, DataKey, ErrorCode, PriceProof, ProofType};
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -104,7 +102,8 @@ pub fn submit_price_with_external_proof(
         .persistent()
         .get::<DataKey, u64>(&proof_nonce_key)
         .unwrap_or(0);
-    let new_proof_nonce = last_proof_nonce.saturating_add(1)
+    let new_proof_nonce = last_proof_nonce
+        .saturating_add(1)
         .max(env.ledger().sequence() as u64);
     env.storage()
         .persistent()
@@ -128,11 +127,7 @@ pub fn submit_price_with_external_proof(
 ///
 /// * [`ErrorCode::NotAuthorized`] — caller is not the admin.
 /// * [`ErrorCode::AssetNotRegistered`] — asset is not registered.
-pub fn set_asset_proof_requirement(
-    env: &Env,
-    asset: Address,
-    requirement: AssetProofRequirement,
-) {
+pub fn set_asset_proof_requirement(env: &Env, asset: Address, requirement: AssetProofRequirement) {
     let admin = get_admin(env);
     admin.require_auth();
     check_registered_asset(env, &asset);
@@ -143,12 +138,7 @@ pub fn set_asset_proof_requirement(
         .persistent()
         .extend_ttl(&key, LEDGER_THRESHOLD, LEDGER_BUMP);
 
-    emit_admin_action(
-        env,
-        symbol_short!("set_prf"),
-        admin,
-        Bytes::new(env),
-    );
+    emit_admin_action(env, symbol_short!("set_prf"), admin, Bytes::new(env));
 }
 
 /// Return the proof requirement configured for an asset.
@@ -167,9 +157,7 @@ pub fn get_asset_proof_requirement(env: &Env, asset: Address) -> AssetProofRequi
 /// Returns `None` if no proof has been submitted yet.
 pub fn get_submission_proof(env: &Env, asset: Address, source: Address) -> Option<PriceProof> {
     let key = DataKey::SubmissionProof(asset, source);
-    env.storage()
-        .persistent()
-        .get::<DataKey, PriceProof>(&key)
+    env.storage().persistent().get::<DataKey, PriceProof>(&key)
 }
 
 // ---------------------------------------------------------------------------
@@ -371,7 +359,13 @@ mod tests {
             signature: Bytes::from_array(&e, &[1u8; 64]),
             signer_count: 0,
         };
-        client.submit_price_with_external_proof(&source, &asset, &1_000i128, &1_000_000u64, &bad_proof);
+        client.submit_price_with_external_proof(
+            &source,
+            &asset,
+            &1_000i128,
+            &1_000_000u64,
+            &bad_proof,
+        );
     }
 
     // ── #296 Test 5: DEX proof with empty pool address rejected ───────────────
@@ -391,7 +385,13 @@ mod tests {
             signature: Bytes::new(&e), // empty — no pool address
             signer_count: 0,
         };
-        client.submit_price_with_external_proof(&source, &asset, &1_000i128, &1_000_000u64, &bad_proof);
+        client.submit_price_with_external_proof(
+            &source,
+            &asset,
+            &1_000i128,
+            &1_000_000u64,
+            &bad_proof,
+        );
     }
 
     // ── #296 Test 6: multi-sig with signer_count < 2 rejected ────────────────
@@ -411,7 +411,13 @@ mod tests {
             signature: Bytes::from_array(&e, &[5u8; 64]),
             signer_count: 1, // too few
         };
-        client.submit_price_with_external_proof(&source, &asset, &1_000i128, &1_000_000u64, &bad_proof);
+        client.submit_price_with_external_proof(
+            &source,
+            &asset,
+            &1_000i128,
+            &1_000_000u64,
+            &bad_proof,
+        );
     }
 
     // ── #296 Test 7: per-asset CEX requirement blocks DEX proof ───────────────
@@ -428,7 +434,13 @@ mod tests {
         client.set_asset_proof_requirement(&asset, &AssetProofRequirement::RequireCex);
 
         let dex_proof = make_dex_proof(&e);
-        client.submit_price_with_external_proof(&source, &asset, &1_000i128, &1_000_000u64, &dex_proof);
+        client.submit_price_with_external_proof(
+            &source,
+            &asset,
+            &1_000i128,
+            &1_000_000u64,
+            &dex_proof,
+        );
     }
 
     // ── #296 Test 8: correct proof type satisfies asset requirement ───────────
@@ -444,7 +456,13 @@ mod tests {
         client.set_asset_proof_requirement(&asset, &AssetProofRequirement::RequireDex);
 
         let dex_proof = make_dex_proof(&e);
-        client.submit_price_with_external_proof(&source, &asset, &5_000i128, &1_000_000u64, &dex_proof);
+        client.submit_price_with_external_proof(
+            &source,
+            &asset,
+            &5_000i128,
+            &1_000_000u64,
+            &dex_proof,
+        );
 
         let price = client.get_price(&asset, &0u64).unwrap();
         assert_eq!(price.price, 5_000i128);

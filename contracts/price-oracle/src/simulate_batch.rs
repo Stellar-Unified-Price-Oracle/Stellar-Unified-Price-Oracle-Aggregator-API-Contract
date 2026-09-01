@@ -78,10 +78,7 @@ fn simulate_single(env: &Env, index: u32, op: &BatchOperation) -> OperationSimul
                 None => OperationSimulationResult {
                     index,
                     op_type: 2,
-                    description: String::from_str(
-                        env,
-                        "SetMinSources: data too short",
-                    ),
+                    description: String::from_str(env, "SetMinSources: data too short"),
                     would_succeed: false,
                     warning: SimulationWarning::InvalidData,
                 },
@@ -94,7 +91,10 @@ fn simulate_single(env: &Env, index: u32, op: &BatchOperation) -> OperationSimul
                     OperationSimulationResult {
                         index,
                         op_type: 2,
-                        description: String::from_str(env, "SetMinSources: would update min sources"),
+                        description: String::from_str(
+                            env,
+                            "SetMinSources: would update min sources",
+                        ),
                         would_succeed: true,
                         warning,
                     }
@@ -179,7 +179,10 @@ fn simulate_single(env: &Env, index: u32, op: &BatchOperation) -> OperationSimul
                     OperationSimulationResult {
                         index,
                         op_type: 5,
-                        description: String::from_str(env, "SetDecimals: would update decimal precision"),
+                        description: String::from_str(
+                            env,
+                            "SetDecimals: would update decimal precision",
+                        ),
                         would_succeed: true,
                         warning,
                     }
@@ -205,10 +208,7 @@ fn simulate_single(env: &Env, index: u32, op: &BatchOperation) -> OperationSimul
                 return OperationSimulationResult {
                     index,
                     op_type: 7,
-                    description: String::from_str(
-                        env,
-                        "SetTimestampThreshold: data too short",
-                    ),
+                    description: String::from_str(env, "SetTimestampThreshold: data too short"),
                     would_succeed: false,
                     warning: SimulationWarning::InvalidData,
                 };
@@ -366,7 +366,7 @@ mod tests {
             &e,
             &[
                 (2u32, &[0, 0, 0, 5]),
-                (2u32, &[]),           // too short
+                (2u32, &[]), // too short
                 (5u32, &[0, 0, 0, 18]),
             ],
         );

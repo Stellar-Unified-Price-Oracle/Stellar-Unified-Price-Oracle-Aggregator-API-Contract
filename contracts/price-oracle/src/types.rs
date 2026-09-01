@@ -137,6 +137,7 @@ pub enum DataKey {
     SubscriptionExpiry(Address),
     /// Available subscription plans mapped by duration (seconds) to amount (stroops).
     SubscriptionPlans,
+    SubscriptionPayment,
     PriceOverride(Address),
     /// Per-asset resolution override in seconds. When set, overrides the contract-wide resolution.
     AssetResolution(Address),
@@ -236,6 +237,10 @@ pub enum DataKey {
     CfgBftFaultTolerance,
     /// Aggregation method used by the BFT path.
     CfgBftAggregationMethod,
+    /// Global flag to enable standalone commit-reveal mode independent of BFT.
+    CommitRevealEnabled,
+    /// Amount to slash from sources who commit but do not reveal in a round.
+    CommitRevealSlashAmount,
 
     // -------------------------------------------------------------------------
     // #188: Economic finality gadget
@@ -313,12 +318,42 @@ pub enum DataKey {
     // -------------------------------------------------------------------------
     /// Metadata for an approved relayer address.
     ApprovedRelayer(Address),
+    /// Registry of currently approved relayers used for cross-relayer comparisons.
+    RelayerRegistry,
     /// Fee (in stroops) credited to a relayer per successful relayed price submission.
     RelayerFeePerSubmission,
     /// Accumulated fee balance (in stroops) owed to a relayer.
     RelayerFeeBalance(Address),
     /// Running count of successful price submissions made by a relayer.
     RelayerSubmissionCount(Address),
+    /// Ledger timestamps for a relayer's recent successful submissions.
+    RelayerSubmissionHistory(Address),
+    /// Total latency accumulated for a relayer's successful submissions (seconds).
+    RelayerLatencySum(Address),
+    /// Individual latency samples for relayer percentile calculations.
+    RelayerLatencyHistory(Address),
+    /// Ordered list of assets a relayer has ever successfully submitted for.
+    RelayerAssetList(Address),
+    /// Successful submission count for a relayer/asset pair.
+    RelayerAssetCount(Address, Address),
+    /// Latency total for a relayer/asset pair.
+    RelayerAssetLatencySum(Address, Address),
+    /// Latency sample count for a relayer/asset pair.
+    RelayerAssetLatencyCount(Address, Address),
+    /// Total reported failure incidents for a relayer.
+    RelayerFailureCount(Address),
+    /// Required performance bond amount for relayers.
+    RelayerBondAmount,
+    /// Deposited bond balance for a relayer.
+    RelayerBond(Address),
+    /// Percentage of bond slashed per incident.
+    RelayerSlashPercent,
+    /// Failure threshold at which a relayer becomes slash-eligible.
+    RelayerFailureThreshold,
+    /// Reward rate credited per submission for accurate relayers.
+    RelayerRewardRate,
+    /// Accumulated reward balance owed to a relayer.
+    RelayerRewardBalance(Address),
 
     // -------------------------------------------------------------------------
     // Cross-reference oracle checks
@@ -499,6 +534,10 @@ pub enum DataKey {
     SignedSubmitPubKey(Address),
     /// Last accepted (strictly increasing) nonce for a source's signed submissions.
     SignedSubmitNonce(Address),
+    /// Source-authorized relayer delegation for `(source, relayer)`.
+    SourceRelayerDelegation(Address, Address),
+    /// Last accepted nonce for a source's relayer delegation messages.
+    SourceRelayerDelegationNonce(Address),
 
     // -------------------------------------------------------------------------
     // #218: Configurable aggregation triggers
@@ -564,35 +603,36 @@ pub enum DataKey {
     EcosystemMetadata,
 
     // -------------------------------------------------------------------------
-    // Severity-aware alerting
+    // Canonical cross-chain asset registry
     // -------------------------------------------------------------------------
-    /// Global default severity thresholds (basis points) used when no per-asset
-    /// override is configured.
-    CfgSeverityThresholds,
-    /// Per-asset severity threshold override.
-    AssetSeverityThresholds(Address),
-    /// Most recent severity classification emitted for an asset.
-    LastAlertSeverity(Address),
+    /// Canonical [`ForeignAssetMapping`] keyed by (chain identifier, foreign asset id).
+    ForeignAssetMapping(String, BytesN<32>),
+    /// Ordered list of (chain, foreign_address) keys registered for a Stellar asset.
+    AssetForeignMappings(Address),
+    /// Global ordered list of all (chain, foreign_address) keys, for enumeration.
+    ForeignAssetRegistryList,
 
     // -------------------------------------------------------------------------
-    // OHLCV aggregation
+    // Axelar GMP integration
     // -------------------------------------------------------------------------
-    /// Cached, previously-closed OHLCV bar for `(asset, bucket_seconds, bucket_start)`.
-    OhlcvBar(Address, u64, u64),
-    /// Ordered list of cached bucket-start timestamps for `(asset, bucket_seconds)`.
-    OhlcvBucketIndex(Address, u64),
+    /// Trusted Axelar Gateway contract address permitted to invoke `execute_axelar_message`.
+    AxelarGateway,
+    /// Replay-protection flag for a processed Axelar `command_id`.
+    AxelarExecutedCommand(BytesN<32>),
+    /// Maps a trusted (source_chain, source_address) GMP sender to a registered bridge source.
+    AxelarTrustedSource(String, String),
 
     // -------------------------------------------------------------------------
-    // Wormhole price relay
+    // LayerZero integration
     // -------------------------------------------------------------------------
-    /// The currently registered Wormhole guardian set.
-    WormholeGuardianSet,
-    /// The currently configured guardian quorum (minimum valid signatures).
-    WormholeGuardianQuorum,
-    /// Maps a Wormhole chain id to the oracle-chain address used in `CrossChainPrice` keys.
-    WormholeChainMapping(u32),
-    /// Last accepted VAA sequence number for `(emitter_chain, emitter_address)`, for replay protection.
-    WormholeLastSequence(u32, BytesN<32>),
+    /// Trusted LayerZero Endpoint contract address permitted to invoke `lz_receive`.
+    LzEndpoint,
+    /// Last accepted inbound nonce for a (source endpoint id, sender) pathway.
+    LzInboundNonce(u32, BytesN<32>),
+    /// Maps a trusted (src_eid, sender) LayerZero pathway to a registered bridge source.
+    LzTrustedRemote(u32, BytesN<32>),
+    /// Canonical registry chain name for a LayerZero source endpoint id.
+    LzEidChainName(u32),
 }
 
 /// A price submission from a single oracle source for a specific asset.
@@ -712,6 +752,20 @@ pub struct SubscriptionPlan {
 pub struct SubscriptionExpiry {
     /// Unix timestamp (seconds) at which the subscription expires.
     pub expiry_timestamp: u64,
+}
+
+/// Native token payment record for a subscription (#294).
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct SubscriptionPayment {
+    /// Consumer address.
+    pub consumer: Address,
+    /// Payment amount in stroops.
+    pub amount: i128,
+    /// Unix timestamp when the payment was recorded.
+    pub timestamp: u64,
+    /// Payment status: 0 = pending, 1 = completed, 2 = refunded.
+    pub status: u8,
 }
 
 /// A snapshot of the aggregate price recorded at a particular ledger.
@@ -894,6 +948,16 @@ pub struct OptimisticProposal {
     pub resolved: bool,
     pub resolution: u32,
     pub disputer: Option<Address>,
+}
+
+/// Off-chain external data proof used for optimistic dispute resolution (#291).
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct ExternalDataProof {
+    pub source: Address,
+    pub data_hash: BytesN<32>,
+    pub timestamp: u64,
+    pub signature: BytesN<64>,
 }
 
 /// SEP-40 compatible price data returned by the standard oracle interface methods.
@@ -1288,6 +1352,20 @@ pub struct RelayerInfo {
     pub approved_at_ledger: u32,
 }
 
+/// A source-authorized relayer delegation grant.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct SourceRelayerDelegation {
+    /// Source that granted permission.
+    pub source: Address,
+    /// Relayer that is allowed to submit on the source's behalf.
+    pub relayer: Address,
+    /// Monotonic nonce of the signed delegation message.
+    pub nonce: u64,
+    /// Ledger sequence at which this delegation expires and becomes invalid.
+    pub expiration_ledger: u32,
+}
+
 /// A single (source, asset, price, timestamp) leg of a batch relayed submission (#264).
 ///
 /// Each leg is independently authorized by its `source` — the relayer bundles one
@@ -1338,6 +1416,14 @@ pub struct RelayerAssetStat {
     pub asset: Address,
     /// Number of successful submissions relayed for this asset.
     pub submissions: u64,
+    /// Successful submissions for this asset (mirrors `submissions` for compatibility).
+    pub successful_submissions: u64,
+    /// Reported failure incidents recorded for this asset.
+    pub failed_submissions: u32,
+    /// Success rate in basis points for this asset: `10_000 * successful / total`.
+    pub success_rate_bps: u32,
+    /// Average latency in seconds for this asset's successful submissions.
+    pub avg_latency_seconds: u64,
 }
 
 /// Aggregated operational dashboard for a relayer (#267).
@@ -1359,6 +1445,10 @@ pub struct RelayerDashboard {
     pub submissions_per_day: u64,
     /// Average latency in seconds between observation timestamp and ledger close time.
     pub avg_latency_seconds: u64,
+    /// Recent successful submission timestamps used to reconstruct a submission history.
+    pub submission_history: Vec<u64>,
+    /// Approximate latency percentile map keyed by percentage (e.g. 50, 90, 95, 99).
+    pub latency_percentiles: Map<u32, u64>,
     /// Accumulated flat + priority fee earnings (in stroops).
     pub fee_earnings: i128,
     /// Accumulated accuracy-weighted reward earnings (in stroops).
@@ -2087,23 +2177,6 @@ pub enum OperationKind {
     SetDescription,
 }
 
-/// A pending operation waiting to be executed or expired.
-#[derive(Clone, Debug, Eq, PartialEq)]
-#[contracttype]
-pub struct PendingOperation {
-    /// Unique monotonic id (ledger sequence at creation).
-    pub id: u64,
-    pub kind: OperationKind,
-    /// JSON-style serialized args stored as a String for simplicity.
-    pub args: String,
-    /// Ledger sequence at which this operation was created.
-    pub created_at_ledger: u32,
-    /// Ledger sequence after which this operation is expired and unexecutable.
-    pub expires_at_ledger: u32,
-    /// Whether this operation has been executed already.
-    pub executed: bool,
-}
-
 // ---- Template registry types ----
 
 /// A single parameterized step inside a template.
@@ -2217,136 +2290,55 @@ pub struct SoroswapPool {
 }
 
 // =============================================================================
-// Severity-aware alerting
+// Canonical Cross-Chain Asset Registry
 // =============================================================================
 
-/// Anomaly severity classification for a price-deviation alert.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-#[contracttype]
-pub enum AlertSeverity {
-    /// Movement below the warning threshold — informational only.
-    Info = 0,
-    /// Movement exceeds the warning threshold — routed to the dashboard.
-    Warning = 1,
-    /// Movement exceeds the critical threshold — routed to the paging channel.
-    Critical = 2,
-    /// Movement exceeds the emergency threshold — routed to the paging channel
-    /// with the highest urgency.
-    Emergency = 3,
-}
-
-/// Notification channel an alert is routed to based on its classified severity.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-#[contracttype]
-pub enum AlertChannel {
-    /// Non-urgent — surfaced on the monitoring dashboard only.
-    Dashboard = 0,
-    /// Urgent — routed to an on-call paging channel.
-    Page = 1,
-}
-
-/// Basis-point movement thresholds used to classify an anomaly's severity.
+/// Canonical mapping from a Stellar asset to its representation on a foreign chain.
 ///
-/// Must satisfy `warning_bps < critical_bps < emergency_bps`; all three greater
-/// than zero.
+/// Keyed by `(chain, foreign_address)` — see [`crate::asset_registry`]. All
+/// cross-chain integrations (Axelar GMP, LayerZero, manual cross-reference
+/// checks) resolve foreign asset identifiers through this single registry.
 #[derive(Clone, Debug, Eq, PartialEq)]
 #[contracttype]
-pub struct SeverityThresholds {
-    /// Movement at/above this level (bps) is at least `Warning`.
-    pub warning_bps: u32,
-    /// Movement at/above this level (bps) is at least `Critical`.
-    pub critical_bps: u32,
-    /// Movement at/above this level (bps) is `Emergency`.
-    pub emergency_bps: u32,
-}
-
-// =============================================================================
-// Market impact / slippage analytics
-// =============================================================================
-
-/// Estimated market impact of trading `amount_in` of `asset_in` for `asset_out`
-/// against the depth of the registered Soroswap pool for that pair.
-#[derive(Clone, Debug, Eq, PartialEq)]
-#[contracttype]
-pub struct MarketImpactEstimate {
-    pub asset_in: Address,
-    pub asset_out: Address,
-    pub amount_in: i128,
-    /// Amount of `asset_out` received after the pool fee and slippage.
-    pub amount_out: i128,
-    /// Current pool spot price of `asset_in` denominated in `asset_out`, scaled by 1e18.
-    pub spot_price: i128,
-    /// Effective execution price (`amount_out` / `amount_in`), scaled by 1e18.
-    pub execution_price: i128,
-    /// Deviation of the execution price from the spot price, in basis points.
-    pub price_impact_bps: u32,
-}
-
-/// A single point on a market-impact curve: trade size vs. resulting price impact.
-#[derive(Clone, Debug, Eq, PartialEq)]
-#[contracttype]
-pub struct ImpactCurvePoint {
-    pub amount_in: i128,
-    pub amount_out: i128,
-    pub price_impact_bps: u32,
-}
-
-// =============================================================================
-// OHLCV aggregation
-// =============================================================================
-
-/// An open/high/low/close/volume bar for a single time bucket.
-#[derive(Clone, Debug, Eq, PartialEq)]
-#[contracttype]
-pub struct OhlcvBar {
-    /// Unix timestamp of the start of this bucket.
-    pub bucket_start: u64,
-    pub open: i128,
-    pub high: i128,
-    pub low: i128,
-    pub close: i128,
-    /// Number of price-history snapshots that fell into this bucket.
-    pub sample_count: u32,
-}
-
-// =============================================================================
-// Wormhole price relay
-// =============================================================================
-
-/// A registered Wormhole guardian set: the public keys authorized to co-sign VAAs,
-/// and a monotonically increasing index bumped on every rotation.
-#[derive(Clone, Debug, Eq, PartialEq)]
-#[contracttype]
-pub struct WormholeGuardianSet {
-    pub guardians: Vec<BytesN<32>>,
-    pub set_index: u32,
-}
-
-/// A decoded Wormhole price payload: `price(16) || decimals(4) || timestamp(8)`.
-#[derive(Clone, Debug, Eq, PartialEq)]
-#[contracttype]
-pub struct WormholePricePayload {
-    pub price: i128,
+pub struct ForeignAssetMapping {
+    /// The Stellar asset address this mapping resolves to.
+    pub stellar_asset: Address,
+    /// Canonical chain identifier (e.g. `"ethereum"`, `"polygon"`).
+    pub chain: String,
+    /// 32-byte canonical representation of the asset's address on `chain`
+    /// (shorter addresses, e.g. 20-byte EVM addresses, are left-padded).
+    pub foreign_address: BytesN<32>,
+    /// Decimal precision of the price/amount as denominated on `chain`.
     pub decimals: u32,
-    pub timestamp: u64,
+    /// Whether this mapping is currently active. Disabled mappings are kept
+    /// for history but rejected by cross-chain modules.
+    pub enabled: bool,
 }
 
-/// A Wormhole Verified Action Approval (VAA) carrying a price payload, co-signed
-/// by a subset of the registered guardian set.
+// =============================================================================
+// Cross-Chain Bridge Message Format (Axelar GMP / LayerZero)
+// =============================================================================
+
+/// Canonical cross-chain price update payload shared by every bridge
+/// integration (Axelar GMP, LayerZero, ...), so a single wire format is
+/// used regardless of which transport carried the message.
+///
+/// Encoded on the wire (see [`crate::bridge_common`]) as the 68-byte
+/// concatenation `foreign_asset(32) || price_le(16) || decimals_le(4) ||
+/// timestamp_le(8) || nonce_le(8)`.
 #[derive(Clone, Debug, Eq, PartialEq)]
 #[contracttype]
-pub struct WormholeVaa {
-    /// Wormhole chain id of the emitting chain (e.g. `2` = Ethereum).
-    pub emitter_chain: u32,
-    /// Address of the emitting contract on the source chain.
-    pub emitter_address: BytesN<32>,
-    /// Monotonically increasing sequence number for this emitter, for replay protection.
-    pub sequence: u64,
-    /// Encoded price payload — see [`WormholePricePayload`].
-    pub payload: Bytes,
-    /// Ed25519 signatures from the guardians named in `guardian_indices`, same order.
-    pub signatures: Vec<BytesN<64>>,
-    /// Indices into the registered guardian set corresponding to each signature.
-    pub guardian_indices: Vec<u32>,
+pub struct CrossChainPricePayload {
+    /// Foreign-chain asset identifier, resolved via the asset registry.
+    pub foreign_asset: BytesN<32>,
+    /// Raw price value scaled by `10^decimals`.
+    pub price: i128,
+    /// Decimal precision of `price` as observed on the source chain.
+    pub decimals: u32,
+    /// Unix timestamp (seconds) of the price observation on the source chain.
+    pub timestamp: u64,
+    /// Sender-assigned nonce, carried for auditability (ordering itself is
+    /// enforced by the transport, e.g. LayerZero's per-pathway nonce).
+    pub nonce: u64,
 }
 

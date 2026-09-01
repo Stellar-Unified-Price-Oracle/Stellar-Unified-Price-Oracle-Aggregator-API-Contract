@@ -159,7 +159,6 @@ pub fn batch_set_asset_metadata(env: &Env, updates: Vec<AssetMetadataUpdate>) {
     }
 }
 
-
 #[allow(dead_code)]
 pub fn get_asset_metadata(env: &Env, asset: Address) -> Option<AssetMetadata> {
     crate::storage::check_registered_asset(env, &asset);
@@ -242,7 +241,7 @@ pub fn set_price_bounds(
     env.storage()
         .persistent()
         .set(&DataKey::AssetPriceBounds(asset.clone()), &bounds);
-    emit_admin_action(env, symbol_short!("set_bounds"), admin, Bytes::new(env));
+    emit_admin_action(env, symbol_short!("st_bounds"), admin, Bytes::new(env));
 }
 
 pub fn get_price_bounds(env: &Env, asset: Address) -> PriceBounds {

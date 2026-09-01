@@ -5,7 +5,7 @@
 
 use soroban_sdk::{panic_with_error, Address, Env};
 
-use crate::events::{RateLimitTierChangedEvent, RateLimitExceededEvent};
+use crate::events::{RateLimitExceededEvent, RateLimitTierChangedEvent};
 use crate::storage::{get_admin, LEDGER_BUMP};
 use crate::types::{DataKey, ErrorCode};
 
@@ -47,11 +47,7 @@ pub fn check_rate_limit(env: &Env, consumer: Address) -> bool {
     let current_ledger = env.ledger().sequence();
     let count_key = DataKey::QueryCount(consumer.clone(), current_ledger);
 
-    let count: u32 = env
-        .storage()
-        .persistent()
-        .get(&count_key)
-        .unwrap_or(0);
+    let count: u32 = env.storage().persistent().get(&count_key).unwrap_or(0);
 
     if count >= limit {
         RateLimitExceededEvent {
@@ -114,9 +110,7 @@ pub fn grant_enterprise_tier(env: &Env, consumer: Address) {
 
     info.tier = crate::types::ConsumerTier::Premium;
     env.storage().persistent().set(&key, &info);
-    env.storage()
-        .persistent()
-        .extend_ttl(&key, 300000, 3600000);
+    env.storage().persistent().extend_ttl(&key, 300000, 3600000);
 
     RateLimitTierChangedEvent {
         consumer,
@@ -147,9 +141,7 @@ pub fn revoke_enterprise_tier(env: &Env, consumer: Address) {
 
     info.tier = crate::types::ConsumerTier::Free;
     env.storage().persistent().set(&key, &info);
-    env.storage()
-        .persistent()
-        .extend_ttl(&key, 300000, 3600000);
+    env.storage().persistent().extend_ttl(&key, 300000, 3600000);
 
     RateLimitTierChangedEvent {
         consumer,

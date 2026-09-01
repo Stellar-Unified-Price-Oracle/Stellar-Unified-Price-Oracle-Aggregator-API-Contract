@@ -21,12 +21,7 @@ use crate::types::{AuditEntry, DataKey, ErrorCode};
 /// * `action` - The action symbol (e.g., "pause", "setadm").
 /// * `admin` - The admin address that performed the action.
 /// * `data` - Arbitrary data associated with the action.
-pub fn append_audit_entry(
-    env: &Env,
-    action: Symbol,
-    admin: Address,
-    data: Bytes,
-) {
+pub fn append_audit_entry(env: &Env, action: Symbol, admin: Address, data: Bytes) {
     let current_ledger = env.ledger().sequence();
     let timestamp = env.ledger().timestamp();
 
@@ -114,7 +109,11 @@ pub fn append_audit_entry(
 ///
 /// Ordered list of audit entries.
 pub fn get_admin_audit_log(env: &Env, from_id: u32, limit: u32) -> Vec<AuditEntry> {
-    let effective_limit = if limit == 0 || limit > 500 { 500 } else { limit };
+    let effective_limit = if limit == 0 || limit > 500 {
+        500
+    } else {
+        limit
+    };
     let start_id = if from_id == 0 { 1 } else { from_id };
 
     let entry_count: u32 = env

@@ -1,8 +1,6 @@
 use soroban_sdk::{panic_with_error, symbol_short, Address, Bytes, Env, String, Vec};
 
-use crate::events::{
-    emit_admin_action, FeedMetadataRegisteredEvent, FeedMetadataUpdatedEvent,
-};
+use crate::events::{emit_admin_action, FeedMetadataRegisteredEvent, FeedMetadataUpdatedEvent};
 use crate::storage::{get_admin, LEDGER_BUMP, LEDGER_THRESHOLD};
 use crate::types::{DataKey, EcosystemMetadata, ErrorCode, FeedMetadata};
 
@@ -20,9 +18,11 @@ pub fn register_ecosystem_metadata(env: &Env, metadata: EcosystemMetadata) {
     env.storage()
         .persistent()
         .set(&DataKey::EcosystemMetadata, &metadata);
-    env.storage()
-        .persistent()
-        .extend_ttl(&DataKey::EcosystemMetadata, LEDGER_THRESHOLD, LEDGER_BUMP);
+    env.storage().persistent().extend_ttl(
+        &DataKey::EcosystemMetadata,
+        LEDGER_THRESHOLD,
+        LEDGER_BUMP,
+    );
 
     emit_admin_action(env, symbol_short!("reg_meta"), admin, Bytes::new(env));
 }
@@ -39,9 +39,11 @@ pub fn update_ecosystem_metadata(env: &Env, metadata: EcosystemMetadata) {
     env.storage()
         .persistent()
         .set(&DataKey::EcosystemMetadata, &metadata);
-    env.storage()
-        .persistent()
-        .extend_ttl(&DataKey::EcosystemMetadata, LEDGER_THRESHOLD, LEDGER_BUMP);
+    env.storage().persistent().extend_ttl(
+        &DataKey::EcosystemMetadata,
+        LEDGER_THRESHOLD,
+        LEDGER_BUMP,
+    );
 
     emit_admin_action(env, symbol_short!("upd_meta"), admin, Bytes::new(env));
 }
@@ -92,9 +94,11 @@ pub fn register_feed_metadata(env: &Env, feed: FeedMetadata) {
     env.storage()
         .persistent()
         .set(&DataKey::EcosystemMetadata, &metadata);
-    env.storage()
-        .persistent()
-        .extend_ttl(&DataKey::EcosystemMetadata, LEDGER_THRESHOLD, LEDGER_BUMP);
+    env.storage().persistent().extend_ttl(
+        &DataKey::EcosystemMetadata,
+        LEDGER_THRESHOLD,
+        LEDGER_BUMP,
+    );
 
     FeedMetadataRegisteredEvent {
         asset: feed.asset.clone(),

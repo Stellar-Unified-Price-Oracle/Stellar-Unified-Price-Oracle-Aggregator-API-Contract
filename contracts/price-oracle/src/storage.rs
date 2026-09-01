@@ -37,7 +37,6 @@ pub fn check_source(env: &Env, addr: &Address) {
         .extend_ttl(&key, LEDGER_THRESHOLD, LEDGER_BUMP);
 }
 
-
 pub fn check_registered_asset(env: &Env, asset: &Address) {
     // Prefer the O(1) membership index.
     let index_key = DataKey::AssetRegistryIndex(asset.clone());
@@ -159,12 +158,7 @@ fn median_of_five(prices: &mut soroban_sdk::Vec<i128>, left: u32, right: u32) ->
     left + (right - left) / 2
 }
 
-fn partition(
-    prices: &mut soroban_sdk::Vec<i128>,
-    left: u32,
-    right: u32,
-    pivot_index: u32,
-) -> u32 {
+fn partition(prices: &mut soroban_sdk::Vec<i128>, left: u32, right: u32, pivot_index: u32) -> u32 {
     let pivot_value = prices.get_unchecked(pivot_index);
     vec_swap(prices, pivot_index, right);
     let mut store_index = left;
@@ -198,12 +192,7 @@ fn select_pivot(prices: &mut soroban_sdk::Vec<i128>, left: u32, right: u32) -> u
     select_kth(prices, left, store - 1, mid)
 }
 
-fn select_kth(
-    prices: &mut soroban_sdk::Vec<i128>,
-    mut left: u32,
-    mut right: u32,
-    k: u32,
-) -> i128 {
+fn select_kth(prices: &mut soroban_sdk::Vec<i128>, mut left: u32, mut right: u32, k: u32) -> i128 {
     loop {
         if left == right {
             return prices.get_unchecked(left);
@@ -510,14 +499,18 @@ pub fn get_storage_ttl_status(env: &Env) -> soroban_sdk::Vec<crate::types::Stora
         // Price history ledgers list (if present)
         let ledgers_key = DataKey::PriceHistoryLedgers(a.clone());
         if env.storage().persistent().has(&ledgers_key) {
-            let ledger_list: Option<soroban_sdk::Vec<u32>> = env.storage().persistent().get(&ledgers_key);
+            let ledger_list: Option<soroban_sdk::Vec<u32>> =
+                env.storage().persistent().get(&ledgers_key);
             if let Some(list) = ledger_list {
                 for j in 0..list.len() {
                     let ledger = list.get_unchecked(j);
                     let hist_key = DataKey::PriceHistory(a.clone(), ledger);
                     let exists_hist = env.storage().temporary().has(&hist_key);
                     out.push_back(crate::types::StorageTtlEntry {
-                        key: soroban_sdk::String::from_str(env, &format!("PriceHistory({}, {})", i, ledger)),
+                        key: soroban_sdk::String::from_str(
+                            env,
+                            &format!("PriceHistory({}, {})", i, ledger),
+                        ),
                         exists: exists_hist,
                         remaining_ttl: 0,
                     });

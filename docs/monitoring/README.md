@@ -106,41 +106,15 @@ Consider adding Grafana alerts on:
 - `oracle_price_submissions_total` rate = 0 for > 15 min per source — source may be down
 - `oracle_latest_price` unchanged for > staleness window — stale price data
 
-## Severity-aware alerting
+## Related off-chain services
 
-Every price-deviation check — the on-chain per-subscription movement check in
-`dispatch_alerts` (`alerts.rs`) and the off-chain reference-price check in
-`check_and_alert_deviation` (`alerting.rs`) — now classifies its basis-point
-movement into a severity level and routes it to a channel, instead of treating
-every deviation identically.
+These services scrape into the same Prometheus/Grafana stack described above (add their
+`/metrics` endpoints as additional scrape targets):
 
-| Severity    | Default threshold | Routed to |
-|-------------|--------------------|-----------|
-| `Info`      | `< 300 bps` (3%)    | — (recorded only, not routed) |
-| `Warning`   | `>= 300 bps`        | Dashboard |
-| `Critical`  | `>= 1,000 bps` (10%) | Page |
-| `Emergency` | `>= 2,500 bps` (25%) | Page |
+| Service | Metrics | Docs |
+|---|---|---|
+| Off-chain anomaly detection | `oracle_anomaly_alerts_total`, `oracle_anomaly_rounds_scored_total` | `docs/anomaly-detection.md` |
+| Volatility forecasting | `oracle_volatility_forecasts_total` | `docs/volatility-forecasting.md` |
+| Source reliability scoring | `oracle_reliability_scores_computed_total` | `docs/source-reliability-score.md` |
 
-Thresholds are configurable on-chain via `set_severity_thresholds` (global
-default) and `set_asset_severity_thresholds` (per-asset override), and read back
-via `get_severity_thresholds` / `get_asset_severity_thresholds` /
-`get_last_alert_severity`.
-
-### `SeverityAlertEvent`
-
-Every classification at `Warning` or above emits a `SeverityAlertEvent`:
-
-| Field | Description |
-|---|---|
-| `asset` (topic) | Asset whose movement was classified. |
-| `severity` (topic) | `0`=Info, `1`=Warning, `2`=Critical, `3`=Emergency. |
-| `channel` | `0`=Dashboard, `1`=Page. |
-| `movement_bps` | The basis-point movement that triggered this classification. |
-| `ledger` | Ledger sequence at classification time. |
-
-An indexer should map this event to a `oracle_severity_alert_total{asset,
-severity, channel}` counter metric — see the `OracleSeverity*` rules in
-`alerts.yml` — and a relayer service should subscribe to `channel == Page`
-events and forward them to an on-call paging integration (PagerDuty,
-Opsgenie, etc.), while `channel == Dashboard` events only need to reach
-Grafana/Prometheus.
+`docs/monitoring/alerts.yml` includes alerting rules for all three.

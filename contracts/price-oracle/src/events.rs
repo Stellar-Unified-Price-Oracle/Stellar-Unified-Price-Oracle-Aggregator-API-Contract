@@ -86,6 +86,18 @@ pub struct PriceProposalResolvedEvent {
     pub finalized: bool,
 }
 
+/// Emitted when an optimistic proposal is resolved using external off-chain data (#291).
+///
+/// Topics: `proposal_id`
+#[contractevent]
+#[derive(Clone)]
+pub struct ExternalDataResolvedEvent {
+    #[topic]
+    pub proposal_id: u32,
+    pub external_price: i128,
+    pub resolver: Address,
+}
+
 /// Emitted when the aggregate price for an asset changes.
 ///
 /// Topics: `asset`
@@ -670,6 +682,39 @@ pub struct SubscriptionExpiredEvent {
     pub consumer: Address,
 }
 
+// --- #294: Native token subscription payments ---
+
+/// Emitted when a subscription payment is received in native token.
+#[contractevent]
+#[derive(Clone)]
+pub struct SubscriptionPaymentReceivedEvent {
+    #[topic]
+    pub consumer: Address,
+    pub amount: i128,
+    pub ledger: u32,
+}
+
+/// Emitted when subscription fees are distributed to sources/relayers and treasury.
+#[contractevent]
+#[derive(Clone)]
+pub struct SubscriptionFeesDistributedEvent {
+    #[topic]
+    pub consumer: Address,
+    pub amount: i128,
+    pub treasury_share: i128,
+    pub sources_share: i128,
+}
+
+/// Emitted when a subscription payment is refunded.
+#[contractevent]
+#[derive(Clone)]
+pub struct SubscriptionPaymentRefundedEvent {
+    #[topic]
+    pub consumer: Address,
+    pub amount: i128,
+    pub reason: String,
+}
+
 // --- #67: Per-asset resolution ---
 
 /// Emitted when the per-asset resolution is set or cleared.
@@ -1222,7 +1267,7 @@ pub struct FmMinPriorityFeeEvent {
 /// Emitted when the fee distribution ratio is changed (#176).
 #[contractevent]
 #[derive(Clone)]
-pub struct FmFeeDistRatioChangedEvent {
+pub struct FmFeeRatioChangedEvent {
     pub ratio_bps: u32,
 }
 
@@ -1759,133 +1804,112 @@ pub struct FeedMetadataUpdatedEvent {
 }
 
 // =============================================================================
-// Alert subscriptions (#174) / off-chain deviation alerting (#199)
-//
-// `alerts.rs` and `alerting.rs` referenced these events but the definitions
-// were missing from this file (dropped in the same botched merge noted in
-// `lib.rs`), which meant neither module could compile. Restored here so both
-// modules — and the severity-aware alerting extension below — build and run.
+// Canonical Cross-Chain Asset Registry Events
 // =============================================================================
 
-/// Emitted when a consumer (re)subscribes to on-chain price-deviation alerts.
-///
-/// Topics: `consumer`, `asset`.
+/// Emitted when a new foreign-chain asset mapping is registered.
 #[contractevent]
 #[derive(Clone)]
-pub struct AlertSubscribedEvent {
+pub struct ForeignAssetMappedEvent {
     #[topic]
-    pub consumer: Address,
-    #[topic]
-    pub asset: Address,
-    pub threshold_bps: u32,
-    pub ttl_ledgers: u32,
+    pub stellar_asset: Address,
+    pub chain: String,
+    pub foreign_address: BytesN<32>,
+    pub decimals: u32,
 }
 
-/// Emitted when an alert subscription is pruned after exceeding its TTL.
-///
-/// Topics: `consumer`, `asset`.
+/// Emitted when an existing foreign-chain asset mapping is updated
+/// (decimals and/or enabled flag).
 #[contractevent]
 #[derive(Clone)]
-pub struct AlertSubscriptionExpiredEvent {
+pub struct ForeignAssetMappingUpdatedEvent {
     #[topic]
-    pub consumer: Address,
-    #[topic]
-    pub asset: Address,
-    pub expired_ledger: u32,
+    pub stellar_asset: Address,
+    pub chain: String,
+    pub foreign_address: BytesN<32>,
+    pub decimals: u32,
+    pub enabled: bool,
 }
 
-/// Emitted when a subscribed consumer's callback is invoked after a price
-/// movement breaches its configured threshold.
-///
-/// Topics: `consumer`, `asset`.
+/// Emitted when a foreign-chain asset mapping is removed.
 #[contractevent]
 #[derive(Clone)]
-pub struct AlertTriggeredEvent {
+pub struct ForeignAssetMappingRemovedEvent {
     #[topic]
-    pub consumer: Address,
-    #[topic]
-    pub asset: Address,
-    pub old_price: i128,
-    pub new_price: i128,
-    pub movement_bps: u32,
-    pub threshold_bps: u32,
-}
-
-/// Emitted when an off-chain reference-price deviation check exceeds its
-/// configured threshold.
-///
-/// Topics: `asset`.
-#[contractevent]
-#[derive(Clone)]
-pub struct PriceDeviationAlertEvent {
-    #[topic]
-    pub asset: Address,
-    pub our_price: i128,
-    pub reference_price: i128,
-    pub deviation_bps: u32,
-    pub ledger: u32,
+    pub stellar_asset: Address,
+    pub chain: String,
+    pub foreign_address: BytesN<32>,
 }
 
 // =============================================================================
-// Severity-aware alerting
+// Axelar GMP Integration Events
 // =============================================================================
 
-/// Emitted whenever a price-movement anomaly is classified and routed.
-///
-/// Topics: `asset`, `severity` (0=Info, 1=Warning, 2=Critical, 3=Emergency).
+/// Emitted when the trusted Axelar Gateway address is (re)configured.
 #[contractevent]
 #[derive(Clone)]
-pub struct SeverityAlertEvent {
+pub struct AxelarGatewaySetEvent {
+    #[topic]
+    pub gateway: Address,
+}
+
+/// Emitted when a trusted Axelar GMP source is registered.
+#[contractevent]
+#[derive(Clone)]
+pub struct AxelarTrustedSourceSetEvent {
+    #[topic]
+    pub bridge_source: Address,
+    pub source_chain: String,
+    pub source_address: String,
+}
+
+/// Emitted when a price is applied from a verified Axelar GMP message.
+#[contractevent]
+#[derive(Clone)]
+pub struct AxelarMessageExecutedEvent {
     #[topic]
     pub asset: Address,
     #[topic]
-    pub severity: u32,
-    /// Routing channel: 0 = Dashboard, 1 = Page.
-    pub channel: u32,
-    /// Price movement that triggered this classification, in basis points.
-    pub movement_bps: u32,
-    pub ledger: u32,
-}
-
-/// Emitted when severity thresholds are (re)configured.
-///
-/// Topics: `is_asset_override`.
-#[contractevent]
-#[derive(Clone)]
-pub struct SeverityThresholdsSetEvent {
-    #[topic]
-    pub is_asset_override: bool,
-    pub warning_bps: u32,
-    pub critical_bps: u32,
-    pub emergency_bps: u32,
-}
-
-// =============================================================================
-// Wormhole price relay
-// =============================================================================
-
-/// Emitted when the Wormhole guardian set is registered or rotated.
-///
-/// Topics: `set_index`.
-#[contractevent]
-#[derive(Clone)]
-pub struct WormholeGuardianSetEvent {
-    #[topic]
-    pub set_index: u32,
-    pub guardian_count: u32,
-    pub quorum: u32,
-}
-
-/// Emitted when a Wormhole VAA is successfully relayed into the oracle.
-///
-/// Topics: `asset`, `emitter_chain`.
-#[contractevent]
-#[derive(Clone)]
-pub struct WormholePriceRelayedEvent {
-    #[topic]
-    pub asset: Address,
-    #[topic]
-    pub emitter_chain: u32,
+    pub bridge_source: Address,
+    pub command_id: BytesN<32>,
+    pub source_chain: String,
+    pub source_address: String,
     pub price: i128,
-    pub sequence: u64,
+}
+
+// =============================================================================
+// LayerZero Integration Events
+// =============================================================================
+
+/// Emitted when the trusted LayerZero Endpoint address is (re)configured.
+#[contractevent]
+#[derive(Clone)]
+pub struct LzEndpointSetEvent {
+    #[topic]
+    pub endpoint: Address,
+}
+
+/// Emitted when a trusted LayerZero remote pathway is registered.
+#[contractevent]
+#[derive(Clone)]
+pub struct LzTrustedRemoteSetEvent {
+    #[topic]
+    pub bridge_source: Address,
+    pub src_eid: u32,
+    pub sender: BytesN<32>,
+}
+
+/// Emitted when a price is applied from a verified LayerZero message.
+#[contractevent]
+#[derive(Clone)]
+pub struct LzMessageReceivedEvent {
+    #[topic]
+    pub asset: Address,
+    #[topic]
+    pub bridge_source: Address,
+    pub src_eid: u32,
+    pub sender: BytesN<32>,
+    pub nonce: u64,
+    pub guid: BytesN<32>,
+    pub price: i128,
 }

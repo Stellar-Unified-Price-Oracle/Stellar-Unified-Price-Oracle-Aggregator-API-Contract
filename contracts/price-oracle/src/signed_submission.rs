@@ -50,14 +50,10 @@ pub fn register_submission_key(env: &Env, source: Address, public_key: BytesN<32
         .persistent()
         .extend_ttl(&key, LEDGER_THRESHOLD, LEDGER_BUMP);
 
-    SubmissionKeyRegisteredEvent {
-        source,
-        public_key,
-    }
-    .publish(env);
+    SubmissionKeyRegisteredEvent { source, public_key }.publish(env);
 }
 
-fn read_submission_key(env: &Env, source: &Address) -> BytesN<32> {
+pub(crate) fn read_submission_key(env: &Env, source: &Address) -> BytesN<32> {
     env.storage()
         .persistent()
         .get(&DataKey::SignedSubmitPubKey(source.clone()))

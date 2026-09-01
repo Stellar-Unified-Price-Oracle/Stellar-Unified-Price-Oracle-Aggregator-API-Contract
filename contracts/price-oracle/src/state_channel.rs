@@ -20,9 +20,7 @@
 
 use crate::storage::{LEDGER_BUMP, LEDGER_THRESHOLD};
 use crate::types::{DataKey, ErrorCode, StateChannel};
-use soroban_sdk::{
-    crypto::Hash, panic_with_error, symbol_short, Address, Bytes, BytesN, Env, Vec,
-};
+use soroban_sdk::{crypto::Hash, panic_with_error, symbol_short, Address, Bytes, BytesN, Env, Vec};
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Internal storage helpers
@@ -63,7 +61,11 @@ fn remove_channel(env: &Env, source: &Address) {
 // This gives a deterministic 32-byte digest that the source signs off-chain.
 // ─────────────────────────────────────────────────────────────────────────────
 
-fn hash_batch_payload(env: &Env, source: &Address, batch: &Vec<crate::types::BatchItem>) -> BytesN<32> {
+fn hash_batch_payload(
+    env: &Env,
+    source: &Address,
+    batch: &Vec<crate::types::BatchItem>,
+) -> BytesN<32> {
     // Build a flat byte buffer: for each item encode nonce(8) || price(16) || timestamp(8)
     let item_count = batch.len();
     // 32 bytes per item

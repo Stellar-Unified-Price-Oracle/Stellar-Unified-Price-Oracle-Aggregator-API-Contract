@@ -1,29 +1,25 @@
 use soroban_sdk::{panic_with_error, symbol_short, Address, Bytes, Env, String, Vec};
 
 use crate::events::{
-    emit_admin_action, RemovalCooldownChangedEvent, SourceActiveAgainEvent, SourceAddedEvent,
-    SourceHeartbeatEvent, SourceInactiveEvent, SourceMarkedForRemovalEvent,
-    SourceRemovalCancelledEvent, SourceRemovedEvent,
-    SourceWarningEvent, SourceProbationEvent, SourceDisqualifiedEvent, SourceDemeritsResetEvent,
-    DemeritConfigChangedEvent, InvalidSubmissionEvent,
-    SourceGovConfigChangedEvent, SourceProposalCreatedEvent, SourceProposalApprovedEvent, SourceProposalExecutedEvent,
-    SourceGeoUpdatedEvent,
-    SourceBondConfigChangedEvent, SourceBondDepositedEvent, SourceBondForfeitedEvent, SourceBondReturnedEvent,
-    SourceAssetAddedEvent, SourceAssetRemovedEvent, SourceKeyRotatedEvent,
-    SourceVerificationSetEvent,
+    emit_admin_action, DemeritConfigChangedEvent, InvalidSubmissionRecordedEvent,
+    RemovalCooldownChangedEvent, SourceActiveAgainEvent, SourceAddedEvent, SourceAssetAddedEvent,
+    SourceAssetRemovedEvent, SourceBondConfigChangedEvent, SourceBondDepositedEvent,
+    SourceBondForfeitedEvent, SourceBondReturnedEvent, SourceDemeritsResetEvent,
+    SourceDisqualifiedEvent, SourceGeoUpdatedEvent, SourceGovConfigChangedEvent,
+    SourceHeartbeatEvent, SourceInactiveEvent, SourceKeyRotatedEvent, SourceMarkedForRemovalEvent,
+    SourceProbationEvent, SourceProposalApprovedEvent, SourceProposalCreatedEvent,
+    SourceProposalExecutedEvent, SourceRemovalCancelledEvent, SourceRemovedEvent,
+    SourceVerificationSetEvent, SourceWarningEvent,
 };
 use crate::storage::{
     get_admin, is_source_inactive as check_source_inactive, mark_source_active,
     mark_source_inactive, read_oracle_sources, LEDGER_BUMP, LEDGER_THRESHOLD,
 };
 use crate::types::{
-    DataKey, ErrorCode, OracleSources, DisqualificationStatus, SourceDemeritState, DemeritConfig,
-    SourceGovernance, SourceProposal, SourceGeoMetadata, DecentralizationReport,
+    DataKey, DecentralizationReport, DemeritConfig, DisqualificationStatus, ErrorCode,
+    OracleSources, SourceDemeritState, SourceGeoMetadata, SourceGovernance, SourceProposal,
     SourceVerification,
 };
-
-
-
 
 const MAX_SOURCE_NAME_LENGTH: u32 = 64;
 const SOURCE_ROTATION_COOLDOWN: u32 = 100;
@@ -111,7 +107,6 @@ pub fn add_source_with_assets(env: &Env, source: Address, name: String, assets: 
     emit_admin_action(env, symbol_short!("add_srca"), admin, Bytes::new(env));
 }
 
-
 pub fn remove_source(env: &Env, source: Address) {
     let admin = get_admin(env);
     admin.require_auth();
@@ -139,7 +134,9 @@ pub fn remove_source(env: &Env, source: Address) {
         } else {
             forfeit_source_bond_internal(env, source.clone());
         }
-        env.storage().persistent().remove(&DataKey::SourceBond(source.clone()));
+        env.storage()
+            .persistent()
+            .remove(&DataKey::SourceBond(source.clone()));
     }
 
     env.storage()
@@ -174,7 +171,6 @@ pub fn remove_source(env: &Env, source: Address) {
     .publish(env);
     emit_admin_action(env, symbol_short!("rem_src"), admin, Bytes::new(env));
 }
-
 
 pub fn is_source(env: &Env, source: Address) -> bool {
     let key = DataKey::SrcActive(source.clone());
@@ -327,8 +323,7 @@ pub fn rotate_source_key(env: &Env, source: Address, new_address: Address) {
         .persistent()
         .get(&DataKey::SourceRotationLedger(source.clone()))
         .unwrap_or(0);
-    if last_rotation > 0
-        && current_ledger.saturating_sub(last_rotation) < SOURCE_ROTATION_COOLDOWN
+    if last_rotation > 0 && current_ledger.saturating_sub(last_rotation) < SOURCE_ROTATION_COOLDOWN
     {
         panic_with_error!(env, ErrorCode::CooldownNotElapsed);
     }
@@ -359,9 +354,10 @@ pub fn rotate_source_key(env: &Env, source: Address, new_address: Address) {
         env.storage()
             .persistent()
             .remove(&DataKey::SourceVerification(source.clone()));
-        env.storage()
-            .persistent()
-            .set(&DataKey::SourceVerification(new_address.clone()), &verification);
+        env.storage().persistent().set(
+            &DataKey::SourceVerification(new_address.clone()),
+            &verification,
+        );
     }
     env.storage()
         .persistent()
@@ -384,12 +380,17 @@ pub fn rotate_source_key(env: &Env, source: Address, new_address: Address) {
     for i in 0..registered_assets.len() {
         let asset = registered_assets.get_unchecked(i);
         let old_key = DataKey::Submission(asset.clone(), source.clone());
-        if let Some(mut entry) = env.storage().persistent().get::<_, crate::types::PriceEntry>(&old_key) {
+        if let Some(mut entry) = env
+            .storage()
+            .persistent()
+            .get::<_, crate::types::PriceEntry>(&old_key)
+        {
             entry.source = new_address.clone();
             env.storage().persistent().remove(&old_key);
-            env.storage()
-                .persistent()
-                .set(&DataKey::Submission(asset.clone(), new_address.clone()), &entry);
+            env.storage().persistent().set(
+                &DataKey::Submission(asset.clone(), new_address.clone()),
+                &entry,
+            );
         }
     }
 
@@ -521,7 +522,6 @@ pub fn is_source_inactive(env: &Env, source: Address) -> bool {
                 mark_source_inactive(env, &source);
                 forfeit_source_bond_internal(env, source.clone());
 
-
                 // Record when inactivity started (only on first trip).
                 let inactive_since_key = DataKey::SrcInactiveSinceLedger(source.clone());
                 if !env.storage().persistent().has(&inactive_since_key) {
@@ -632,20 +632,24 @@ pub fn set_demerit_config(env: &Env, config: DemeritConfig) {
 
 pub fn get_source_demerits(env: &Env, source: Address) -> SourceDemeritState {
     let key = DataKey::SourceDemerits(source.clone());
-    let mut state: SourceDemeritState = env
-        .storage()
-        .persistent()
-        .get(&key)
-        .unwrap_or(SourceDemeritState {
-            demerits: 0,
-            status: DisqualificationStatus::Active,
-            status_updated_ledger: 0,
-        });
+    let mut state: SourceDemeritState =
+        env.storage()
+            .persistent()
+            .get(&key)
+            .unwrap_or(SourceDemeritState {
+                demerits: 0,
+                status: DisqualificationStatus::Active,
+                status_updated_ledger: 0,
+            });
 
     if state.status == DisqualificationStatus::Disqualified {
         let config = get_demerit_config(env);
         let current_ledger = env.ledger().sequence();
-        if current_ledger >= state.status_updated_ledger.saturating_add(config.cooldown_ledgers) {
+        if current_ledger
+            >= state
+                .status_updated_ledger
+                .saturating_add(config.cooldown_ledgers)
+        {
             state.demerits = 0;
             state.status = DisqualificationStatus::Active;
             state.status_updated_ledger = current_ledger;
@@ -750,14 +754,8 @@ pub fn reset_source_demerits(env: &Env, source: Address) {
         .persistent()
         .extend_ttl(&key, LEDGER_THRESHOLD, LEDGER_BUMP);
 
-    SourceDemeritsResetEvent {
-        source,
-        admin,
-    }
-    .publish(env);
+    SourceDemeritsResetEvent { source, admin }.publish(env);
 }
-
-
 
 pub fn get_source_last_heartbeat(env: &Env, source: Address) -> u64 {
     let key = DataKey::SrcHeartbeat(source);
@@ -1231,9 +1229,7 @@ fn _remove_source_internal(env: &Env, source: Address) {
 }
 
 pub fn get_source_governance(env: &Env) -> Option<SourceGovernance> {
-    env.storage()
-        .persistent()
-        .get(&DataKey::SourceGovConfig)
+    env.storage().persistent().get(&DataKey::SourceGovConfig)
 }
 
 pub fn set_source_governance(env: &Env, approvers: Vec<Address>, threshold: u32) {
@@ -1340,13 +1336,13 @@ pub fn approve_source(env: &Env, approver: Address, proposal_id: u32) {
     }
 
     let prop_key = DataKey::SourceProposal(proposal_id);
-    let mut proposal: SourceProposal = env
-        .storage()
-        .persistent()
-        .get(&prop_key)
-        .unwrap_or_else(|| {
-            panic_with_error!(env, ErrorCode::ProposalNotFound);
-        });
+    let mut proposal: SourceProposal =
+        env.storage()
+            .persistent()
+            .get(&prop_key)
+            .unwrap_or_else(|| {
+                panic_with_error!(env, ErrorCode::ProposalNotFound);
+            });
 
     if proposal.executed {
         panic_with_error!(env, ErrorCode::ProposalAlreadyExecuted);
@@ -1452,8 +1448,10 @@ pub fn get_decentralization_report(env: &Env) -> DecentralizationReport {
     }
 
     let mut region_counts: soroban_sdk::Map<soroban_sdk::String, u32> = soroban_sdk::Map::new(env);
-    let mut provider_counts: soroban_sdk::Map<soroban_sdk::String, u32> = soroban_sdk::Map::new(env);
-    let mut jurisdiction_counts: soroban_sdk::Map<soroban_sdk::String, u32> = soroban_sdk::Map::new(env);
+    let mut provider_counts: soroban_sdk::Map<soroban_sdk::String, u32> =
+        soroban_sdk::Map::new(env);
+    let mut jurisdiction_counts: soroban_sdk::Map<soroban_sdk::String, u32> =
+        soroban_sdk::Map::new(env);
 
     let default_str = soroban_sdk::String::from_str(env, "unknown");
 
@@ -1462,7 +1460,11 @@ pub fn get_decentralization_report(env: &Env) -> DecentralizationReport {
         let geo = get_source_geo(env, source);
         let (region, provider, jurisdiction) = match geo {
             Some(g) => (g.region, g.provider, g.jurisdiction),
-            None => (default_str.clone(), default_str.clone(), default_str.clone()),
+            None => (
+                default_str.clone(),
+                default_str.clone(),
+                default_str.clone(),
+            ),
         };
 
         let rc = region_counts.get(region.clone()).unwrap_or(0);
@@ -1566,7 +1568,9 @@ pub fn forfeit_source_bond_internal(env: &Env, source: Address) {
     if deposited > 0 {
         let treasury_key = DataKey::TreasuryBalance;
         let balance: i128 = env.storage().persistent().get(&treasury_key).unwrap_or(0);
-        env.storage().persistent().set(&treasury_key, &(balance + deposited));
+        env.storage()
+            .persistent()
+            .set(&treasury_key, &(balance + deposited));
 
         env.storage().persistent().set(&key, &0i128);
 
@@ -1577,5 +1581,3 @@ pub fn forfeit_source_bond_internal(env: &Env, source: Address) {
         .publish(env);
     }
 }
-
-

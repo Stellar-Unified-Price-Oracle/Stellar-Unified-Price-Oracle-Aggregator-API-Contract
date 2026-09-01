@@ -54,22 +54,13 @@ pub fn build_state_analysis(env: &Env) -> StateAnalysis {
 }
 
 fn read_u32(env: &Env, key: &DataKey, default: u32) -> u32 {
-    env.storage()
-        .persistent()
-        .get(key)
-        .unwrap_or(default)
+    env.storage().persistent().get(key).unwrap_or(default)
 }
 
 fn read_u64(env: &Env, key: &DataKey, default: u64) -> u64 {
-    env.storage()
-        .persistent()
-        .get(key)
-        .unwrap_or(default)
+    env.storage().persistent().get(key).unwrap_or(default)
 }
 
 fn read_string(env: &Env, key: &DataKey, default: String) -> String {
-    env.storage()
-        .persistent()
-        .get(key)
-        .unwrap_or(default)
+    env.storage().persistent().get(key).unwrap_or(default)
 }

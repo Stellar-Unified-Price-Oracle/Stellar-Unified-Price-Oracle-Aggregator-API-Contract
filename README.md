@@ -252,6 +252,7 @@ See [`docs/error-codes.md`](docs/error-codes.md) for the full registry with caus
 ## Documentation
 
 - [Price Submission Bot Design](docs/price-submission-bot.md) — off-chain bot architecture for automated price submissions
+- [Signed CEX/Aggregator Adapters](docs/signed-price-adapters.md) — CoinGecko/Binance/Coinbase adapters with failover, staleness handling, and signed submission (#216)
 - [Disaster Recovery Plan](docs/disaster-recovery.md) — failure scenario playbooks and recovery procedures
 - [Architecture](docs/ARCHITECTURE.md) — contract design and data flow
 - [Monitoring](docs/monitoring/README.md) — Grafana dashboard and alerting setup

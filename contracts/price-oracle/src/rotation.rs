@@ -86,10 +86,7 @@ pub fn set_source_schedule(
 /// `true` if rotation occurred, `false` if no rotation was needed.
 pub fn attempt_rotation(env: &Env, asset: &Address) -> bool {
     let schedule_key = DataKey::AssetRotationSchedule(asset.clone());
-    let schedule: Option<SourceRotationSchedule> = env
-        .storage()
-        .persistent()
-        .get(&schedule_key);
+    let schedule: Option<SourceRotationSchedule> = env.storage().persistent().get(&schedule_key);
 
     if let Some(mut sched) = schedule {
         if !sched.enabled {
@@ -127,7 +124,9 @@ pub fn attempt_rotation(env: &Env, asset: &Address) -> bool {
             .persistent()
             .extend_ttl(&active_key, LEDGER_THRESHOLD, LEDGER_BUMP);
 
-        env.storage().persistent().set(&standby_key, &current_active);
+        env.storage()
+            .persistent()
+            .set(&standby_key, &current_active);
         env.storage()
             .persistent()
             .extend_ttl(&standby_key, LEDGER_THRESHOLD, LEDGER_BUMP);
@@ -207,7 +206,11 @@ pub fn disable_rotation(env: &Env, asset: &Address) {
     admin.require_auth();
 
     let schedule_key = DataKey::AssetRotationSchedule(asset.clone());
-    if let Some(mut schedule) = env.storage().persistent().get::<_, SourceRotationSchedule>(&schedule_key) {
+    if let Some(mut schedule) = env
+        .storage()
+        .persistent()
+        .get::<_, SourceRotationSchedule>(&schedule_key)
+    {
         schedule.enabled = false;
         env.storage().persistent().set(&schedule_key, &schedule);
         env.storage()

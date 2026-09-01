@@ -21,11 +21,14 @@
 //! - [`get_asset_retention_window`] — query the configured window.
 //! - [`prune_by_timestamp`] — prune stale history entries for an asset.
 //! - [`prune_combined`] — apply both ledger-count and timestamp pruning.
+//! - [`prune_history`] — admin: explicitly prune the oldest entries for an asset
+//!   down to a target entry count, separate from auto-pruning on aggregation.
 
 use soroban_sdk::{panic_with_error, Address, Env};
 
 use crate::admin::get_max_history_length;
 use crate::events::{emit_history_pruned_by_timestamp, HistoryPrunedEvent};
+use crate::history::remove_history_shard_entry;
 use crate::storage::{check_registered_asset, get_admin, LEDGER_BUMP, LEDGER_THRESHOLD};
 use crate::types::{DataKey, ErrorCode, PriceHistoryEntry};
 
@@ -238,4 +241,73 @@ pub fn remove_asset_retention_window(env: &Env, asset: Address) {
         panic_with_error!(env, ErrorCode::NoData);
     }
     env.storage().persistent().remove(&key);
+}
+
+// ─── Explicit operator-triggered pruning ───────────────────────────────────
+
+/// Explicitly prunes the **oldest** history entries for `asset` down to
+/// `target_entries`, removing entries one at a time from both the ledger
+/// index and their underlying storage (per-ledger temporary storage and any
+/// weekly shard bucket).
+///
+/// This is distinct from the automatic pruning applied during aggregation
+/// (which enforces `max_history_length`/`max_history_per_asset`): it lets an
+/// operator proactively reclaim storage for an asset on demand, regardless
+/// of the currently configured limits.
+///
+/// Admin-only. A `target_entries` at or above the current entry count is a
+/// no-op and returns `0`.
+///
+/// # Arguments
+///
+/// * `env` — The Soroban execution environment.
+/// * `asset` — Asset whose history should be pruned.
+/// * `target_entries` — Desired number of history entries to retain after
+///   pruning. Entries beyond this count (oldest first) are removed.
+///
+/// # Returns
+///
+/// Number of entries that were pruned.
+///
+/// # Errors
+///
+/// * [`ErrorCode::NotAuthorized`] — if the caller is not the current admin.
+/// * [`ErrorCode::AssetNotRegistered`] — if the asset is not registered.
+pub fn prune_history(env: &Env, asset: Address, target_entries: u32) -> u32 {
+    let admin = get_admin(env);
+    admin.require_auth();
+    check_registered_asset(env, &asset);
+
+    let ledgers_key = DataKey::PriceHistoryLedgers(asset.clone());
+    let mut ledger_list: soroban_sdk::Vec<u32> = env
+        .storage()
+        .persistent()
+        .get(&ledgers_key)
+        .unwrap_or(soroban_sdk::Vec::new(env));
+
+    let mut pruned_count: u32 = 0;
+    while ledger_list.len() > target_entries {
+        let oldest_ledger = ledger_list.get_unchecked(0);
+        ledger_list.remove(0);
+        env.storage()
+            .temporary()
+            .remove(&DataKey::PriceHistory(asset.clone(), oldest_ledger));
+        remove_history_shard_entry(env, &asset, oldest_ledger);
+        pruned_count += 1;
+        HistoryPrunedEvent {
+            asset: asset.clone(),
+            pruned_ledger: oldest_ledger,
+            remaining: ledger_list.len(),
+        }
+        .publish(env);
+    }
+
+    if pruned_count > 0 {
+        env.storage().persistent().set(&ledgers_key, &ledger_list);
+        env.storage()
+            .persistent()
+            .extend_ttl(&ledgers_key, LEDGER_THRESHOLD, LEDGER_BUMP);
+    }
+
+    pruned_count
 }

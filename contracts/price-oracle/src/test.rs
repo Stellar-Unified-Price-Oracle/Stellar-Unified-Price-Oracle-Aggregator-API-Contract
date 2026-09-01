@@ -6,7 +6,7 @@ use soroban_sdk::{
 };
 
 use crate::test_helpers::*;
-use crate::{Asset, PriceData, PriceEntry, AssetMetadataUpdate};
+use crate::{Asset, AssetMetadataUpdate, PriceData, PriceEntry};
 
 #[test]
 fn test_initialize() {
@@ -863,8 +863,14 @@ fn test_operation_execute_after_dependency() {
     client.execute_operation(&op_b);
 
     // statuses: 1 == Executed
-    assert_eq!(client.get_operation_status(&op_a), crate::types::OperationStatus::Executed);
-    assert_eq!(client.get_operation_status(&op_b), crate::types::OperationStatus::Executed);
+    assert_eq!(
+        client.get_operation_status(&op_a),
+        crate::types::OperationStatus::Executed
+    );
+    assert_eq!(
+        client.get_operation_status(&op_b),
+        crate::types::OperationStatus::Executed
+    );
 }
 
 #[test]
@@ -883,8 +889,14 @@ fn test_auto_cancel_dependents() {
 
     client.cancel_operation(&op_a);
 
-    assert_eq!(client.get_operation_status(&op_a), crate::types::OperationStatus::Cancelled);
-    assert_eq!(client.get_operation_status(&op_b), crate::types::OperationStatus::Cancelled);
+    assert_eq!(
+        client.get_operation_status(&op_a),
+        crate::types::OperationStatus::Cancelled
+    );
+    assert_eq!(
+        client.get_operation_status(&op_b),
+        crate::types::OperationStatus::Cancelled
+    );
 }
 
 // ---- SEP-40 Oracle Interface Tests ----
@@ -1197,7 +1209,11 @@ fn test_submit_price_returns_early_when_sources_insufficient() {
     assert!(client.get_price(&asset, &0u64).is_none());
 
     let events = e.events().all().events();
-    assert_eq!(events.len(), 2, "expected only price + insufficiency events");
+    assert_eq!(
+        events.len(),
+        2,
+        "expected only price + insufficiency events"
+    );
 }
 
 // ---- Asset Lifecycle Tests ----
@@ -1594,6 +1610,50 @@ fn test_renew_expired_subscription() {
 
     // Renewal should fail with SubscriptionExpired
     client.renew_subscription(&consumer);
+}
+
+// --- #294: Native token fee collection ---
+
+#[test]
+fn test_subscription_payment_recorded() {
+    let e = Env::default();
+    let (client, _) = setup_contract(&e);
+    client.set_subscription_price(&86400u32, &100i128);
+
+    let consumer = Address::generate(&e);
+    client.subscribe(&consumer, &86400u32);
+
+    let payment = client.get_subscription_payment(&consumer);
+    assert!(payment.is_some());
+    assert_eq!(payment.unwrap().amount, 100i128);
+}
+
+#[test]
+fn test_distribute_subscription_fees() {
+    let e = Env::default();
+    let (client, admin) = setup_contract(&e);
+    client.set_subscription_price(&86400u32, &100i128);
+
+    let consumer = Address::generate(&e);
+    client.subscribe(&consumer, &86400u32);
+
+    client.distribute_subscription_fees(&consumer);
+    let payment = client.get_subscription_payment(&consumer);
+    assert_eq!(payment.unwrap().status, 2);
+}
+
+#[test]
+fn test_refund_subscription_payment() {
+    let e = Env::default();
+    let (client, admin) = setup_contract(&e);
+    client.set_subscription_price(&86400u32, &100i128);
+
+    let consumer = Address::generate(&e);
+    client.subscribe(&consumer, &86400u32);
+
+    client.refund_subscription(&consumer);
+    let payment = client.get_subscription_payment(&consumer);
+    assert_eq!(payment.unwrap().status, 2);
 }
 
 // ==== Frontrunning Prevention Tests ====
@@ -2529,16 +2589,14 @@ fn test_source_verification_management() {
     let source = register_test_source(&e, &client, "VerifiedSource");
     let verifier = Address::generate(&e);
 
-    client.set_source_verification(
-        &source,
-        &true,
-        &String::from_str(&e, "did"),
-        &verifier,
-    );
+    client.set_source_verification(&source, &true, &String::from_str(&e, "did"), &verifier);
 
     let verification = client.get_source_verification(&source).unwrap();
     assert!(verification.verified);
-    assert_eq!(verification.verification_method, String::from_str(&e, "did"));
+    assert_eq!(
+        verification.verification_method,
+        String::from_str(&e, "did")
+    );
     assert_eq!(verification.verifier, verifier);
 
     let sources = client.get_oracle_sources();
@@ -2606,8 +2664,68 @@ fn test_vwap_aggregation() {
 
     let price = client.get_price(&asset, &0u64).unwrap();
     assert_eq!(price.price, 175i128);
-    assert_eq!(client.get_aggregation_method(), crate::AggregationMethod::VWAP as u32);
+    assert_eq!(
+        client.get_aggregation_method(),
+        crate::AggregationMethod::VWAP as u32
+    );
 }
 
+// --- #293: Contract Metadata & Interface Discovery ---
 
+#[test]
+fn test_supports_interface_known() {
+    let e = Env::default();
+    let (client, _) = setup_contract(&e);
 
+    let sep40_id = soroban_sdk::BytesN::from_slice(&e, crate::types::INTERFACE_ID_SEP40);
+    let admin_id = soroban_sdk::BytesN::from_slice(&e, crate::types::INTERFACE_ID_ADMIN);
+    let src_id = soroban_sdk::BytesN::from_slice(&e, crate::types::INTERFACE_ID_SOURCE_MGMT);
+    let sub_id = soroban_sdk::BytesN::from_slice(&e, crate::types::INTERFACE_ID_SUBSCRIPTION);
+    let opt_id = soroban_sdk::BytesN::from_slice(&e, crate::types::INTERFACE_ID_OPTIMISTIC);
+    let cr_id = soroban_sdk::BytesN::from_slice(&e, crate::types::INTERFACE_ID_COMMIT_REVEAL);
+    let fee_id = soroban_sdk::BytesN::from_slice(&e, crate::types::INTERFACE_ID_NATIVE_FEES);
+    let meta_id = soroban_sdk::BytesN::from_slice(&e, crate::types::INTERFACE_ID_METADATA);
+
+    assert!(client.supports_interface(&sep40_id));
+    assert!(client.supports_interface(&admin_id));
+    assert!(client.supports_interface(&src_id));
+    assert!(client.supports_interface(&sub_id));
+    assert!(client.supports_interface(&opt_id));
+    assert!(client.supports_interface(&cr_id));
+    assert!(client.supports_interface(&fee_id));
+    assert!(client.supports_interface(&meta_id));
+}
+
+#[test]
+fn test_supports_interface_unknown() {
+    let e = Env::default();
+    let (client, _) = setup_contract(&e);
+
+    let unknown = soroban_sdk::BytesN::from_slice(&e, &[0xde, 0xad, 0xbe, 0xef]);
+    assert!(!client.supports_interface(&unknown));
+}
+
+#[test]
+fn test_get_contract_metadata() {
+    let e = Env::default();
+    let admin = Address::generate(&e);
+    let client = create_contract(&e);
+    client.initialize(
+        &admin,
+        &2u32,
+        &10u32,
+        &18u32,
+        &String::from_str(&e, "Test Oracle"),
+    );
+
+    let meta = client.get_contract_metadata();
+    assert_eq!(
+        meta.name,
+        String::from_str(&e, "Stellar Unified Price Oracle")
+    );
+    assert_eq!(meta.version, String::from_str(&e, "1.0.0"));
+    assert_eq!(meta.description, String::from_str(&e, "Test Oracle"));
+    assert_eq!(meta.admin, admin);
+    assert_eq!(meta.decimals, 18u32);
+    assert_eq!(meta.supported_interfaces.len(), 8);
+}
