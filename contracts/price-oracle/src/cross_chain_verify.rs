@@ -70,6 +70,23 @@ pub fn submit_cross_chain_price(
     let admin = get_admin(env);
     admin.require_auth();
 
+    record_reference_price(env, asset, oracle_chain, price, decimals, chain_id, timestamp);
+}
+
+/// Records a cross-chain reference price observation without an authorization
+/// check, so it can be shared by [`submit_cross_chain_price`] (admin-submitted)
+/// and the bridge integrations in [`crate::bridge_common`] (Axelar GMP,
+/// LayerZero), which authenticate the observation through their own trust
+/// model before calling this.
+pub(crate) fn record_reference_price(
+    env: &Env,
+    asset: Address,
+    oracle_chain: Address,
+    price: i128,
+    decimals: u32,
+    chain_id: String,
+    timestamp: u64,
+) {
     crate::storage::check_registered_asset(env, &asset);
 
     if price <= 0 {
@@ -89,7 +106,7 @@ pub fn submit_cross_chain_price(
         &entry,
     );
 
-    env.storage().persistent().bump(
+    env.storage().persistent().extend_ttl(
         &DataKey::CrossChainPrice(asset, oracle_chain),
         LEDGER_THRESHOLD,
         LEDGER_BUMP,
@@ -168,7 +185,7 @@ mod tests {
     #[test]
     fn test_cross_chain_verification_flag() {
         let env = Env::default();
-        let admin = Address::random(&env);
+        let admin = Address::generate(&env);
 
         env.ledger().with_mut(|l| {
             l.timestamp = 1000;
@@ -180,7 +197,7 @@ mod tests {
             1,
             100,
             18,
-            SorobanString::from_slice(&env, "Oracle"),
+            SorobanString::from_str(&env, "Oracle"),
         );
 
         // Initially disabled
@@ -198,7 +215,7 @@ mod tests {
     #[test]
     fn test_price_within_threshold() {
         let env = Env::default();
-        let admin = Address::random(&env);
+        let admin = Address::generate(&env);
 
         env.ledger().with_mut(|l| {
             l.timestamp = 1000;
@@ -210,7 +227,7 @@ mod tests {
             1,
             100,
             18,
-            SorobanString::from_slice(&env, "Oracle"),
+            SorobanString::from_str(&env, "Oracle"),
         );
 
         set_cross_chain_verification_enabled(&env, true);
@@ -222,7 +239,7 @@ mod tests {
         let cross_chain = CrossChainPriceEntry {
             price: 101_500_000_000_000_000i128, // 101.5 * 10^16 (1.5% deviation)
             decimals: 18,
-            chain_id: SorobanString::from_slice(&env, "ethereum"),
+            chain_id: SorobanString::from_str(&env, "ethereum"),
             ledger: 1,
             timestamp: 1000,
         };
@@ -233,7 +250,7 @@ mod tests {
     #[test]
     fn test_price_exceeds_threshold() {
         let env = Env::default();
-        let admin = Address::random(&env);
+        let admin = Address::generate(&env);
 
         env.ledger().with_mut(|l| {
             l.timestamp = 1000;
@@ -245,7 +262,7 @@ mod tests {
             1,
             100,
             18,
-            SorobanString::from_slice(&env, "Oracle"),
+            SorobanString::from_str(&env, "Oracle"),
         );
 
         set_cross_chain_verification_enabled(&env, true);
@@ -257,7 +274,7 @@ mod tests {
         let cross_chain = CrossChainPriceEntry {
             price: 106_000_000_000_000_000i128, // 106 * 10^16 (6% deviation)
             decimals: 18,
-            chain_id: SorobanString::from_slice(&env, "ethereum"),
+            chain_id: SorobanString::from_str(&env, "ethereum"),
             ledger: 1,
             timestamp: 1000,
         };
@@ -268,7 +285,7 @@ mod tests {
     #[test]
     fn test_verification_disabled() {
         let env = Env::default();
-        let admin = Address::random(&env);
+        let admin = Address::generate(&env);
 
         env.ledger().with_mut(|l| {
             l.timestamp = 1000;
@@ -280,7 +297,7 @@ mod tests {
             1,
             100,
             18,
-            SorobanString::from_slice(&env, "Oracle"),
+            SorobanString::from_str(&env, "Oracle"),
         );
 
         // Verification disabled by default
@@ -291,7 +308,7 @@ mod tests {
         let cross_chain = CrossChainPriceEntry {
             price: 150_000_000_000_000_000i128, // 50% deviation - should pass because verification disabled
             decimals: 18,
-            chain_id: SorobanString::from_slice(&env, "ethereum"),
+            chain_id: SorobanString::from_str(&env, "ethereum"),
             ledger: 1,
             timestamp: 1000,
         };

@@ -27,7 +27,13 @@ fn test_state_analyze_counts() {
     let admin = Address::generate(&e);
     let client = create_contract(&e);
 
-    client.initialize(&admin, &2u32, &100u32, &6u32, &String::from_str(&e, "Analyze"));
+    client.initialize(
+        &admin,
+        &2u32,
+        &100u32,
+        &6u32,
+        &String::from_str(&e, "Analyze"),
+    );
 
     let analysis = client.oracle_state_analyze();
     assert_eq!(analysis.admin, admin);

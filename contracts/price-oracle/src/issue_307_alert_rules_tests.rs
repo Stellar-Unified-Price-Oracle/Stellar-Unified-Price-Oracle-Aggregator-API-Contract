@@ -7,7 +7,7 @@ use soroban_sdk::{
     Address, Env,
 };
 
-use crate::test_helpers::{setup_contract, register_test_source, register_test_asset};
+use crate::test_helpers::{register_test_asset, register_test_source, setup_contract};
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 

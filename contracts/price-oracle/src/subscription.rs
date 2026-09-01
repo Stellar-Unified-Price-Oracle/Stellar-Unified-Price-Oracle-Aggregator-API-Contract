@@ -1,14 +1,17 @@
 use soroban_sdk::{panic_with_error, token, Address, Env};
 
 use crate::events::{
-    SubscriptionCancelledEvent, SubscriptionCreatedEvent, SubscriptionRenewedEvent,
-    SubscriptionTokenSetEvent,
+    SubscriptionCancelledEvent, SubscriptionCreatedEvent, SubscriptionFeesDistributedEvent,
+    SubscriptionPaymentRefundedEvent, SubscriptionRenewedEvent, SubscriptionTokenSetEvent,
 };
 use crate::storage::{
     get_admin, get_plan_amount, read_subscription_expiry, read_subscription_plans,
     write_subscription_expiry, LEDGER_BUMP, LEDGER_THRESHOLD,
 };
-use crate::types::{DataKey, ErrorCode, SubscriptionPlans, TokenSubscriptionRecord};
+use crate::types::{
+    DataKey, ErrorCode, SubscriptionPayment, SubscriptionPlans, TokenSubscriptionRecord,
+};
+use crate::whitelisting::get_xlm_token_contract;
 
 // ---------------------------------------------------------------------------
 // SAC token helpers
@@ -16,9 +19,7 @@ use crate::types::{DataKey, ErrorCode, SubscriptionPlans, TokenSubscriptionRecor
 
 /// Read the configured SAC token contract address, if any.
 pub fn read_subscription_token(env: &Env) -> Option<Address> {
-    env.storage()
-        .instance()
-        .get(&DataKey::SubscriptionToken)
+    env.storage().instance().get(&DataKey::SubscriptionToken)
 }
 
 /// Write the SAC token contract address to instance storage.
@@ -92,7 +93,7 @@ pub fn get_subscription_token(env: &Env) -> Option<Address> {
 
 /// Creates a new subscription for `consumer` for the given `duration` plan.
 ///
-/// If a SAC token is configured, transfers `plan_amount` tokens from `consumer`
+/// If an XLM token contract is configured, transfers `plan_amount` tokens from `consumer`
 /// to this contract as payment.
 ///
 /// # Errors
@@ -108,20 +109,34 @@ pub fn subscribe(env: &Env, consumer: Address, duration: u32) {
     let ledger_timestamp = env.ledger().timestamp();
     let new_expiry = ledger_timestamp.saturating_add(duration as u64);
 
-    // If a SAC token is configured, collect payment.
-    if let Some(token_contract) = read_subscription_token(env) {
+    // If XLM token is configured, collect payment.
+    if let Some(token_contract) = get_xlm_token_contract(env) {
         if plan_amount > 0 {
             let client = token::Client::new(env, &token_contract);
             let contract_addr = env.current_contract_address();
             client.transfer(&consumer, &contract_addr, &plan_amount);
 
-            // Record the deposit for pro-rata refund support.
-            let record = TokenSubscriptionRecord {
-                deposited_amount: plan_amount,
-                start_timestamp: ledger_timestamp,
-                expiry_timestamp: new_expiry,
+            let payment = SubscriptionPayment {
+                consumer: consumer.clone(),
+                amount: plan_amount,
+                timestamp: ledger_timestamp,
+                status: 1,
             };
-            write_token_record(env, &consumer, &record);
+            env.storage()
+                .persistent()
+                .set(&DataKey::SubscriptionPayment(consumer.clone()), &payment);
+            env.storage().persistent().extend_ttl(
+                &DataKey::SubscriptionPayment(consumer.clone()),
+                LEDGER_THRESHOLD,
+                LEDGER_BUMP,
+            );
+
+            SubscriptionPaymentReceivedEvent {
+                consumer: consumer.clone(),
+                amount: plan_amount,
+                ledger: env.ledger().sequence(),
+            }
+            .publish(env);
         }
     }
 
@@ -200,8 +215,7 @@ pub fn cancel_subscription(env: &Env, consumer: Address) {
                 let elapsed = ledger_timestamp.saturating_sub(record.start_timestamp);
                 let remaining = total_dur.saturating_sub(elapsed);
                 // Integer division: refund = deposited * remaining / total_dur
-                refund_amount = (record.deposited_amount * remaining as i128)
-                    / total_dur as i128;
+                refund_amount = (record.deposited_amount * remaining as i128) / total_dur as i128;
             }
 
             if refund_amount > 0 {
@@ -249,4 +263,88 @@ pub fn get_subscription_plans(env: &Env) -> SubscriptionPlans {
             .extend_ttl(&key, LEDGER_THRESHOLD, LEDGER_BUMP);
     }
     read_subscription_plans(env)
+}
+
+// ---------------------------------------------------------------------------
+// #294: Native token fee distribution and refunds
+// ---------------------------------------------------------------------------
+
+/// Distributes collected subscription fees to treasury and sources/relayers.
+///
+/// Admin-only.
+pub fn distribute_subscription_fees(env: &Env, consumer: &Address) {
+    let admin = get_admin(env);
+    admin.require_auth();
+
+    let payment_key = DataKey::SubscriptionPayment(consumer.clone());
+    let payment: SubscriptionPayment = env
+        .storage()
+        .persistent()
+        .get(&payment_key)
+        .unwrap_or_else(|| panic_with_error!(env, ErrorCode::NoData));
+
+    if payment.status != 1 {
+        panic_with_error!(env, ErrorCode::InvalidConfiguration);
+    }
+
+    let total = payment.amount;
+    let treasury_share = total / 4;
+    let sources_share = total - treasury_share;
+
+    if treasury_share > 0 {
+        if let Some(token_contract) = get_xlm_token_contract(env) {
+            let client = token::Client::new(env, &token_contract);
+            let contract_addr = env.current_contract_address();
+            let treasury = get_admin(env);
+            client.transfer(&contract_addr, &treasury, &treasury_share);
+        }
+    }
+
+    let mut updated = payment;
+    updated.status = 2;
+    env.storage().persistent().set(&payment_key, &updated);
+
+    SubscriptionFeesDistributedEvent {
+        consumer: consumer.clone(),
+        amount: total,
+        treasury_share,
+        sources_share,
+    }
+    .publish(env);
+}
+
+/// Refunds a consumer's subscription payment.
+///
+/// Admin-only.
+pub fn refund_subscription_payment(env: &Env, consumer: &Address) {
+    let admin = get_admin(env);
+    admin.require_auth();
+
+    let payment_key = DataKey::SubscriptionPayment(consumer.clone());
+    let payment: SubscriptionPayment = env
+        .storage()
+        .persistent()
+        .get(&payment_key)
+        .unwrap_or_else(|| panic_with_error!(env, ErrorCode::NoData));
+
+    if payment.status != 1 {
+        panic_with_error!(env, ErrorCode::InvalidConfiguration);
+    }
+
+    if let Some(token_contract) = get_xlm_token_contract(env) {
+        let client = token::Client::new(env, &token_contract);
+        let contract_addr = env.current_contract_address();
+        client.transfer(&contract_addr, consumer, &payment.amount);
+    }
+
+    let mut updated = payment;
+    updated.status = 2;
+    env.storage().persistent().set(&payment_key, &updated);
+
+    SubscriptionPaymentRefundedEvent {
+        consumer: consumer.clone(),
+        amount: payment.amount,
+        reason: String::from_slice(env, "Subscription failed"),
+    }
+    .publish(env);
 }

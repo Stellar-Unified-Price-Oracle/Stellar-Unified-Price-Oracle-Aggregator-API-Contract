@@ -21,6 +21,9 @@ use soroban_sdk::contracterror;
 /// | 99–101 | Signed submission (#216) |
 /// | 99–102 | Freeze/pagination/notify (#223,#229,#243) |
 /// | 103–107 | Relayer batch/bond/fee market (#264,#265,#266) |
+/// | 116–118 | Cross-chain asset registry |
+/// | 119–121 | Axelar GMP integration |
+/// | 122–125 | LayerZero integration |
 #[contracterror]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ErrorCode {
@@ -242,4 +245,30 @@ pub enum ErrorCode {
     TooManyCallbacks = 114,
     /// No callback registration found for the given (consumer, asset) pair (#297).
     CallbackNotFound = 115,
+
+    // ── 116–118: Canonical cross-chain asset registry ─────────────────────────
+    /// A foreign asset mapping already exists for this (chain, foreign_address) pair.
+    ForeignAssetAlreadyMapped = 116,
+    /// No foreign asset mapping exists for this (chain, foreign_address) pair.
+    ForeignAssetNotMapped = 117,
+    /// The foreign asset mapping exists but has been disabled by the admin.
+    ForeignAssetMappingDisabled = 118,
+
+    // ── 119–121: Axelar GMP integration ────────────────────────────────────────
+    /// The Axelar Gateway contract address has not been configured.
+    AxelarGatewayNotConfigured = 119,
+    /// This Axelar `command_id` has already been executed (replay).
+    AxelarCommandAlreadyExecuted = 120,
+    /// No trusted bridge source is registered for this (source_chain, source_address).
+    AxelarSourceNotTrusted = 121,
+
+    // ── 122–125: LayerZero integration ─────────────────────────────────────────
+    /// The LayerZero Endpoint contract address has not been configured.
+    LzEndpointNotConfigured = 122,
+    /// The delivered nonce does not match the expected next nonce for this pathway.
+    LzNonceOutOfOrder = 123,
+    /// No trusted bridge source is registered for this (src_eid, sender) pathway.
+    LzRemoteNotTrusted = 124,
+    /// No canonical registry chain name is configured for this LayerZero src_eid.
+    LzChainNameNotConfigured = 125,
 }

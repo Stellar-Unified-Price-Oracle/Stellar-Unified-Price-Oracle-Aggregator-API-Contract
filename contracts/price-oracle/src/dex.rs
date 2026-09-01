@@ -21,9 +21,7 @@ fn read_dex_pool(env: &Env, asset_a: &Address, asset_b: &Address) -> Option<(i12
     let key = dex_pool_key(asset_a, asset_b);
     let result: Option<(i128, i128)> = env.storage().persistent().get(&key);
     if result.is_some() {
-        env.storage()
-            .persistent()
-            .extend_ttl(&key, 10_000, 40_000);
+        env.storage().persistent().extend_ttl(&key, 10_000, 40_000);
     }
     result
 }
@@ -31,9 +29,7 @@ fn read_dex_pool(env: &Env, asset_a: &Address, asset_b: &Address) -> Option<(i12
 fn write_dex_pool(env: &Env, asset_a: &Address, asset_b: &Address, rx: i128, ry: i128) {
     let key = dex_pool_key(asset_a, asset_b);
     env.storage().persistent().set(&key, &(rx, ry));
-    env.storage()
-        .persistent()
-        .extend_ttl(&key, 10_000, 40_000);
+    env.storage().persistent().extend_ttl(&key, 10_000, 40_000);
 }
 
 // -----------------------------------------------------------------------------

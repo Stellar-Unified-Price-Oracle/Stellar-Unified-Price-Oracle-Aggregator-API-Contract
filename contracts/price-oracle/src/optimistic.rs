@@ -1,14 +1,15 @@
-use soroban_sdk::{panic_with_error, Address, Env};
+use soroban_sdk::{panic_with_error, Address, Bytes, BytesN, Env, Vec};
 
 use crate::admin::{get_decimals, get_max_history_length, get_timestamp_threshold};
-use crate::history::{remove_history_shard_entry, should_skip_on_write, write_history_shard};
 use crate::events::{
-    PriceProposalCreatedEvent, PriceProposalDisputedEvent, PriceProposalResolvedEvent,
+    ExternalDataResolvedEvent, PriceProposalCreatedEvent, PriceProposalDisputedEvent,
+    PriceProposalResolvedEvent,
 };
-use crate::storage::{check_registered_asset, get_admin};
+use crate::history::{remove_history_shard_entry, should_skip_on_write, write_history_shard};
+use crate::storage::{check_registered_asset, check_source, get_admin};
 use crate::types::{
-    AggregatePrice, DataKey, ErrorCode, OptimisticProposal, OptimisticProposalStatus,
-    PriceHistoryEntry,
+    AggregatePrice, DataKey, ErrorCode, ExternalDataProof, OptimisticProposal,
+    OptimisticProposalStatus, PriceHistoryEntry,
 };
 
 const DEFAULT_DISPUTE_WINDOW: u32 = 120;
@@ -66,7 +67,13 @@ fn write_price_snapshot(
         .storage()
         .persistent()
         .get::<_, AggregatePrice>(&DataKey::Aggregate(asset.clone()))
-        .map(|a| if price != a.price { a.version.saturating_add(1) } else { a.version })
+        .map(|a| {
+            if price != a.price {
+                a.version.saturating_add(1)
+            } else {
+                a.version
+            }
+        })
         .unwrap_or(0);
     let aggregate = AggregatePrice {
         price,
@@ -301,4 +308,91 @@ pub fn get_proposal(env: &Env, proposal_id: u32) -> Option<OptimisticProposal> {
         return None;
     }
     Some(updated)
+}
+
+pub fn resolve_via_external_data(
+    env: &Env,
+    proposal_id: u32,
+    external_price: i128,
+    proof: ExternalDataProof,
+) {
+    let admin = get_admin(env);
+    admin.require_auth();
+
+    let proposal = read_proposal(env, proposal_id).unwrap_or_else(|| {
+        panic_with_error!(env, ErrorCode::ProposalNotFound);
+    });
+    let mut proposal = finalize_if_expired(env, &proposal);
+
+    if !proposal.disputed {
+        panic_with_error!(env, ErrorCode::ProposalNotDisputed);
+    }
+    if proposal.status == OptimisticProposalStatus::Resolved as u32
+        || proposal.status == OptimisticProposalStatus::Finalized as u32
+    {
+        panic_with_error!(env, ErrorCode::ProposalAlreadyResolved);
+    }
+
+    check_source(env, &proof.source);
+    let threshold = get_timestamp_threshold(env);
+    let ledger_time = env.ledger().timestamp();
+    if proof.timestamp > ledger_time.saturating_add(threshold) {
+        panic_with_error!(env, ErrorCode::InvalidTimestamp);
+    }
+    if proof.signature.to_array().iter().all(|b| *b == 0) {
+        panic_with_error!(env, ErrorCode::InvalidExternalProof);
+    }
+
+    let mut preimage = Bytes::new(env);
+    preimage.append(&proof.source.to_xdr(env));
+    let price_bytes = external_price.to_le_bytes();
+    for b in price_bytes.iter() {
+        preimage.push_back(b);
+    }
+    let ts_bytes = proof.timestamp.to_le_bytes();
+    for b in ts_bytes.iter() {
+        preimage.push_back(b);
+    }
+    let expected_hash: BytesN<32> = env.crypto().sha256(&preimage).into();
+    if expected_hash != proof.data_hash {
+        panic_with_error!(env, ErrorCode::InvalidExternalProof);
+    }
+
+    proposal.status = OptimisticProposalStatus::Resolved as u32;
+    proposal.resolved = true;
+    proposal.resolution = 1;
+
+    write_price_snapshot(
+        env,
+        &proposal.asset,
+        external_price,
+        proof.timestamp,
+        1,
+        env.ledger().sequence(),
+        get_decimals(env),
+    );
+    write_proposal(env, &proposal);
+
+    ExternalDataResolvedEvent {
+        proposal_id,
+        external_price,
+        resolver: admin,
+    }
+    .publish(env);
+}
+
+pub fn get_active_proposals(env: &Env) -> Vec<OptimisticProposal> {
+    let count = read_proposal_count(env);
+    let mut active: Vec<OptimisticProposal> = Vec::new(env);
+    for id in 1..=count {
+        if let Some(mut proposal) = read_proposal(env, id) {
+            proposal = finalize_if_expired(env, &proposal);
+            if proposal.status == OptimisticProposalStatus::Pending as u32
+                || proposal.status == OptimisticProposalStatus::Disputed as u32
+            {
+                active.push_back(proposal);
+            }
+        }
+    }
+    active
 }

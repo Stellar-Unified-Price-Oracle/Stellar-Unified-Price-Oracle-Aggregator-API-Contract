@@ -4,9 +4,9 @@ use crate::events::{
     emit_admin_action, emit_initialized, emit_max_price_deviation_changed,
     emit_timestamp_threshold_changed, AdminChangedEvent, AggCooldownChangedEvent,
     AssetResolutionSetEvent, ContractUpgradedEvent, DecimalsChangedEvent, DescriptionChangedEvent,
-    EventsPerCallChangedEvent, HeartbeatIntervalChangedEvent, HistoryPerAssetChangedEvent,
-    InterpolationChangedEvent, MaxAggSourcesChangedEvent, MaxHistoryChangedEvent,
-    MaxSourcesChangedEvent, MinSourcesChangedEvent, DisputeWindowChangedEvent,
+    DisputeWindowChangedEvent, EventsPerCallChangedEvent, HeartbeatIntervalChangedEvent,
+    HistoryPerAssetChangedEvent, InterpolationChangedEvent, MaxAggSourcesChangedEvent,
+    MaxHistoryChangedEvent, MaxSourcesChangedEvent, MinSourcesChangedEvent,
     OptimisticMinBondChangedEvent, QueryRateLimitChangedEvent, ResolutionChangedEvent,
     SubmitIntervalChangedEvent,
 };
@@ -354,7 +354,12 @@ pub fn set_aggregation_method(env: &Env, method: u32) {
         new_method: method,
     }
     .publish(env);
-    emit_admin_action(env, symbol_short!("set_agg"), admin, soroban_sdk::Bytes::new(env));
+    emit_admin_action(
+        env,
+        symbol_short!("set_agg"),
+        admin,
+        soroban_sdk::Bytes::new(env),
+    );
 }
 
 pub fn set_timestamp_threshold(env: &Env, threshold: u64) {
@@ -427,12 +432,8 @@ pub fn get_circuit_breaker_threshold(env: &Env) -> u32 {
             .persistent()
             .extend_ttl(&key, LEDGER_THRESHOLD, LEDGER_BUMP);
     }
-    env.storage()
-        .persistent()
-        .get(&key)
-        .unwrap_or(0)
+    env.storage().persistent().get(&key).unwrap_or(0)
 }
-
 
 pub fn set_heartbeat_interval(env: &Env, interval: u64) {
     let admin = get_admin(env);
@@ -795,12 +796,7 @@ pub fn set_compaction_threshold_bps(env: &Env, threshold_bps: u32) {
     let admin = get_admin(env);
     admin.require_auth();
     crate::history::set_compaction_threshold_bps(env, threshold_bps);
-    emit_admin_action(
-        env,
-        symbol_short!("set_comp"),
-        admin,
-        Bytes::new(env),
-    );
+    emit_admin_action(env, symbol_short!("set_comp"), admin, Bytes::new(env));
 }
 
 /// Returns the current history compaction threshold in basis points (0 = disabled).

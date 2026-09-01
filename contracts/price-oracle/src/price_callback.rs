@@ -105,17 +105,13 @@ pub fn register_price_callback(
         }
     }
 
-    env.storage()
-        .persistent()
-        .set(&list_key, &registrations);
+    env.storage().persistent().set(&list_key, &registrations);
     env.storage()
         .persistent()
         .extend_ttl(&list_key, LEDGER_THRESHOLD, LEDGER_BUMP);
 
-    env.events().publish(
-        (symbol_short!("cb_reg"), asset, consumer),
-        true,
-    );
+    env.events()
+        .publish((symbol_short!("cb_reg"), asset, consumer), true);
 }
 
 /// Unregister a previously registered callback.
@@ -156,17 +152,13 @@ pub fn unregister_price_callback(env: &Env, consumer: Address, asset: Address) {
         }
     }
 
-    env.storage()
-        .persistent()
-        .set(&list_key, &registrations);
+    env.storage().persistent().set(&list_key, &registrations);
     env.storage()
         .persistent()
         .extend_ttl(&list_key, LEDGER_THRESHOLD, LEDGER_BUMP);
 
-    env.events().publish(
-        (symbol_short!("cb_unreg"), asset, consumer),
-        true,
-    );
+    env.events()
+        .publish((symbol_short!("cb_unreg"), asset, consumer), true);
 }
 
 /// List all active callback registrations for an asset.
@@ -230,7 +222,11 @@ pub fn invoke_price_callbacks(
 
         if !ok {
             env.events().publish(
-                (symbol_short!("cb_fail"), asset.clone(), reg.consumer.clone()),
+                (
+                    symbol_short!("cb_fail"),
+                    asset.clone(),
+                    reg.consumer.clone(),
+                ),
                 (price, timestamp),
             );
         }
@@ -255,13 +251,7 @@ fn try_invoke_callback(
     num_sources: u32,
 ) -> bool {
     // Build arguments for: fn price_update(asset, price, timestamp, num_sources)
-    let args = (
-        asset.clone(),
-        price,
-        timestamp,
-        num_sources,
-    )
-        .into_val(env);
+    let args = (asset.clone(), price, timestamp, num_sources).into_val(env);
 
     // invoke_contract panics on callee failure; we want fault isolation.
     // Soroban SDK v26 does not expose a fallible call variant, so we rely on
@@ -283,8 +273,9 @@ fn try_invoke_callback(
 mod tests {
     use super::*;
     use soroban_sdk::{
+        symbol_short,
         testutils::{Address as _, Ledger, LedgerInfo},
-        symbol_short, Address, Env,
+        Address, Env,
     };
 
     use crate::test_helpers::{register_test_asset, register_test_source, setup_contract};
