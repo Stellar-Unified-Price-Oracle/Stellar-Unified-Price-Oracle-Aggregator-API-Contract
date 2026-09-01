@@ -1087,7 +1087,7 @@ pub struct DemeritConfigChangedEvent {
 /// Emitted when an invalid price submission is recorded against a source.
 #[contractevent]
 #[derive(Clone)]
-pub struct InvalidSubmissionRecordedEvent {
+pub struct InvalidSubmissionEvent {
     #[topic]
     pub source: Address,
     pub demerits: u32,
@@ -1226,7 +1226,7 @@ pub struct CircuitBreakerEventEntry {
 /// Emitted when a price is submitted with a deadline (#202).
 #[contractevent]
 #[derive(Clone)]
-pub struct PriceSubmittedWithDeadlineEvent {
+pub struct PriceSubmitDeadlineEvent {
     #[topic]
     pub asset: Address,
     #[topic]
@@ -1260,7 +1260,7 @@ pub struct ExoticAssetConfigSetEvent {
 /// Emitted when the fee market minimum priority fee is changed (#176).
 #[contractevent]
 #[derive(Clone)]
-pub struct FmMinPriorityFeeChangedEvent {
+pub struct FmMinPriorityFeeEvent {
     pub value: u128,
 }
 
@@ -1432,7 +1432,7 @@ pub struct RewardsClaimedEvent {
 /// Emitted when a source rotation schedule is set (#206).
 #[contractevent]
 #[derive(Clone)]
-pub struct SourceRotationScheduleSetEvent {
+pub struct SourceRotationSetEvent {
     #[topic]
     pub asset: Address,
     #[topic]
@@ -1526,7 +1526,7 @@ pub struct RateLimitTierChangedEvent {
 
 // Emitted when an invalid submission is recorded against a source (re-export from events).
 // Already defined elsewhere, but needed here as well.
-// Note: InvalidSubmissionRecordedEvent is already defined above; this is the canonical copy.
+// Note: InvalidSubmissionEvent is already defined above; this is the canonical copy.
 
 // --- #217: Configurable optimistic-oracle parameters ---
 
@@ -1542,7 +1542,7 @@ pub struct DisputeWindowChangedEvent {
 /// Emitted when the admin updates the optimistic proposal minimum bond.
 #[contractevent]
 #[derive(Clone)]
-pub struct OptimisticMinBondChangedEvent {
+pub struct OptimisticBondChangedEvent {
     #[topic]
     pub admin: Address,
     pub min_bond: i128,

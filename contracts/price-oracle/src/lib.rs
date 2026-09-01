@@ -8,6 +8,8 @@
 
 mod admin;
 mod admin_op_limits;
+mod alert_severity;
+mod alerting;
 mod alerts;
 mod amm;
 mod asset_inactivity;
@@ -79,6 +81,7 @@ mod types;
 mod vdf_sampler;
 mod verification;
 mod whitelisting;
+mod wormhole_relay;
 mod zk_verify;
 mod batch_storage;
 mod price_proof;

@@ -634,7 +634,7 @@ pub fn set_optimistic_min_bond(env: &Env, min_bond: i128) {
     env.storage()
         .persistent()
         .set(&DataKey::CfgOptimisticMinBond, &min_bond);
-    OptimisticMinBondChangedEvent {
+    OptimisticBondChangedEvent {
         admin: admin.clone(),
         min_bond,
     }

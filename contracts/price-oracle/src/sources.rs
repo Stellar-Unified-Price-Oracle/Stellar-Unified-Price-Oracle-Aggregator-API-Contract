@@ -694,7 +694,7 @@ pub fn record_invalid_submission(env: &Env, source: Address) {
         .persistent()
         .extend_ttl(&key, LEDGER_THRESHOLD, LEDGER_BUMP);
 
-    InvalidSubmissionRecordedEvent {
+    InvalidSubmissionEvent {
         source: source.clone(),
         demerits: state.demerits,
     }

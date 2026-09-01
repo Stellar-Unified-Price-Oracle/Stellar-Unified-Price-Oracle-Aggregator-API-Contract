@@ -5,7 +5,7 @@
 
 use soroban_sdk::{Address, Env};
 
-use crate::events::{PriceSubmittedWithDeadlineEvent, RebateDistributedEvent};
+use crate::events::{PriceSubmitDeadlineEvent, RebateDistributedEvent};
 use crate::storage::LEDGER_BUMP;
 use crate::types::DataKey;
 
@@ -40,7 +40,7 @@ pub fn record_deadline_submission(
         .persistent()
         .extend_ttl(&rebate_key, 300000, LEDGER_BUMP);
 
-    PriceSubmittedWithDeadlineEvent {
+    PriceSubmitDeadlineEvent {
         source,
         asset,
         deadline_ledger,
