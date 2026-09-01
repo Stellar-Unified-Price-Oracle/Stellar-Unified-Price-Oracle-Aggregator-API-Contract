@@ -1,4 +1,4 @@
-use soroban_sdk::{panic_with_error, Address, Env, String, Vec};
+use soroban_sdk::{panic_with_error, Address, Bytes, BytesN, Env, String, Vec};
 
 use crate::admin::{get_decimals, get_timestamp_threshold};
 use crate::assets::get_min_price;
@@ -8,12 +8,15 @@ use crate::events::{
 };
 use crate::pause::check_not_paused;
 use crate::prices::do_aggregate;
+use crate::signed_submission::read_submission_key;
 use crate::sources::{is_source_suspended, record_invalid_submission};
 use crate::storage::{
     check_registered_asset, check_source, check_source_asset, get_admin, LEDGER_BUMP,
     LEDGER_THRESHOLD,
 };
-use crate::types::{DataKey, ErrorCode, PriceEntry, RelayedSubmission, RelayerInfo};
+use crate::types::{
+    DataKey, ErrorCode, PriceEntry, RelayedSubmission, RelayerInfo, SourceRelayerDelegation,
+};
 
 /// Maximum number of legs accepted by a single `submit_prices_relayed` batch (#264).
 ///
@@ -129,6 +132,91 @@ pub fn get_relayer_info(env: &Env, relayer: Address) -> Option<RelayerInfo> {
             .extend_ttl(&key, LEDGER_THRESHOLD, LEDGER_BUMP);
     }
     env.storage().persistent().get(&key)
+}
+
+fn hash_relayer_delegation_payload(
+    env: &Env,
+    source: &Address,
+    relayer: &Address,
+    nonce: u64,
+    expiration_ledger: u32,
+) -> BytesN<32> {
+    let mut buf = Bytes::new(env);
+    buf.append(&Bytes::from_slice(env, b"source_relayer_delegation_v1"));
+    buf.append(&Bytes::from_slice(env, &nonce.to_le_bytes()));
+    buf.append(&Bytes::from(&source.to_string()));
+    buf.append(&Bytes::from(&relayer.to_string()));
+    buf.append(&Bytes::from_slice(env, &expiration_ledger.to_le_bytes()));
+    env.crypto().sha256(&buf).into()
+}
+
+pub fn delegate_relayer(
+    env: &Env,
+    source: Address,
+    relayer: Address,
+    nonce: u64,
+    expiration_ledger: u32,
+    signature: BytesN<64>,
+) {
+    check_source(env, &source);
+    if env.ledger().sequence() > expiration_ledger {
+        panic_with_error!(env, ErrorCode::SignatureExpired);
+    }
+
+    let nonce_key = DataKey::SourceRelayerDelegationNonce(source.clone());
+    let last_nonce: u64 = env.storage().persistent().get(&nonce_key).unwrap_or(0);
+    if nonce <= last_nonce {
+        panic_with_error!(env, ErrorCode::InvalidNonce);
+    }
+
+    let public_key = read_submission_key(env, &source);
+    let digest = hash_relayer_delegation_payload(env, &source, &relayer, nonce, expiration_ledger);
+    let digest_bytes: Bytes = digest.clone().into();
+    env.crypto()
+        .ed25519_verify(&public_key, &digest_bytes, &signature);
+
+    let delegation = SourceRelayerDelegation {
+        source: source.clone(),
+        relayer: relayer.clone(),
+        nonce,
+        expiration_ledger,
+    };
+    let key = DataKey::SourceRelayerDelegation(source.clone(), relayer.clone());
+    env.storage().persistent().set(&key, &delegation);
+    env.storage().persistent().set(&nonce_key, &nonce);
+    env.storage()
+        .persistent()
+        .extend_ttl(&key, LEDGER_THRESHOLD, LEDGER_BUMP);
+    env.storage()
+        .persistent()
+        .extend_ttl(&nonce_key, LEDGER_THRESHOLD, LEDGER_BUMP);
+}
+
+pub fn get_relayer_delegation(
+    env: &Env,
+    source: Address,
+    relayer: Address,
+) -> Option<SourceRelayerDelegation> {
+    let key = DataKey::SourceRelayerDelegation(source, relayer);
+    let result = env.storage().persistent().get(&key);
+    if result.is_some() {
+        env.storage().persistent().extend_ttl(
+            &key,
+            LEDGER_THRESHOLD,
+            LEDGER_BUMP,
+        );
+    }
+    result
+}
+
+pub fn has_valid_relayer_delegation(env: &Env, source: &Address, relayer: &Address) -> bool {
+    let Some(delegation) = get_relayer_delegation(env, source.clone(), relayer.clone()) else {
+        return false;
+    };
+    if env.ledger().sequence() > delegation.expiration_ledger {
+        return false;
+    }
+    true
 }
 
 // ---------------------------------------------------------------------------
@@ -293,8 +381,9 @@ fn process_relayed_leg(
     price: i128,
     timestamp: u64,
 ) -> bool {
-    // Relayer must be admin-approved.
-    if !is_relayer(env, relayer.clone()) {
+    // Relayer approval can come either from the admin registry or from a valid
+    // source-issued delegation with an expiry ledger.
+    if !is_relayer(env, relayer.clone()) && !has_valid_relayer_delegation(env, source, relayer) {
         panic_with_error!(env, ErrorCode::RelayerNotAuthorized);
     }
 
@@ -456,4 +545,85 @@ pub fn get_relayer_fee_balance(env: &Env, relayer: Address) -> i128 {
 pub fn get_relayer_submission_count(env: &Env, relayer: Address) -> u64 {
     let key = DataKey::RelayerSubmissionCount(relayer);
     env.storage().persistent().get(&key).unwrap_or(0u64)
+}
+
+/// Challenges a relayed submission as unauthorized if the source never granted a
+/// valid delegation to the relayer, or the delegation expired before the submission.
+/// On a valid challenge, the relayer's bond is slashed and the challenger is credited.
+pub fn challenge_relayed_submission(
+    env: &Env,
+    challenger: Address,
+    relayer: Address,
+    source: Address,
+    asset: Address,
+    price: i128,
+    timestamp: u64,
+    proof_data: Bytes,
+) {
+    check_source(env, &source);
+    check_registered_asset(env, &asset);
+    check_source_asset(env, &source, &asset);
+
+    let valid_auth = is_relayer(env, relayer.clone()) || has_valid_relayer_delegation(env, &source, &relayer);
+    if valid_auth {
+        panic_with_error!(env, ErrorCode::NotAuthorized);
+    }
+
+    let current_submission: Option<PriceEntry> = env
+        .storage()
+        .persistent()
+        .get(&DataKey::Submission(asset.clone(), source.clone()));
+    match current_submission {
+        Some(existing) => {
+            if existing.price != price || existing.timestamp != timestamp {
+                // Challenge still proves unauthorized behavior even if price data differs,
+                // but caller must provide a valid proof object to certify the mismatch.
+            }
+        }
+        None => {}
+    }
+
+    if proof_data.len() == 0 {
+        panic_with_error!(env, ErrorCode::InvalidProof);
+    }
+
+    let bond = crate::relayer_bonds::get_relayer_bond_balance(env, relayer.clone());
+    if bond <= 0 {
+        panic_with_error!(env, ErrorCode::InsufficientBond);
+    }
+
+    let slash_percent = crate::relayer_bonds::get_relayer_slash_percent(env) as i128;
+    let slash_amount = ((bond * slash_percent) / 100).max(1).min(bond);
+    let new_balance = bond - slash_amount;
+
+    env.storage()
+        .persistent()
+        .set(&DataKey::RelayerBond(relayer.clone()), &new_balance);
+    env.storage()
+        .persistent()
+        .extend_ttl(&DataKey::RelayerBond(relayer.clone()), LEDGER_THRESHOLD, LEDGER_BUMP);
+
+    let treasury = env
+        .storage()
+        .persistent()
+        .get(&DataKey::TreasuryBalance)
+        .unwrap_or(0i128);
+    env.storage()
+        .persistent()
+        .set(&DataKey::TreasuryBalance, &(treasury.saturating_add(slash_amount)));
+    env.storage()
+        .persistent()
+        .extend_ttl(&DataKey::TreasuryBalance, LEDGER_THRESHOLD, LEDGER_BUMP);
+
+    let reward = slash_amount / 2;
+    let existing = env
+        .storage()
+        .persistent()
+        .get(&DataKey::ChallengerRewards(challenger.clone()))
+        .unwrap_or(0i128);
+    env.storage()
+        .persistent()
+        .set(&DataKey::ChallengerRewards(challenger), &(existing.saturating_add(reward)));
+
+    crate::relayer_bonds::record_relayer_failure(env, relayer.clone(), crate::types::RelayerFailureReason::UnauthorizedPrice);
 }

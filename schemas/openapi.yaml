@@ -1,0 +1,392 @@
+openapi: 3.0.0
+info:
+  title: Stellar Unified Price Oracle API
+  description: Machine-readable OpenAPI specification for the Stellar Unified Price Oracle contract
+  version: 1.0.0
+  contact:
+    name: Stellar Development Foundation
+    url: https://stellar.org
+
+servers:
+  - url: https://soroban-testnet.stellar.org
+    description: Testnet Soroban RPC
+
+paths:
+  /contracts/{contractId}/get_price:
+    get:
+      summary: Get the latest price for an asset
+      description: Query the latest price for a specific asset with optional maximum age
+      operationId: getPrice
+      parameters:
+        - name: contractId
+          in: path
+          required: true
+          schema:
+            type: string
+          description: The contract ID of the oracle
+        - name: asset
+          in: query
+          required: true
+          schema:
+            type: string
+          description: The asset address to get price for
+        - name: maxAge
+          in: query
+          required: true
+          schema:
+            type: integer
+            format: int64
+          description: Maximum age of the price in seconds
+      responses:
+        '200':
+          description: Price entry retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PriceEntry'
+        '400':
+          description: Invalid parameters
+        '404':
+          description: Asset not found or price expired
+
+  /contracts/{contractId}/get_source_price:
+    get:
+      summary: Get price from a specific source
+      description: Query the price for an asset from a specific source
+      operationId: getSourcePrice
+      parameters:
+        - name: contractId
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: asset
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: source
+          in: query
+          required: true
+          schema:
+            type: string
+          description: The source address to get price from
+      responses:
+        '200':
+          description: Price entry from source retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PriceEntry'
+        '400':
+          description: Invalid parameters
+        '404':
+          description: Source or asset not found
+
+  /contracts/{contractId}/get_all_prices:
+    get:
+      summary: Get all prices for an asset
+      description: Query all submitted prices for a specific asset
+      operationId: getAllPrices
+      parameters:
+        - name: contractId
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: asset
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: All price entries retrieved successfully
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/PriceEntry'
+        '400':
+          description: Invalid parameters
+        '404':
+          description: Asset not found
+
+  /contracts/{contractId}/submit_price:
+    post:
+      summary: Submit a price for an asset
+      description: Submit a new price update for an asset (requires authentication)
+      operationId: submitPrice
+      parameters:
+        - name: contractId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SubmitPriceRequest'
+      responses:
+        '200':
+          description: Price submitted successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TransactionResult'
+        '400':
+          description: Invalid submission
+        '401':
+          description: Unauthorized - invalid signer
+        '403':
+          description: Source not authorized to submit prices
+      security:
+        - stellarSignature: []
+
+  /contracts/{contractId}/subscribe:
+    post:
+      summary: Subscribe to price updates
+      description: Subscribe a consumer to receive price updates
+      operationId: subscribe
+      parameters:
+        - name: contractId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SubscribeRequest'
+      responses:
+        '200':
+          description: Subscription created successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TransactionResult'
+        '400':
+          description: Invalid subscription parameters
+        '401':
+          description: Unauthorized
+      security:
+        - stellarSignature: []
+
+  /contracts/{contractId}/renew_subscription:
+    post:
+      summary: Renew a subscription
+      description: Extend the duration of an existing subscription
+      operationId: renewSubscription
+      parameters:
+        - name: contractId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RenewSubscriptionRequest'
+      responses:
+        '200':
+          description: Subscription renewed successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TransactionResult'
+        '400':
+          description: Invalid parameters
+        '401':
+          description: Unauthorized
+      security:
+        - stellarSignature: []
+
+  /contracts/{contractId}/get_subscription_expiry:
+    get:
+      summary: Get subscription expiry time
+      description: Query when a consumer's subscription expires
+      operationId: getSubscriptionExpiry
+      parameters:
+        - name: contractId
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: consumer
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Subscription expiry retrieved successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  expiry:
+                    type: integer
+                    format: int64
+        '404':
+          description: Consumer not found or not subscribed
+
+  /contracts/{contractId}/is_source:
+    get:
+      summary: Check if an address is a registered source
+      description: Verify if an address is authorized to submit prices
+      operationId: isSource
+      parameters:
+        - name: contractId
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: source
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Source status retrieved
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  isSource:
+                    type: boolean
+
+  /contracts/{contractId}/is_asset_registered:
+    get:
+      summary: Check if an asset is registered
+      description: Verify if an asset is tracked by the oracle
+      operationId: isAssetRegistered
+      parameters:
+        - name: contractId
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: asset
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Asset registration status retrieved
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  isRegistered:
+                    type: boolean
+
+components:
+  schemas:
+    PriceEntry:
+      type: object
+      required:
+        - price
+        - timestamp
+      properties:
+        price:
+          type: integer
+          format: int128
+          description: The price value (typically in stroops for XLM)
+        timestamp:
+          type: integer
+          format: int64
+          description: Unix timestamp of price submission
+
+    SubmitPriceRequest:
+      type: object
+      required:
+        - source
+        - asset
+        - price
+        - timestamp
+        - signature
+      properties:
+        source:
+          type: string
+          description: The source address submitting the price
+        asset:
+          type: string
+          description: The asset address
+        price:
+          type: integer
+          format: int128
+          description: The price value
+        timestamp:
+          type: integer
+          format: int64
+          description: Unix timestamp
+        signature:
+          type: string
+          description: Base64-encoded Stellar transaction signature
+
+    SubscribeRequest:
+      type: object
+      required:
+        - consumer
+        - duration
+        - signature
+      properties:
+        consumer:
+          type: string
+          description: The consumer address
+        duration:
+          type: integer
+          format: int32
+          description: Subscription duration in seconds
+        signature:
+          type: string
+          description: Base64-encoded Stellar transaction signature
+
+    RenewSubscriptionRequest:
+      type: object
+      required:
+        - consumer
+        - signature
+      properties:
+        consumer:
+          type: string
+          description: The consumer address
+        signature:
+          type: string
+          description: Base64-encoded Stellar transaction signature
+
+    TransactionResult:
+      type: object
+      required:
+        - hash
+        - status
+      properties:
+        hash:
+          type: string
+          description: Transaction hash on the ledger
+        status:
+          type: string
+          enum: [SUCCESS, FAILURE, PENDING]
+          description: Transaction status
+        returnValue:
+          type: string
+          description: Optional return value from the contract call
+
+  securitySchemes:
+    stellarSignature:
+      type: http
+      scheme: bearer
+      bearerFormat: Stellar Transaction
+      description: Base64-encoded Stellar transaction signed by the signer keypair

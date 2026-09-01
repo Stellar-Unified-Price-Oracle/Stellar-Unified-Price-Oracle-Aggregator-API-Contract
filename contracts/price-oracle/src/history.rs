@@ -1,7 +1,9 @@
 use soroban_sdk::{panic_with_error, Address, Env, Vec};
 
 use crate::admin::{get_interpolation_enabled, get_max_history_length};
-use crate::storage::{check_registered_asset, read_registered_assets, LEDGER_BUMP, LEDGER_THRESHOLD};
+use crate::storage::{
+    check_registered_asset, read_registered_assets, LEDGER_BUMP, LEDGER_THRESHOLD,
+};
 use crate::types::{
     CompactionMetadata, DataKey, ErrorCode, PriceHistoryEntry, StorageBudget, TotalStorageBudget,
 };
@@ -661,8 +663,7 @@ pub fn get_storage_budget(env: &Env, asset: Address) -> StorageBudget {
     // Monthly TTL cost estimate: KB × stroops/KB/month
     let estimated_ttl_costs = estimated_kb.saturating_mul(STROOP_PER_KB_PER_MONTH);
     // Project total monthly cost including a small write-overhead factor (1.2×)
-    let projected_monthly_cost = estimated_ttl_costs
-        .saturating_add(estimated_ttl_costs / 5); // +20% for write/read ops
+    let projected_monthly_cost = estimated_ttl_costs.saturating_add(estimated_ttl_costs / 5); // +20% for write/read ops
 
     StorageBudget {
         asset,
@@ -691,11 +692,7 @@ pub fn get_total_storage_budget(env: &Env) -> TotalStorageBudget {
         let asset = assets.get_unchecked(i);
         // Skip unregistered / mid-deletion assets gracefully.
         let index_key = DataKey::AssetRegistryIndex(asset.clone());
-        let registered: bool = env
-            .storage()
-            .persistent()
-            .get(&index_key)
-            .unwrap_or(false);
+        let registered: bool = env.storage().persistent().get(&index_key).unwrap_or(false);
         if !registered {
             let legacy: bool = env
                 .storage()

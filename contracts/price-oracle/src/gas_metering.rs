@@ -10,7 +10,9 @@ pub fn write_last_gas(env: &Env, method: String, cpu: u64, mem: u64) {
         ledger: env.ledger().sequence(),
         timestamp: env.ledger().timestamp(),
     };
-    env.storage().persistent().set(&DataKey::LastGasRecord, &record);
+    env.storage()
+        .persistent()
+        .set(&DataKey::LastGasRecord, &record);
 }
 
 pub fn read_last_gas(env: &Env) -> Option<GasRecord> {

@@ -334,7 +334,10 @@ mod tests {
     fn weighted_median_uniform_weights() {
         let prices = [10, 20, 30, 40, 50];
         let weights = [50, 50, 50, 50, 50];
-        assert_eq!(weighted_median_core(&prices, &weights), median_core(&prices));
+        assert_eq!(
+            weighted_median_core(&prices, &weights),
+            median_core(&prices)
+        );
     }
 
     #[test]

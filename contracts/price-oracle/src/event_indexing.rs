@@ -86,7 +86,5 @@ pub fn register_event_type(env: &Env, event_type: u32) {
 
     types.push_back(event_type);
     env.storage().persistent().set(&key, &types);
-    env.storage()
-        .persistent()
-        .extend_ttl(&key, 300000, 3600000);
+    env.storage().persistent().extend_ttl(&key, 300000, 3600000);
 }

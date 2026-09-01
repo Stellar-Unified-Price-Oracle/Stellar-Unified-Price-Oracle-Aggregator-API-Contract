@@ -32,7 +32,13 @@ fn test_amm_weight_config() {
     let admin = Address::generate(&e);
     let client = create_contract(&e);
 
-    client.initialize(&admin, &1u32, &50u32, &18u32, &String::from_str(&e, "Weight"));
+    client.initialize(
+        &admin,
+        &1u32,
+        &50u32,
+        &18u32,
+        &String::from_str(&e, "Weight"),
+    );
 
     let asset = Address::generate(&e);
     client.amm_set_weight(&asset, &500u32, true);
@@ -49,7 +55,13 @@ fn test_get_soroswap_price() {
     let admin = Address::generate(&e);
     let client = create_contract(&e);
 
-    client.initialize(&admin, &1u32, &50u32, &18u32, &String::from_str(&e, "Price"));
+    client.initialize(
+        &admin,
+        &1u32,
+        &50u32,
+        &18u32,
+        &String::from_str(&e, "Price"),
+    );
 
     let asset_a = Address::generate(&e);
     let asset_b = Address::generate(&e);

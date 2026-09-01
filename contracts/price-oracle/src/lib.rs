@@ -16,12 +16,18 @@ mod assets;
 // When the `fuzz` feature is enabled it is also re-exported so that the
 // fuzz crate can call `price_oracle::core::*` directly.
 mod audit_log;
+mod audit_log;
+mod batch_storage;
 mod config_history;
+mod config_history;
+mod contribution_quality;
 #[cfg_attr(feature = "fuzz", allow(dead_code))]
 pub(crate) mod core;
+mod correlation;
 mod cross_reference;
 mod deadline_rebate;
 mod dex;
+mod emergency_pause;
 mod errors;
 mod event_indexing;
 mod events;
@@ -30,20 +36,24 @@ mod export_history;
 mod fee_market;
 mod finality;
 mod freeze;
-mod calibration;
-mod eth_bridge;
+mod freeze;
 mod gas_metering;
 mod health;
 mod history;
-mod ibc_oracle;
+mod metadata;
 mod migration;
 mod multisig;
 mod notifications;
+mod operations;
 mod optimistic;
 mod pause;
 mod per_asset_decimals;
+mod price_callback;
+mod price_proof;
 mod prices;
+mod pruning;
 mod rate_limiting;
+mod rbac;
 mod rbac;
 mod recovery;
 mod reentrancy;
@@ -52,6 +62,7 @@ mod relayer_bonds;
 mod relayer_dashboard;
 mod reputation;
 mod rotation;
+mod scheduling;
 mod signed_submission;
 mod simulate_batch;
 mod source_deviation;
@@ -66,14 +77,9 @@ mod triggers;
 mod ttl_batching;
 mod types;
 mod vdf_sampler;
+mod verification;
 mod whitelisting;
 mod zk_verify;
-mod audit_log;
-mod rbac;
-mod emergency_pause;
-mod freeze;
-mod notifications;
-mod config_history;
 mod batch_storage;
 mod price_proof;
 mod price_callback;
@@ -99,8 +105,37 @@ mod ecosystem_metadata;
 // =============================================================================
 mod event_streaming;
 
+// =============================================================================
+// Canonical Cross-Chain Asset Registry
+// =============================================================================
+mod asset_registry;
+
+// =============================================================================
+// Axelar GMP Integration
+// =============================================================================
+mod axelar_gmp;
+
+// =============================================================================
+// LayerZero Integration
+// =============================================================================
+mod layerzero;
+
+// Shared wire format / submission plumbing used by the bridge integrations above.
+mod bridge_common;
+
+// #226 — Cross-chain reference-price verification. Existed on disk but was never
+// wired into the crate (same class of dropped-wiring bug called out at the top of
+// this file); wired in now because `bridge_common` extends it for Axelar/LayerZero.
+mod cross_chain_verify;
+
 #[cfg(test)]
 mod circuit_breaker_tests;
+
+#[cfg(test)]
+mod timelock_tests;
+
+#[cfg(test)]
+mod config_bounds_tests;
 
 #[cfg(test)]
 mod cross_ref_tests;
@@ -110,6 +145,30 @@ mod override_tests;
 
 #[cfg(test)]
 mod prop_tests;
+
+// =============================================================================
+// #370 — Governance Analytics Dashboard Tests
+// =============================================================================
+#[cfg(test)]
+mod governance_analytics_tests;
+
+// =============================================================================
+// #372 — Timelock Queue Viewer Tests
+// =============================================================================
+#[cfg(test)]
+mod timelock_queue_viewer_tests;
+
+// =============================================================================
+// #371 — Proposal Simulation Tests
+// =============================================================================
+#[cfg(test)]
+mod proposal_simulation_tests;
+
+// =============================================================================
+// #373 — Treasury Management Tests
+// =============================================================================
+#[cfg(test)]
+mod treasury_management_tests;
 
 #[cfg(test)]
 mod twap_tests;
@@ -156,22 +215,41 @@ mod early_submission_discount_tests;
 #[cfg(test)]
 mod upgrade_simulation_tests;
 
+#[cfg(test)]
+mod sdk_v27_compatibility_tests;
+
+#[cfg(test)]
+mod cross_contract_governance_tests;
+
+#[cfg(test)]
+mod delta_encoding_storage_tests;
+
+#[cfg(test)]
+mod wasm_binary_size_tests;
+
 pub use types::{
     AggregatePrice,
     AggregationMethod,
+    AmmWeightConfig,
     Asset,
     BatchOperation,
     BatchSimulationResult,
+    BatchSimulationResult,
     ConfigSnapshot,
+    ContractMetadata,
     CrossReferenceResult,
     DataKey,
     DecentralizationReport,
     DemeritConfig,
+    // DEX / AMM integration
+    DexPrice,
     DisqualificationStatus,
     ErrorCode,
     // History export
     ExportedEntry,
     ExportedHistorySnapshot,
+    // Optimistic oracle external-data proof (#291)
+    ExternalDataProof,
     FinalityStatus,
     FinalizedPrice,
     FrozenPrice,
@@ -182,6 +260,7 @@ pub use types::{
     // Timelock priority
     OperationPriority,
     OperationSimulationResult,
+    OperationSimulationResult,
     OracleSources,
     PendingBatch,
     PendingFinalityEntry,
@@ -191,18 +270,17 @@ pub use types::{
     PriceHistoryEntry,
     PriceOverrideEntry,
     RelayerInfo,
+    SourceRelayerDelegation,
     // Batch dry-run simulation
-    SimulationWarning, OperationSimulationResult, BatchSimulationResult,
+    SimulationWarning,
     // State introspection
     StateDump, StateAnalysis, StateDiff, StateDiffEntry,
     // DEX / AMM integration
     DexPrice, AmmWeightConfig, SoroswapPool,
-    // Cosmos/IBC light-client price feeds
-    TendermintValidator, IbcClientState, IbcConsensusState, IbcPricePacket, IbcPriceEntry,
-    // Ethereum bridge price feeds
-    EthBridgeConfig, EthPriceMessage, EthBridgedPrice,
-    // Source accuracy calibration
-    CalibrationConfig, CalibrationBenchmark, CalibrationScore,
+    // Cross-chain asset registry & bridge message format
+    ForeignAssetMapping, CrossChainPricePayload,
+    // Cross-chain reference-price verification (#226)
+    CrossChainPriceEntry,
 };
 
 use soroban_sdk::{
@@ -864,6 +942,34 @@ impl PriceOracleContract {
     /// * [`ErrorCode::NoActiveSubscription`] — no active subscription found.
     pub fn cancel_subscription(env: Env, consumer: Address) {
         subscription::cancel_subscription(&env, consumer);
+    }
+
+    // --- #294: Native token fee collection for subscriptions ---
+
+    /// Distributes collected subscription fees to treasury and sources/relayers.
+    ///
+    /// Admin-only.
+    ///
+    /// # Errors
+    /// * [`ErrorCode::NotAuthorized`] — caller is not admin.
+    /// * [`ErrorCode::NoData`] — no payment exists for consumer.
+    pub fn distribute_subscription_fees(env: Env, consumer: Address) {
+        reentrancy::enter(&env);
+        subscription::distribute_subscription_fees(&env, &consumer);
+        reentrancy::exit(&env);
+    }
+
+    /// Refunds a consumer's subscription payment.
+    ///
+    /// Admin-only.
+    ///
+    /// # Errors
+    /// * [`ErrorCode::NotAuthorized`] — caller is not admin.
+    /// * [`ErrorCode::NoData`] — no payment exists for consumer.
+    pub fn refund_subscription(env: Env, consumer: Address) {
+        reentrancy::enter(&env);
+        subscription::refund_subscription_payment(&env, &consumer);
+        reentrancy::exit(&env);
     }
 
     // --- #304: Consumer Contract Authorization ---
@@ -1672,6 +1778,42 @@ impl PriceOracleContract {
         optimistic::get_proposal(&env, proposal_id)
     }
 
+    /// Resolves a disputed optimistic proposal using off-chain external data (#291).
+    ///
+    /// Admin-only. Validates the external proof (source registration, timestamp, signature
+    /// commitment) and writes the external price into the main oracle aggregate.
+    ///
+    /// # Arguments
+    ///
+    /// * `env` - The Soroban execution environment.
+    /// * `proposal_id` - The disputed proposal to resolve.
+    /// * `external_price` - The off-chain verified price to write.
+    /// * `proof` - External data proof from a registered source.
+    ///
+    /// # Errors
+    ///
+    /// * [`ErrorCode::NotAuthorized`] — caller is not the admin.
+    /// * [`ErrorCode::ProposalNotFound`] — proposal does not exist.
+    /// * [`ErrorCode::ProposalNotDisputed`] — proposal is not in disputed state.
+    /// * [`ErrorCode::ProposalAlreadyResolved`] — proposal is already resolved/finalized.
+    /// * [`ErrorCode::InvalidExternalProof`] — proof validation failed.
+    pub fn resolve_via_external_data(
+        env: Env,
+        proposal_id: u32,
+        external_price: i128,
+        proof: ExternalDataProof,
+    ) {
+        reentrancy::enter(&env);
+        optimistic::resolve_via_external_data(&env, proposal_id, external_price, proof);
+        reentrancy::exit(&env);
+    }
+
+    /// Returns all active optimistic proposals (Pending or Disputed), finalizing
+    /// any expired entries on the fly.
+    pub fn get_active_proposals(env: Env) -> Vec<OptimisticProposal> {
+        optimistic::get_active_proposals(&env)
+    }
+
     /// Sets the dispute window (in ledgers) applied to new optimistic proposals.
     ///
     /// # Errors
@@ -1729,7 +1871,14 @@ impl PriceOracleContract {
     /// * [`ErrorCode::InvalidPrice`] — if `price` is ≤ 0.
     /// * [`ErrorCode::PriceBelowMinimum`] — if `price` is below the asset's minimum price.
     /// * [`ErrorCode::InvalidTimestamp`] — if `timestamp` is too far in the future.
-    pub fn submit_price(env: Env, source: Address, asset: Address, price: i128, timestamp: u64, nonce: u64) {
+    pub fn submit_price(
+        env: Env,
+        source: Address,
+        asset: Address,
+        price: i128,
+        timestamp: u64,
+        nonce: u64,
+    ) {
         reentrancy::enter(&env);
         // Measure budget before and after to record last submit_price cost.
         let before_cpu = env.budget().cpu_instruction_count();
@@ -2369,6 +2518,28 @@ impl PriceOracleContract {
         history::get_compaction_metadata(&env, asset)
     }
 
+    /// Explicitly prunes the oldest history entries for `asset` down to
+    /// `target_entries`, separate from the automatic pruning that runs on
+    /// aggregation. Lets an operator proactively free storage before hitting
+    /// configured limits. Emits a
+    /// [`HistoryPrunedEvent`](crate::events::HistoryPrunedEvent) per removed
+    /// entry. Admin-only.
+    ///
+    /// # Returns
+    ///
+    /// Number of entries pruned.
+    ///
+    /// # Errors
+    ///
+    /// * [`ErrorCode::NotAuthorized`] — caller is not the admin.
+    /// * [`ErrorCode::AssetNotRegistered`] — asset is not registered.
+    pub fn prune_history(env: Env, asset: Address, target_entries: u32) -> u32 {
+        enter_reentrancy_guard(&env);
+        let result = pruning::prune_history(&env, asset, target_entries);
+        exit_reentrancy_guard(&env);
+        result
+    }
+
     // ─────────────────────────────────────────────────────────────────────────
     // #251 — History Sharding
     // ─────────────────────────────────────────────────────────────────────────
@@ -2399,11 +2570,7 @@ impl PriceOracleContract {
     /// # Errors
     ///
     /// * [`ErrorCode::AssetNotRegistered`] — asset is not registered.
-    pub fn get_bucket_entries(
-        env: Env,
-        asset: Address,
-        ledger: u32,
-    ) -> Vec<PriceHistoryEntry> {
+    pub fn get_bucket_entries(env: Env, asset: Address, ledger: u32) -> Vec<PriceHistoryEntry> {
         history::get_bucket_entries(&env, asset, ledger)
     }
 
@@ -2542,11 +2709,7 @@ impl PriceOracleContract {
     /// # Errors
     ///
     /// * [`ErrorCode::NotAuthorized`] — if `consumer` is not allowed.
-    pub fn lastprice_authorized(
-        env: Env,
-        consumer: Address,
-        asset: Asset,
-    ) -> Option<PriceData> {
+    pub fn lastprice_authorized(env: Env, consumer: Address, asset: Asset) -> Option<PriceData> {
         consumer.require_auth();
         consumer_auth::check_consumer_authorized(&env, &consumer);
         enter_reentrancy_guard(&env);
@@ -2737,6 +2900,39 @@ impl PriceOracleContract {
     /// A [`HealthReport`] reflecting current oracle state.
     pub fn health_check(env: Env) -> HealthReport {
         health::health_check(&env)
+    }
+
+    // --- Contract Metadata (#293) ---
+
+    /// Returns whether the contract supports the given 4-byte interface identifier.
+    ///
+    /// Uses ERC-165-style interface discovery. Supported interface IDs are declared
+    /// in [`ContractMetadata`](crate::types::ContractMetadata).
+    ///
+    /// # Arguments
+    ///
+    /// * `env` - The Soroban execution environment.
+    /// * `interface_id` - 4-byte interface identifier to query.
+    ///
+    /// # Returns
+    ///
+    /// `true` if the interface is supported; `false` otherwise.
+    pub fn supports_interface(env: Env, interface_id: soroban_sdk::BytesN<4>) -> bool {
+        metadata::supports_interface(&env, &interface_id)
+    }
+
+    /// Returns human-readable contract metadata including name, version, description,
+    /// admin address, decimals, and the list of supported 4-byte interface identifiers.
+    ///
+    /// # Arguments
+    ///
+    /// * `env` - The Soroban execution environment.
+    ///
+    /// # Returns
+    ///
+    /// A [`ContractMetadata`] struct describing this oracle contract.
+    pub fn get_contract_metadata(env: Env) -> ContractMetadata {
+        metadata::get_contract_metadata(&env)
     }
 
     // --- Storage Migration (#112) ---
@@ -3030,6 +3226,59 @@ impl PriceOracleContract {
     /// `Some(`[`RelayerInfo`]`)` with approval metadata, or `None` if not approved.
     pub fn get_relayer_info(env: Env, relayer: Address) -> Option<RelayerInfo> {
         relayer::get_relayer_info(&env, relayer)
+    }
+
+    /// Stores a source-authorized relayer delegation that permits `relayer` to submit
+    /// on `source`'s behalf without requiring admin relayer approval.
+    ///
+    /// The delegation is authenticated by the source's registered Ed25519 signing key,
+    /// and it expires once `expiration_ledger` has passed. A higher `nonce` replaces
+    /// any earlier delegation for the same `(source, relayer)` pair.
+    pub fn delegate_relayer(
+        env: Env,
+        source: Address,
+        relayer: Address,
+        nonce: u64,
+        expiration_ledger: u32,
+        signature: BytesN<64>,
+    ) {
+        relayer::delegate_relayer(&env, source, relayer, nonce, expiration_ledger, signature);
+    }
+
+    /// Returns the currently active source delegation for `(source, relayer)`, if any.
+    pub fn get_relayer_delegation(
+        env: Env,
+        source: Address,
+        relayer: Address,
+    ) -> Option<SourceRelayerDelegation> {
+        relayer::get_relayer_delegation(&env, source, relayer)
+    }
+
+    /// Challenges a relayed price as unauthorized when the source never granted a
+    /// valid delegation to the relayer, or the delegation has expired.
+    ///
+    /// On a valid challenge, the relayer's bond is slashed and the challenger is
+    /// credited with half of the slashed amount.
+    pub fn challenge_relayed_submission(
+        env: Env,
+        challenger: Address,
+        relayer: Address,
+        source: Address,
+        asset: Address,
+        price: i128,
+        timestamp: u64,
+        proof_data: Bytes,
+    ) {
+        relayer::challenge_relayed_submission(
+            &env,
+            challenger,
+            relayer,
+            source,
+            asset,
+            price,
+            timestamp,
+            proof_data,
+        );
     }
 
     /// Submits a price for an asset on behalf of an oracle source via an approved relayer.
@@ -3446,7 +3695,7 @@ impl PriceOracleContract {
     /// # Errors
     ///
     /// * [`ErrorCode::NotAuthorized`] — if the caller is not the current admin.
-    pub fn set_cross_chain_verification_enabled(env: Env, enabled: bool) {
+    pub fn set_cross_verify_enabled(env: Env, enabled: bool) {
         cross_chain_verify::set_cross_chain_verification_enabled(&env, enabled);
     }
 
@@ -3459,7 +3708,7 @@ impl PriceOracleContract {
     /// # Returns
     ///
     /// `true` if verification is enabled, `false` otherwise.
-    pub fn is_cross_chain_verification_enabled(env: Env) -> bool {
+    pub fn is_cross_verify_enabled(env: Env) -> bool {
         cross_chain_verify::is_cross_chain_verification_enabled(&env)
     }
 
@@ -3831,6 +4080,58 @@ impl PriceOracleContract {
     /// Returns the configured BFT aggregation method.
     pub fn get_bft_aggregation_method(env: Env) -> u32 {
         prices::get_bft_aggregation_method(&env)
+    }
+
+    // =========================================================================
+    // #292 — Standalone Commit-Reveal Mode & Slashing
+    // =========================================================================
+
+    /// Enables or disables standalone commit-reveal mode.
+    ///
+    /// When enabled, direct `submit_price` calls are rejected and sources must
+    /// use `commit_price` / `reveal_price`. Admin-only.
+    ///
+    /// # Errors
+    /// * [`ErrorCode::NotAuthorized`] — caller is not admin.
+    pub fn set_commit_reveal_enabled(env: Env, enabled: bool) {
+        reentrancy::enter(&env);
+        prices::set_commit_reveal_enabled(&env, enabled);
+        reentrancy::exit(&env);
+    }
+
+    /// Returns whether standalone commit-reveal mode is enabled.
+    pub fn get_commit_reveal_enabled(env: Env) -> bool {
+        prices::get_commit_reveal_enabled(&env)
+    }
+
+    /// Sets the slash amount applied to sources who commit but do not reveal.
+    ///
+    /// Admin-only. Set to `0` to disable slashing.
+    ///
+    /// # Errors
+    /// * [`ErrorCode::NotAuthorized`] — caller is not admin.
+    pub fn set_commit_reveal_slash_amount(env: Env, amount: i128) {
+        reentrancy::enter(&env);
+        prices::set_commit_reveal_slash_amount(&env, amount);
+        reentrancy::exit(&env);
+    }
+
+    /// Returns the configured slash amount for non-revealing sources.
+    pub fn get_commit_reveal_slash_amount(env: Env) -> i128 {
+        prices::get_commit_reveal_slash_amount(&env)
+    }
+
+    /// Permissionless keeper endpoint: slashes a source that committed but failed
+    /// to reveal for the given round.
+    ///
+    /// Must be called after the reveal window expires.
+    ///
+    /// # Errors
+    /// * [`ErrorCode::CommitNotFound`] — no commit exists for this tuple.
+    /// * [`ErrorCode::CommitExpired`] — reveal window has not expired.
+    /// * [`ErrorCode::SlashFailed`] — source has no bond to slash.
+    pub fn slash_expired_commits(env: Env, asset: Address, source: Address, round_ledger: u32) {
+        prices::slash_expired_commits(&env, asset, source, round_ledger);
     }
 
     // =========================================================================
@@ -4724,7 +5025,11 @@ impl PriceOracleContract {
     }
 
     /// Returns the bridge oracle configuration for an asset pair, or `None`.
-    pub fn bridge_get_oracle(env: Env, source_asset: Address, target_asset: Address) -> Option<BridgeOracleConfig> {
+    pub fn bridge_get_oracle(
+        env: Env,
+        source_asset: Address,
+        target_asset: Address,
+    ) -> Option<BridgeOracleConfig> {
         bridge_oracle::get_bridge_oracle(&env, source_asset, target_asset)
     }
 
@@ -4733,17 +5038,32 @@ impl PriceOracleContract {
     /// # Errors
     /// * [`ErrorCode::NotAuthorized`] — caller is not the bridge oracle.
     /// * [`ErrorCode::InvalidConfiguration`] — price is non-positive.
-    pub fn bridge_submit_price(env: Env, source_asset: Address, target_asset: Address, price: i128, timestamp: u64) {
+    pub fn bridge_submit_price(
+        env: Env,
+        source_asset: Address,
+        target_asset: Address,
+        price: i128,
+        timestamp: u64,
+    ) {
         bridge_oracle::submit_bridged_price(&env, source_asset, target_asset, price, timestamp);
     }
 
     /// Returns the latest bridged price for an asset pair, or `None`.
-    pub fn bridge_get_price(env: Env, source_asset: Address, target_asset: Address) -> Option<BridgedPrice> {
+    pub fn bridge_get_price(
+        env: Env,
+        source_asset: Address,
+        target_asset: Address,
+    ) -> Option<BridgedPrice> {
         bridge_oracle::get_bridged_price(&env, source_asset, target_asset)
     }
 
     /// Normalizes a raw bridge price into the oracle decimal scale.
-    pub fn bridge_normalize_price(env: Env, raw_price: i128, target_decimals: u32, config: BridgeOracleConfig) -> i128 {
+    pub fn bridge_normalize_price(
+        env: Env,
+        raw_price: i128,
+        target_decimals: u32,
+        config: BridgeOracleConfig,
+    ) -> i128 {
         bridge_oracle::normalize_bridged_price(&env, raw_price, target_decimals, &config)
     }
 
@@ -4781,161 +5101,239 @@ impl PriceOracleContract {
         ecosystem_metadata::get_feed_metadata(&env, asset)
     }
 
-    // =========================================================================
-    // Cosmos/IBC Light-Client Verified Price Feeds
-    // =========================================================================
+    // --- Canonical cross-chain asset registry ---
 
-    /// Configures the IBC light client for a counterparty Cosmos chain. Admin-only.
-    pub fn ibc_update_light_client(env: Env, client_state: IbcClientState) {
-        ibc_oracle::update_light_client(&env, client_state);
-    }
-
-    /// Returns the current IBC light client configuration, or `None`.
-    pub fn ibc_get_light_client(env: Env) -> Option<IbcClientState> {
-        ibc_oracle::get_light_client(&env)
-    }
-
-    /// Submits a validator-signed consensus state for a revision height. Admin-only.
+    /// Registers a canonical mapping from `stellar_asset` to its representation
+    /// on a foreign `chain`. Admin-only. See [`crate::asset_registry`].
     ///
     /// # Errors
-    /// * [`ErrorCode::IbcClientNotSet`] — no light client configured.
-    /// * [`ErrorCode::IbcQuorumNotMet`] — signed voting power below the trust threshold.
-    pub fn ibc_submit_consensus_state(
+    ///
+    /// * [`ErrorCode::NotAuthorized`] — caller is not the admin.
+    /// * [`ErrorCode::AssetNotRegistered`] — `stellar_asset` is not registered.
+    /// * [`ErrorCode::ForeignAssetAlreadyMapped`] — a mapping already exists.
+    pub fn register_foreign_asset_mapping(
         env: Env,
-        consensus_state: IbcConsensusState,
-        validators: Vec<TendermintValidator>,
-        signatures: Vec<BytesN<64>>,
+        stellar_asset: Address,
+        chain: String,
+        foreign_address: BytesN<32>,
+        decimals: u32,
     ) {
-        ibc_oracle::submit_consensus_state(&env, consensus_state, validators, signatures);
+        asset_registry::register_foreign_asset_mapping(
+            &env,
+            stellar_asset,
+            chain,
+            foreign_address,
+            decimals,
+        );
     }
 
-    /// Returns the trusted consensus state at a revision height, or `None`.
-    pub fn ibc_get_consensus_state(env: Env, revision_height: u64) -> Option<IbcConsensusState> {
-        ibc_oracle::get_consensus_state(&env, revision_height)
-    }
-
-    /// Maps an IBC denom to a registered Stellar asset. Admin-only.
-    pub fn ibc_register_asset(env: Env, denom: String, asset: Address) {
-        ibc_oracle::register_ibc_asset_mapping(&env, denom, asset);
-    }
-
-    /// Returns the Stellar asset mapped to an IBC denom, or `None`.
-    pub fn ibc_get_asset(env: Env, denom: String) -> Option<Address> {
-        ibc_oracle::get_ibc_asset(&env, denom)
-    }
-
-    /// Verifies an IBC price packet's Merkle proof against the trusted app hash
-    /// for its revision height, then stores the resulting price.
-    ///
-    /// # Errors
-    /// * [`ErrorCode::IbcDenomNotMapped`], [`ErrorCode::IbcConsensusStateNotFound`],
-    ///   [`ErrorCode::IbcClientExpired`], [`ErrorCode::IbcPacketReplayed`],
-    ///   [`ErrorCode::IbcInvalidProof`], [`ErrorCode::InvalidPrice`].
-    pub fn ibc_submit_price(
+    /// Updates an existing foreign asset mapping's decimals and enabled flag. Admin-only.
+    pub fn update_foreign_asset_mapping(
         env: Env,
-        packet: IbcPricePacket,
-        proof: Vec<BytesN<32>>,
-        path_bits: u32,
+        chain: String,
+        foreign_address: BytesN<32>,
+        decimals: u32,
+        enabled: bool,
     ) {
-        ibc_oracle::verify_and_submit_price(&env, packet, proof, path_bits);
+        asset_registry::update_foreign_asset_mapping(&env, chain, foreign_address, decimals, enabled);
     }
 
-    /// Returns the latest verified IBC price for a denom, or `None`.
-    pub fn ibc_get_price(env: Env, denom: String) -> Option<IbcPriceEntry> {
-        ibc_oracle::get_ibc_price(&env, denom)
+    /// Removes a foreign asset mapping. Admin-only.
+    pub fn remove_foreign_asset_mapping(env: Env, chain: String, foreign_address: BytesN<32>) {
+        asset_registry::remove_foreign_asset_mapping(&env, chain, foreign_address);
     }
 
-    // =========================================================================
-    // Ethereum Bridge Price Feeds
-    // =========================================================================
-
-    /// Sets the Ethereum bridge configuration (relayer, finality/staleness). Admin-only.
-    pub fn eth_set_bridge_config(env: Env, config: EthBridgeConfig) {
-        eth_bridge::set_eth_bridge_config(&env, config);
+    /// Returns the mapping for `(chain, foreign_address)`, if any.
+    pub fn get_foreign_asset_mapping(
+        env: Env,
+        chain: String,
+        foreign_address: BytesN<32>,
+    ) -> Option<ForeignAssetMapping> {
+        asset_registry::get_foreign_asset_mapping(&env, chain, foreign_address)
     }
 
-    /// Returns the current Ethereum bridge configuration, or `None`.
-    pub fn eth_get_bridge_config(env: Env) -> Option<EthBridgeConfig> {
-        eth_bridge::get_eth_bridge_config(&env)
+    /// Returns every foreign-chain mapping registered for `asset`.
+    pub fn get_foreign_mappings_for_asset(env: Env, asset: Address) -> Vec<ForeignAssetMapping> {
+        asset_registry::get_foreign_mappings_for_asset(&env, asset)
     }
 
-    /// Maps an ERC-20 token address to a registered Stellar asset. Admin-only.
-    pub fn eth_map_asset(env: Env, erc20: BytesN<20>, asset: Address) {
-        eth_bridge::map_erc20_asset(&env, erc20, asset);
+    // --- #226: Cross-chain reference-price verification ---
+
+    /// Enables or disables cross-chain reference-price verification globally. Admin-only.
+    pub fn set_cross_chain_verification_enabled(env: Env, enabled: bool) {
+        cross_chain_verify::set_cross_chain_verification_enabled(&env, enabled);
     }
 
-    /// Returns the ERC-20 address mapped to a Stellar asset, or `None`.
-    pub fn eth_get_erc20_for_asset(env: Env, asset: Address) -> Option<BytesN<20>> {
-        eth_bridge::get_erc20_for_asset(&env, asset)
+    /// Returns whether cross-chain reference-price verification is enabled.
+    pub fn is_cross_chain_verification_enabled(env: Env) -> bool {
+        cross_chain_verify::is_cross_chain_verification_enabled(&env)
     }
 
-    /// Submits a bridged Ethereum price update. Must be called by the configured relayer.
+    /// Sets the maximum allowed deviation (basis points) between this oracle's
+    /// price and a reference chain's price. Admin-only.
+    pub fn set_cross_chain_deviation_threshold(env: Env, threshold_bps: u32) {
+        cross_chain_verify::set_cross_chain_deviation_threshold(&env, threshold_bps);
+    }
+
+    /// Returns the current cross-chain deviation threshold in basis points.
+    pub fn get_cross_chain_deviation_threshold(env: Env) -> u32 {
+        cross_chain_verify::get_cross_chain_deviation_threshold(&env)
+    }
+
+    /// Records a reference price for `asset` observed on `oracle_chain`, for later
+    /// verification against this oracle's own aggregate. Admin-only.
+    pub fn submit_cross_chain_price(
+        env: Env,
+        asset: Address,
+        oracle_chain: Address,
+        price: i128,
+        decimals: u32,
+        chain_id: String,
+        timestamp: u64,
+    ) {
+        cross_chain_verify::submit_cross_chain_price(
+            &env,
+            asset,
+            oracle_chain,
+            price,
+            decimals,
+            chain_id,
+            timestamp,
+        );
+    }
+
+    /// Returns the most recent recorded cross-chain reference price for `asset`
+    /// from `oracle_chain`, if any (includes prices recorded by the Axelar/LayerZero
+    /// bridge integrations, not only [`Self::submit_cross_chain_price`]).
+    pub fn get_cross_chain_price(
+        env: Env,
+        asset: Address,
+        oracle_chain: Address,
+    ) -> Option<CrossChainPriceEntry> {
+        cross_chain_verify::get_cross_chain_price(&env, &asset, &oracle_chain)
+    }
+
+    // --- Axelar GMP integration ---
+
+    /// Configures the trusted Axelar Gateway contract address. Admin-only.
+    pub fn set_axelar_gateway(env: Env, gateway: Address) {
+        axelar_gmp::set_axelar_gateway(&env, gateway);
+    }
+
+    /// Returns the currently configured Axelar Gateway address, if any.
+    pub fn get_axelar_gateway(env: Env) -> Option<Address> {
+        axelar_gmp::get_axelar_gateway(&env)
+    }
+
+    /// Registers `bridge_source` (an already-registered oracle source) as the
+    /// attribution target for GMP messages from `(source_chain, source_address)`.
+    /// Admin-only.
+    pub fn set_axelar_trusted_source(
+        env: Env,
+        source_chain: String,
+        source_address: String,
+        bridge_source: Address,
+    ) {
+        axelar_gmp::set_axelar_trusted_source(&env, source_chain, source_address, bridge_source);
+    }
+
+    /// Revokes a trusted Axelar GMP source. Admin-only.
+    pub fn remove_axelar_trusted_source(env: Env, source_chain: String, source_address: String) {
+        axelar_gmp::remove_axelar_trusted_source(&env, source_chain, source_address);
+    }
+
+    /// Delivers a price update relayed over Axelar GMP. `gateway` must match the
+    /// configured trusted Gateway address and authorize this call — satisfied
+    /// automatically when the real Axelar Gateway contract invokes this function
+    /// directly after its own verifier-set quorum check has approved the message.
     ///
     /// # Errors
-    /// * [`ErrorCode::EthBridgeNotConfigured`], [`ErrorCode::EthAssetNotMapped`],
-    ///   [`ErrorCode::EthInsufficientFinality`], [`ErrorCode::EthPriceStale`],
-    ///   [`ErrorCode::EthOutOfOrder`], [`ErrorCode::InvalidPrice`].
-    pub fn eth_submit_price(env: Env, msg: EthPriceMessage) {
-        eth_bridge::submit_eth_price(&env, msg);
+    ///
+    /// * [`ErrorCode::AxelarGatewayNotConfigured`] — no Gateway has been configured.
+    /// * [`ErrorCode::NotAuthorized`] — `gateway` does not match the configured Gateway.
+    /// * [`ErrorCode::AxelarCommandAlreadyExecuted`] — `command_id` was already processed.
+    /// * [`ErrorCode::AxelarSourceNotTrusted`] — no bridge source is registered for
+    ///   `(source_chain, source_address)`.
+    /// * [`ErrorCode::ForeignAssetNotMapped`] — the payload's foreign asset id has no
+    ///   registry mapping on `source_chain`.
+    pub fn execute_axelar_message(
+        env: Env,
+        gateway: Address,
+        command_id: BytesN<32>,
+        source_chain: String,
+        source_address: String,
+        payload: Bytes,
+    ) {
+        axelar_gmp::execute_axelar_message(
+            &env,
+            gateway,
+            command_id,
+            source_chain,
+            source_address,
+            payload,
+        );
     }
 
-    /// Returns the latest bridged Ethereum price for an ERC-20 address, or `None`.
-    pub fn eth_get_price(env: Env, erc20: BytesN<20>) -> Option<EthBridgedPrice> {
-        eth_bridge::get_eth_price(&env, erc20)
+    // --- LayerZero integration ---
+
+    /// Configures the trusted LayerZero Endpoint contract address. Admin-only.
+    pub fn set_layerzero_endpoint(env: Env, endpoint: Address) {
+        layerzero::set_layerzero_endpoint(&env, endpoint);
     }
 
-    /// Returns the latest bridged Ethereum price for a mapped Stellar asset, or `None`.
-    pub fn eth_get_price_for_asset(env: Env, asset: Address) -> Option<EthBridgedPrice> {
-        eth_bridge::get_eth_price_for_asset(&env, asset)
+    /// Returns the currently configured LayerZero Endpoint address, if any.
+    pub fn get_layerzero_endpoint(env: Env) -> Option<Address> {
+        layerzero::get_layerzero_endpoint(&env)
     }
 
-    // =========================================================================
-    // Source Accuracy Calibration
-    // =========================================================================
-
-    /// Sets the global calibration configuration. Admin-only.
-    pub fn calibration_set_config(env: Env, config: CalibrationConfig) {
-        calibration::set_calibration_config(&env, config);
+    /// Maps a LayerZero source endpoint id onto a canonical registry chain name
+    /// (e.g. `30101 -> "ethereum"`). Admin-only.
+    pub fn set_lz_chain_name(env: Env, src_eid: u32, chain: String) {
+        layerzero::set_lz_chain_name(&env, src_eid, chain);
     }
 
-    /// Returns the current calibration configuration (defaults if unset).
-    pub fn calibration_get_config(env: Env) -> CalibrationConfig {
-        calibration::get_calibration_config(&env)
+    /// Registers `bridge_source` (an already-registered oracle source) as the
+    /// attribution target for messages from the `(src_eid, sender)` pathway.
+    /// Admin-only.
+    pub fn set_lz_trusted_remote(env: Env, src_eid: u32, sender: BytesN<32>, bridge_source: Address) {
+        layerzero::set_trusted_remote(&env, src_eid, sender, bridge_source);
     }
 
-    /// Sets the reference benchmark price for an asset. Admin-only.
-    pub fn calibration_set_benchmark(env: Env, asset: Address, reference_price: i128, decimals: u32, timestamp: u64) {
-        calibration::set_calibration_benchmark(&env, asset, reference_price, decimals, timestamp);
+    /// Revokes a trusted LayerZero remote pathway. Admin-only.
+    pub fn remove_lz_trusted_remote(env: Env, src_eid: u32, sender: BytesN<32>) {
+        layerzero::remove_trusted_remote(&env, src_eid, sender);
     }
 
-    /// Returns the reference benchmark for an asset, or `None`.
-    pub fn calibration_get_benchmark(env: Env, asset: Address) -> Option<CalibrationBenchmark> {
-        calibration::get_calibration_benchmark(&env, asset)
+    /// Returns the last accepted inbound nonce for a `(src_eid, sender)` pathway (`0` if none).
+    pub fn get_lz_inbound_nonce(env: Env, src_eid: u32, sender: BytesN<32>) -> u64 {
+        layerzero::get_inbound_nonce(&env, src_eid, sender)
     }
 
-    /// Records one accuracy sample for (asset, source) against the stored
-    /// benchmark and updates its rolling calibration score. Admin-only.
+    /// Delivers a price update via a LayerZero `lzReceive`-style call. `endpoint`
+    /// must match the configured trusted Endpoint address and authorize this
+    /// call. Nonce ordering is strictly enforced per `(src_eid, sender)` pathway.
     ///
     /// # Errors
-    /// * [`ErrorCode::CalibrationBenchmarkNotFound`] — no benchmark set for the asset.
-    pub fn calibration_record_sample(env: Env, asset: Address, source: Address, source_price: i128) {
-        calibration::record_calibration_sample(&env, asset, source, source_price);
-    }
-
-    /// Returns the rolling calibration score for (asset, source) (neutral default if none).
-    pub fn calibration_get_score(env: Env, asset: Address, source: Address) -> CalibrationScore {
-        calibration::get_calibration_score(&env, asset, source)
-    }
-
-    /// Returns the calibration-derived aggregation weight (bps) for (asset, source);
-    /// `0` if calibration is disabled, the source lacks enough samples, or no score exists.
-    pub fn calibration_get_weight(env: Env, asset: Address, source: Address) -> u32 {
-        calibration::get_calibration_weight(&env, asset, source)
-    }
-
-    /// Returns calibration scores for every registered source against `asset`.
-    pub fn calibration_report(env: Env, asset: Address) -> Vec<CalibrationScore> {
-        calibration::calibration_report(&env, asset)
+    ///
+    /// * [`ErrorCode::LzEndpointNotConfigured`] — no Endpoint has been configured.
+    /// * [`ErrorCode::NotAuthorized`] — `endpoint` does not match the configured Endpoint.
+    /// * [`ErrorCode::LzNonceOutOfOrder`] — `nonce` is not exactly one greater than
+    ///   the last accepted nonce for this pathway.
+    /// * [`ErrorCode::LzRemoteNotTrusted`] — no bridge source is registered for
+    ///   `(src_eid, sender)`.
+    /// * [`ErrorCode::LzChainNameNotConfigured`] — `src_eid` has no registry chain name.
+    /// * [`ErrorCode::ForeignAssetNotMapped`] — the payload's foreign asset id has no
+    ///   registry mapping on that chain.
+    pub fn lz_receive(
+        env: Env,
+        endpoint: Address,
+        src_eid: u32,
+        sender: BytesN<32>,
+        nonce: u64,
+        guid: BytesN<32>,
+        message: Bytes,
+    ) {
+        layerzero::lz_receive(&env, endpoint, src_eid, sender, nonce, guid, message);
     }
 }
 
@@ -4980,3 +5378,15 @@ mod issue_309_rate_limiting_tests;
 
 #[cfg(test)]
 mod issue_310_fee_market_tests;
+
+#[cfg(test)]
+mod issue_378_lazy_loading_tests;
+
+#[cfg(test)]
+mod issue_379_batch_writes_tests;
+
+#[cfg(test)]
+mod issue_380_memory_allocation_tests;
+
+#[cfg(test)]
+mod issue_381_adaptive_ttl_tests;

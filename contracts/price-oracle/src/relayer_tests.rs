@@ -1,8 +1,40 @@
 #![cfg(test)]
 
-use soroban_sdk::{testutils::Address as _, Address, Env, String};
+use ed25519_dalek::{SigningKey, VerifyingKey};
+use soroban_sdk::{testutils::Address as _, Address, Bytes, BytesN, Env, String};
 
 use crate::{PriceOracleContract, PriceOracleContractClient};
+
+const SOURCE_DELEGATION_KEY: [u8; 32] = [7u8; 32];
+
+fn make_source_delegation_digest(
+    e: &Env,
+    source: &Address,
+    relayer: &Address,
+    nonce: u64,
+    expiration_ledger: u32,
+) -> BytesN<32> {
+    let mut buf = Bytes::new(e);
+    buf.append(&Bytes::from_slice(e, b"source_relayer_delegation_v1"));
+    buf.append(&Bytes::from_slice(e, &nonce.to_le_bytes()));
+    buf.append(&Bytes::from(&source.to_string()));
+    buf.append(&Bytes::from(&relayer.to_string()));
+    buf.append(&Bytes::from_slice(e, &expiration_ledger.to_le_bytes()));
+    e.crypto().sha256(&buf).into()
+}
+
+fn sign_delegation(
+    e: &Env,
+    source: &Address,
+    relayer: &Address,
+    nonce: u64,
+    expiration_ledger: u32,
+    signing_key: &SigningKey,
+) -> BytesN<64> {
+    let digest = make_source_delegation_digest(e, source, relayer, nonce, expiration_ledger);
+    let sig = signing_key.sign(&digest.to_array());
+    BytesN::from_array(e, &sig.to_bytes())
+}
 
 // ---------------------------------------------------------------------------
 // Test helpers
@@ -169,6 +201,67 @@ fn test_get_relayer_info_after_removal() {
 // ---------------------------------------------------------------------------
 // submit_price_relayed — happy path
 // ---------------------------------------------------------------------------
+
+#[test]
+fn test_delegate_relayer_without_admin_approval() {
+    let e = Env::default();
+    e.mock_all_auths();
+    let (client, _) = setup(&e);
+    let source = add_source(&e, &client, "Source1");
+    let asset = add_asset(&e, &client);
+    let relayer = Address::generate(&e);
+
+    let signing_key = SigningKey::from_bytes(&SOURCE_DELEGATION_KEY);
+    let public_key = VerifyingKey::from(&signing_key).to_bytes();
+    client.register_submission_key(&source, &BytesN::from_array(&e, &public_key));
+
+    let nonce = 1u64;
+    let expiration_ledger = e.ledger().sequence() + 100;
+    let signature = sign_delegation(&e, &source, &relayer, nonce, expiration_ledger, &signing_key);
+    client.delegate_relayer(&source, &relayer, &nonce, &expiration_ledger, &signature);
+
+    let delegation = client.get_relayer_delegation(&source, &relayer).unwrap();
+    assert_eq!(delegation.nonce, nonce);
+    assert_eq!(delegation.expiration_ledger, expiration_ledger);
+
+    let ts = ledger_timestamp(&e);
+    client.submit_price_relayed(&relayer, &source, &asset, &1_000_000i128, &ts);
+
+    let agg = client.get_price(&asset, &0u64).unwrap();
+    assert_eq!(agg.price, 1_000_000i128);
+    assert_eq!(agg.num_sources, 1);
+}
+
+#[test]
+fn test_challenge_unauthorized_relayed_submission() {
+    let e = Env::default();
+    e.mock_all_auths();
+    let (client, _) = setup(&e);
+    let source = add_source(&e, &client, "Source1");
+    let asset = add_asset(&e, &client);
+    let relayer = Address::generate(&e);
+    let challenger = Address::generate(&e);
+
+    client.add_relayer(&relayer, &String::from_str(&e, "Unauthorized Relayer"));
+    client.set_relayer_bond_amount(&1_000i128);
+    client.deposit_relayer_bond(&relayer);
+    client.remove_relayer(&relayer);
+
+    let ts = ledger_timestamp(&e);
+    let proof = Bytes::from_slice(&e, b"challenge-proof");
+    client.challenge_relayed_submission(
+        &challenger,
+        &relayer,
+        &source,
+        &asset,
+        &1_000_000i128,
+        &ts,
+        &proof,
+    );
+
+    assert_eq!(client.get_relayer_bond_balance(&relayer), 800i128);
+    assert!(client.get_challenger_rewards(&challenger) > 0);
+}
 
 #[test]
 fn test_submit_price_relayed_success() {

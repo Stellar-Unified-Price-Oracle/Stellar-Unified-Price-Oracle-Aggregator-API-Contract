@@ -1,3 +1,5 @@
 # Off-chain executor service dependencies
 stellar-sdk==11.0.0
 requests==2.32.3
+# Ed25519 signing for the signed-submission price adapter (#216)
+pynacl==1.5.0

@@ -258,14 +258,14 @@ pub fn swap(
     };
 
     // Determine direction: X → Y or Y → X
-    let (reserve_in, reserve_out, x_to_y) = if from_asset == pool.asset_x && to_asset == pool.asset_y
-    {
-        (pool.reserve_x as u128, pool.reserve_y as u128, true)
-    } else if from_asset == pool.asset_y && to_asset == pool.asset_x {
-        (pool.reserve_y as u128, pool.reserve_x as u128, false)
-    } else {
-        panic_with_error!(env, ErrorCode::InvalidConfiguration)
-    };
+    let (reserve_in, reserve_out, x_to_y) =
+        if from_asset == pool.asset_x && to_asset == pool.asset_y {
+            (pool.reserve_x as u128, pool.reserve_y as u128, true)
+        } else if from_asset == pool.asset_y && to_asset == pool.asset_x {
+            (pool.reserve_y as u128, pool.reserve_x as u128, false)
+        } else {
+            panic_with_error!(env, ErrorCode::InvalidConfiguration)
+        };
 
     // Apply fee: amount_in_after_fee = amount_in * (10000 - fee_bps) / 10000
     let fee_bps = pool.fee_bps as u128;
@@ -277,9 +277,9 @@ pub fn swap(
     );
 
     // Constant-product output: dy = reserve_out - k / (reserve_in + amount_in_after_fee)
-    let new_reserve_in = reserve_in.checked_add(amount_in_after_fee).unwrap_or_else(|| {
-        panic_with_error!(env, ErrorCode::ArithmeticOverflow)
-    });
+    let new_reserve_in = reserve_in
+        .checked_add(amount_in_after_fee)
+        .unwrap_or_else(|| panic_with_error!(env, ErrorCode::ArithmeticOverflow));
     let new_reserve_out = safe_div_u128(env, pool.k, new_reserve_in);
     if new_reserve_out >= reserve_out {
         panic_with_error!(env, ErrorCode::InvalidPrice);
@@ -317,12 +317,10 @@ pub fn swap(
     // Update reserves
     if x_to_y {
         pool.reserve_x = pool.reserve_x.saturating_add(amount_in);
-        pool.reserve_y = (pool.reserve_y as u128)
-            .saturating_sub(amount_out_u128) as i128;
+        pool.reserve_y = (pool.reserve_y as u128).saturating_sub(amount_out_u128) as i128;
     } else {
         pool.reserve_y = pool.reserve_y.saturating_add(amount_in);
-        pool.reserve_x = (pool.reserve_x as u128)
-            .saturating_sub(amount_out_u128) as i128;
+        pool.reserve_x = (pool.reserve_x as u128).saturating_sub(amount_out_u128) as i128;
     }
     // Recompute k to stay consistent with updated reserves
     pool.k = safe_mul_u128(env, pool.reserve_x as u128, pool.reserve_y as u128);
@@ -359,7 +357,8 @@ pub fn set_amm_status(env: &Env, asset: Symbol, enabled: bool) {
     pool.enabled = enabled;
     write_pool(env, &asset, &pool);
 
-    env.events().publish((symbol_short!("amm_stat"), asset), (enabled,));
+    env.events()
+        .publish((symbol_short!("amm_stat"), asset), (enabled,));
 }
 
 /// Returns the current state of a pool, or `None` if it does not exist.
@@ -408,16 +407,19 @@ pub fn set_amm_weight(env: &Env, asset: Address, weight_bps: u32, enabled: bool)
         panic_with_error!(env, ErrorCode::InvalidConfiguration);
     }
 
-    env.storage()
-        .persistent()
-        .set(&DataKey::AmmWeight(asset.clone()), &AmmWeightConfig { asset, weight_bps, enabled });
+    env.storage().persistent().set(
+        &DataKey::AmmWeight(asset.clone()),
+        &AmmWeightConfig {
+            asset,
+            weight_bps,
+            enabled,
+        },
+    );
 }
 
 /// Returns the AMM weight configuration for an asset, or `None` if not set.
 pub fn get_amm_weight(env: &Env, asset: Address) -> Option<AmmWeightConfig> {
-    env.storage()
-        .persistent()
-        .get(&DataKey::AmmWeight(asset))
+    env.storage().persistent().get(&DataKey::AmmWeight(asset))
 }
 
 /// Reads a Soroswap pool price for an asset pair.
@@ -491,5 +493,7 @@ pub fn set_soroswap_pool_status(env: &Env, asset_a: Address, asset_b: Address, e
 
 /// Returns the Soroswap pool configuration, or `None` if not found.
 pub fn get_soroswap_pool(env: &Env, asset_a: Address, asset_b: Address) -> Option<SoroswapPool> {
-    env.storage().persistent().get(&DataKey::SoroswapPool(asset_a, asset_b))
+    env.storage()
+        .persistent()
+        .get(&DataKey::SoroswapPool(asset_a, asset_b))
 }

@@ -1,0 +1,197 @@
+"""
+GraphQL schema for Stellar Unified Price Oracle
+Exposes queryable price history, source statistics, and aggregates
+"""
+
+type Query {
+  """Get price data for a specific asset within a time range"""
+  prices(
+    asset: String!
+    fromTimestamp: Int!
+    toTimestamp: Int!
+    resolution: Int = 60
+  ): [PriceDataPoint!]!
+
+  """Get the latest price for an asset"""
+  latestPrice(asset: String!): PriceDataPoint
+
+  """Get price statistics for an asset"""
+  priceStats(
+    asset: String!
+    fromTimestamp: Int!
+    toTimestamp: Int!
+  ): PriceStatistics!
+
+  """Get all registered sources"""
+  sources: [Source!]!
+
+  """Get statistics for a specific source"""
+  sourceStats(source: String!): SourceStatistics!
+
+  """Get aggregated price data"""
+  aggregatedPrices(
+    assets: [String!]!
+    fromTimestamp: Int!
+    toTimestamp: Int!
+    method: AggregationMethod = MEDIAN
+  ): [AggregatedPrice!]!
+
+  """Get price submissions from a specific source"""
+  submissionsBySource(
+    source: String!
+    fromTimestamp: Int!
+    toTimestamp: Int!
+    limit: Int = 100
+  ): [PriceSubmission!]!
+
+  """Get price events within a time range"""
+  events(
+    fromTimestamp: Int!
+    toTimestamp: Int!
+    eventType: EventType
+    asset: String
+  ): [PriceEvent!]!
+
+  """Search prices by multiple criteria"""
+  searchPrices(
+    filter: PriceFilter!
+    pagination: PaginationInput!
+  ): PriceSearchResult!
+}
+
+"""A single price data point"""
+type PriceDataPoint {
+  asset: String!
+  price: String!
+  timestamp: Int!
+  source: String
+  accuracy: Float
+}
+
+"""Statistics about price data"""
+type PriceStatistics {
+  asset: String!
+  count: Int!
+  average: String!
+  minimum: String!
+  maximum: String!
+  median: String!
+  stdDeviation: String!
+  timeRange: TimeRange!
+}
+
+"""A registered price source"""
+type Source {
+  address: String!
+  isActive: Boolean!
+  submissionCount: Int!
+  lastSubmissionTime: Int
+  registeredAt: Int!
+}
+
+"""Statistics about a price source"""
+type SourceStatistics {
+  address: String!
+  totalSubmissions: Int!
+  successfulSubmissions: Int!
+  failedSubmissions: Int!
+  averageSubmissionTime: Int
+  uptime: Float!
+  lastSubmissionTime: Int
+  reliability: Float!
+}
+
+"""Aggregated price data from multiple sources"""
+type AggregatedPrice {
+  asset: String!
+  price: String!
+  timestamp: Int!
+  sources: Int!
+  method: AggregationMethod!
+  confidence: Float!
+}
+
+"""A price submission event"""
+type PriceSubmission {
+  source: String!
+  asset: String!
+  price: String!
+  timestamp: Int!
+  success: Boolean!
+}
+
+"""A price-related event"""
+type PriceEvent {
+  type: EventType!
+  asset: String
+  source: String
+  timestamp: Int!
+  data: String
+}
+
+"""Time range for queries"""
+type TimeRange {
+  from: Int!
+  to: Int!
+}
+
+"""Result of a price search query"""
+type PriceSearchResult {
+  items: [PriceDataPoint!]!
+  total: Int!
+  hasMore: Boolean!
+  cursor: String
+}
+
+"""Input for price searches"""
+input PriceFilter {
+  asset: String
+  source: String
+  minPrice: String
+  maxPrice: String
+  fromTimestamp: Int
+  toTimestamp: Int
+}
+
+"""Pagination input"""
+input PaginationInput {
+  limit: Int = 100
+  offset: Int = 0
+  cursor: String
+}
+
+"""Price aggregation method"""
+enum AggregationMethod {
+  MEDIAN
+  MEAN
+  WEIGHTED_MEAN
+  MODE
+}
+
+"""Event type"""
+enum EventType {
+  PRICE_SUBMITTED
+  PRICE_AGGREGATED
+  SOURCE_REGISTERED
+  SOURCE_DEREGISTERED
+  SUBSCRIPTION_CREATED
+}
+
+type Mutation {
+  """
+  Subscribe to real-time price updates
+  Returns a subscription that must be used with subscriptionUpdates
+  """
+  subscribeToPrices(asset: String!): Subscription!
+
+  """Unsubscribe from price updates"""
+  unsubscribeToPrices(subscriptionId: String!): Boolean!
+}
+
+type Subscription {
+  """Receive real-time price updates"""
+  priceUpdated(asset: String!): PriceDataPoint!
+
+  """Receive aggregation events"""
+  priceAggregated: AggregatedPrice!
+}

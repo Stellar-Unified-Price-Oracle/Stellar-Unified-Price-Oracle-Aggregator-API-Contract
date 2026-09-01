@@ -3,7 +3,10 @@
 use soroban_sdk::{Address, Env, String};
 
 use crate::test_helpers::*;
-use crate::{BridgeOracleConfig, BridgedPrice, DidDocument, DidVerification, EcosystemMetadata, FeedMetadata, SourceDidLink};
+use crate::{
+    BridgeOracleConfig, BridgedPrice, DidDocument, DidVerification, EcosystemMetadata,
+    FeedMetadata, SourceDidLink,
+};
 
 mod did_tests {
     use super::*;
@@ -14,7 +17,13 @@ mod did_tests {
         let admin = Address::generate(&e);
         let client = create_contract(&e);
 
-        client.initialize(&admin, &1u32, &50u32, &18u32, &String::from_str(&e, "DID Test"));
+        client.initialize(
+            &admin,
+            &1u32,
+            &50u32,
+            &18u32,
+            &String::from_str(&e, "DID Test"),
+        );
 
         let did = Address::generate(&e);
         let document = String::from_str(&e, r#"{"id":"did:stellar:test"}"#);
@@ -32,7 +41,13 @@ mod did_tests {
         let admin = Address::generate(&e);
         let client = create_contract(&e);
 
-        client.initialize(&admin, &1u32, &50u32, &18u32, &String::from_str(&e, "DID Link"));
+        client.initialize(
+            &admin,
+            &1u32,
+            &50u32,
+            &18u32,
+            &String::from_str(&e, "DID Link"),
+        );
 
         let source = Address::generate(&e);
         let did = Address::generate(&e);
@@ -56,7 +71,13 @@ mod bridge_oracle_tests {
         let admin = Address::generate(&e);
         let client = create_contract(&e);
 
-        client.initialize(&admin, &1u32, &50u32, &18u32, &String::from_str(&e, "Bridge"));
+        client.initialize(
+            &admin,
+            &1u32,
+            &50u32,
+            &18u32,
+            &String::from_str(&e, "Bridge"),
+        );
 
         let source_asset = Address::generate(&e);
         let target_asset = Address::generate(&e);
@@ -82,7 +103,13 @@ mod bridge_oracle_tests {
         let admin = Address::generate(&e);
         let client = create_contract(&e);
 
-        client.initialize(&admin, &1u32, &50u32, &18u32, &String::from_str(&e, "Bridge"));
+        client.initialize(
+            &admin,
+            &1u32,
+            &50u32,
+            &18u32,
+            &String::from_str(&e, "Bridge"),
+        );
 
         let a = Address::generate(&e);
         let b = Address::generate(&e);
@@ -134,7 +161,9 @@ mod ecosystem_metadata_tests {
 
 mod event_streaming_tests {
     use super::*;
-    use crate::event_streaming::{OracleEventEnvelope, POSTGRES_MIGRATION_SQL, CLICKHOUSE_MIGRATION_SQL};
+    use crate::event_streaming::{
+        OracleEventEnvelope, CLICKHOUSE_MIGRATION_SQL, POSTGRES_MIGRATION_SQL,
+    };
 
     #[test]
     fn test_event_envelope_creation() {

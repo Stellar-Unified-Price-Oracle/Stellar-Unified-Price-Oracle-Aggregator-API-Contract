@@ -9,7 +9,7 @@
 //! updated incrementally on the hot submission path, rather than a full historical
 //! time-series, to keep per-submission storage overhead flat.
 
-use soroban_sdk::{Address, Env, Vec};
+use soroban_sdk::{Address, Env, Map, Vec};
 
 use crate::types::{DataKey, RelayerAssetStat, RelayerDashboard};
 
@@ -32,6 +32,7 @@ pub fn record_relayer_submission_stats(
     } else {
         observation_timestamp - ledger_timestamp
     };
+
     let latency_key = DataKey::RelayerLatencySum(relayer.clone());
     let latency_sum: u64 = env.storage().persistent().get(&latency_key).unwrap_or(0u64);
     env.storage()
@@ -39,6 +40,34 @@ pub fn record_relayer_submission_stats(
         .set(&latency_key, &latency_sum.saturating_add(latency));
     env.storage().persistent().extend_ttl(
         &latency_key,
+        crate::storage::LEDGER_THRESHOLD,
+        crate::storage::LEDGER_BUMP,
+    );
+
+    let history_key = DataKey::RelayerSubmissionHistory(relayer.clone());
+    let mut history: Vec<u64> = env
+        .storage()
+        .persistent()
+        .get(&history_key)
+        .unwrap_or(Vec::new(env));
+    history.push_back(observation_timestamp);
+    env.storage().persistent().set(&history_key, &history);
+    env.storage().persistent().extend_ttl(
+        &history_key,
+        crate::storage::LEDGER_THRESHOLD,
+        crate::storage::LEDGER_BUMP,
+    );
+
+    let latency_hist_key = DataKey::RelayerLatencyHistory(relayer.clone());
+    let mut latency_history: Vec<u64> = env
+        .storage()
+        .persistent()
+        .get(&latency_hist_key)
+        .unwrap_or(Vec::new(env));
+    latency_history.push_back(latency);
+    env.storage().persistent().set(&latency_hist_key, &latency_history);
+    env.storage().persistent().extend_ttl(
+        &latency_hist_key,
         crate::storage::LEDGER_THRESHOLD,
         crate::storage::LEDGER_BUMP,
     );
@@ -70,6 +99,36 @@ pub fn record_relayer_submission_stats(
         crate::storage::LEDGER_THRESHOLD,
         crate::storage::LEDGER_BUMP,
     );
+
+    let asset_latency_sum_key = DataKey::RelayerAssetLatencySum(relayer.clone(), asset.clone());
+    let asset_latency_sum: u64 = env
+        .storage()
+        .persistent()
+        .get(&asset_latency_sum_key)
+        .unwrap_or(0u64);
+    env.storage()
+        .persistent()
+        .set(&asset_latency_sum_key, &asset_latency_sum.saturating_add(latency));
+    env.storage().persistent().extend_ttl(
+        &asset_latency_sum_key,
+        crate::storage::LEDGER_THRESHOLD,
+        crate::storage::LEDGER_BUMP,
+    );
+
+    let asset_latency_count_key = DataKey::RelayerAssetLatencyCount(relayer.clone(), asset.clone());
+    let asset_latency_count: u64 = env
+        .storage()
+        .persistent()
+        .get(&asset_latency_count_key)
+        .unwrap_or(0u64);
+    env.storage()
+        .persistent()
+        .set(&asset_latency_count_key, &asset_latency_count.saturating_add(1));
+    env.storage().persistent().extend_ttl(
+        &asset_latency_count_key,
+        crate::storage::LEDGER_THRESHOLD,
+        crate::storage::LEDGER_BUMP,
+    );
 }
 
 /// Builds and returns the aggregated [`RelayerDashboard`] for `relayer`.
@@ -95,6 +154,13 @@ pub fn get_relayer_dashboard(env: &Env, relayer: Address) -> RelayerDashboard {
     } else {
         0
     };
+
+    let submission_history: Vec<u64> = env
+        .storage()
+        .persistent()
+        .get(&DataKey::RelayerSubmissionHistory(relayer.clone()))
+        .unwrap_or(Vec::new(env));
+    let latency_percentiles = compute_latency_percentiles(env, &relayer);
 
     let submissions_per_day = match crate::relayer::get_relayer_info(env, relayer.clone()) {
         Some(info) => {
@@ -122,6 +188,8 @@ pub fn get_relayer_dashboard(env: &Env, relayer: Address) -> RelayerDashboard {
         success_rate_bps,
         submissions_per_day,
         avg_latency_seconds,
+        submission_history,
+        latency_percentiles,
         fee_earnings,
         reward_earnings,
         bond_deposited,
@@ -172,7 +240,88 @@ fn collect_per_asset_stats(env: &Env, relayer: &Address) -> Vec<RelayerAssetStat
             .persistent()
             .get(&DataKey::RelayerAssetCount(relayer.clone(), asset.clone()))
             .unwrap_or(0u64);
-        per_asset.push_back(RelayerAssetStat { asset, submissions });
+        let total_attempts = submissions.saturating_add(
+            crate::relayer_bonds::get_relayer_failure_count(env, relayer.clone()) as u64,
+        );
+        let success_rate_bps = if total_attempts == 0 {
+            0
+        } else {
+            ((submissions.saturating_mul(10_000)) / total_attempts.max(1)) as u32
+        };
+        let latency_sum: u64 = env
+            .storage()
+            .persistent()
+            .get(&DataKey::RelayerAssetLatencySum(relayer.clone(), asset.clone()))
+            .unwrap_or(0u64);
+        let latency_count: u64 = env
+            .storage()
+            .persistent()
+            .get(&DataKey::RelayerAssetLatencyCount(relayer.clone(), asset.clone()))
+            .unwrap_or(0u64);
+        let avg_latency_seconds = if latency_count > 0 {
+            latency_sum / latency_count
+        } else {
+            0
+        };
+
+        per_asset.push_back(RelayerAssetStat {
+            asset,
+            submissions,
+            successful_submissions: submissions,
+            failed_submissions: crate::relayer_bonds::get_relayer_failure_count(env, relayer.clone()) as u32,
+            success_rate_bps,
+            avg_latency_seconds,
+        });
     }
     per_asset
+}
+
+fn compute_latency_percentiles(env: &Env, relayer: &Address) -> Map<u32, u64> {
+    let latency_history: Vec<u64> = env
+        .storage()
+        .persistent()
+        .get(&DataKey::RelayerLatencyHistory(relayer.clone()))
+        .unwrap_or(Vec::new(env));
+    let mut values: Vec<u64> = Vec::new(env);
+    for i in 0..latency_history.len() {
+        values.push_back(latency_history.get_unchecked(i));
+    }
+    if values.is_empty() {
+        return Map::new(env);
+    }
+
+    let mut sorted = Vec::new(env);
+    for i in 0..values.len() {
+        sorted.push_back(values.get_unchecked(i));
+    }
+    for i in 0..sorted.len() {
+        let mut min_index = i;
+        for j in (i + 1)..sorted.len() {
+            if sorted.get_unchecked(j) < sorted.get_unchecked(min_index) {
+                min_index = j;
+            }
+        }
+        if min_index != i {
+            let tmp = sorted.get_unchecked(i);
+            sorted.set(i, sorted.get_unchecked(min_index));
+            sorted.set(min_index, tmp);
+        }
+    }
+
+    let mut percentiles = Map::new(env);
+    for pct in [50u32, 90u32, 95u32, 99u32] {
+        let idx = if pct >= 100 {
+            sorted.len().saturating_sub(1)
+        } else {
+            let scaled = (sorted.len() as u32 * pct).saturating_div(100);
+            (scaled.saturating_sub(1)).min(sorted.len().saturating_sub(1)) as u32
+        };
+        let value = if sorted.len() > idx as u32 {
+            sorted.get_unchecked(idx as u32)
+        } else {
+            0
+        };
+        percentiles.set(&pct, &value);
+    }
+    percentiles
 }

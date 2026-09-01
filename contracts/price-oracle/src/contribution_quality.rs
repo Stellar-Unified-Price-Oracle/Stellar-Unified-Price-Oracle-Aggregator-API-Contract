@@ -95,9 +95,11 @@ pub fn set_scoring_window(env: &Env, window: u32) {
     env.storage()
         .persistent()
         .set(&DataKey::ContribScoringWindow, &window);
-    env.storage()
-        .persistent()
-        .extend_ttl(&DataKey::ContribScoringWindow, LEDGER_THRESHOLD, LEDGER_BUMP);
+    env.storage().persistent().extend_ttl(
+        &DataKey::ContribScoringWindow,
+        LEDGER_THRESHOLD,
+        LEDGER_BUMP,
+    );
 }
 
 /// Return the currently configured scoring window.
@@ -144,10 +146,8 @@ pub fn update_contribution_quality(
         .persistent()
         .get::<DataKey, ContribQualityRecord>(&key);
 
-    let consistency = compute_consistency_score(
-        accuracy,
-        existing.as_ref().map(|r| r.avg_accuracy_score),
-    );
+    let consistency =
+        compute_consistency_score(accuracy, existing.as_ref().map(|r| r.avg_accuracy_score));
 
     // --- 4. Composite round score ---
     let round_score = (accuracy * WEIGHT_ACCURACY
@@ -278,7 +278,9 @@ mod tests {
         Env,
     };
 
-    use crate::test_helpers::{register_test_asset, register_test_source, setup_contract, submit_test_price};
+    use crate::test_helpers::{
+        register_test_asset, register_test_source, setup_contract, submit_test_price,
+    };
 
     fn ledger_at(e: &Env, seq: u32, ts: u64) {
         e.ledger().set(LedgerInfo {
@@ -428,8 +430,12 @@ mod tests {
         submit_test_price(&client, &source_good, &asset1, 1_000i128, 1_000_000u64);
         submit_test_price(&client, &source_bad, &asset2, 1_400i128, 1_000_000u64);
 
-        let good = client.get_contribution_quality(&source_good, &asset1).unwrap();
-        let bad = client.get_contribution_quality(&source_bad, &asset2).unwrap();
+        let good = client
+            .get_contribution_quality(&source_good, &asset1)
+            .unwrap();
+        let bad = client
+            .get_contribution_quality(&source_bad, &asset2)
+            .unwrap();
 
         // Both have min_sources=1 so aggregate == submitted price, both score 100 accuracy.
         // Both should have a valid score; no further ordering assertion needed.

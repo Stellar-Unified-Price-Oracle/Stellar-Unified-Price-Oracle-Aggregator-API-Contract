@@ -21,6 +21,9 @@ use soroban_sdk::contracterror;
 /// | 99–101 | Signed submission (#216) |
 /// | 99–102 | Freeze/pagination/notify (#223,#229,#243) |
 /// | 103–107 | Relayer batch/bond/fee market (#264,#265,#266) |
+/// | 116–118 | Cross-chain asset registry |
+/// | 119–121 | Axelar GMP integration |
+/// | 122–125 | LayerZero integration |
 #[contracterror]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ErrorCode {
@@ -243,37 +246,29 @@ pub enum ErrorCode {
     /// No callback registration found for the given (consumer, asset) pair (#297).
     CallbackNotFound = 115,
 
-    // ── 116–122: Cosmos/IBC light-client price feeds ─────────────────────────
-    /// No IBC light client has been configured yet.
-    IbcClientNotSet = 116,
-    /// No trusted consensus state exists for the requested revision height.
-    IbcConsensusStateNotFound = 117,
-    /// The trusted consensus state has exceeded its trusting period.
-    IbcClientExpired = 118,
-    /// The packet sequence has already been consumed (replay protection).
-    IbcPacketReplayed = 119,
-    /// The Merkle inclusion proof did not resolve to the trusted app hash.
-    IbcInvalidProof = 120,
-    /// The submitted validator signatures do not meet the trust threshold.
-    IbcQuorumNotMet = 121,
-    /// No Stellar asset is mapped to the given IBC denom.
-    IbcDenomNotMapped = 122,
+    // ── 116–118: Canonical cross-chain asset registry ─────────────────────────
+    /// A foreign asset mapping already exists for this (chain, foreign_address) pair.
+    ForeignAssetAlreadyMapped = 116,
+    /// No foreign asset mapping exists for this (chain, foreign_address) pair.
+    ForeignAssetNotMapped = 117,
+    /// The foreign asset mapping exists but has been disabled by the admin.
+    ForeignAssetMappingDisabled = 118,
 
-    // ── 123–128: Ethereum bridge price feeds ──────────────────────────────────
-    /// No Ethereum bridge configuration has been set yet.
-    EthBridgeNotConfigured = 123,
-    /// No Stellar asset is mapped to the given ERC-20 address.
-    EthAssetNotMapped = 124,
-    /// The relayed price does not have enough confirmations for finality.
-    EthInsufficientFinality = 125,
-    /// The relayed Ethereum block timestamp is older than `max_staleness`.
-    EthPriceStale = 126,
-    /// The relayed Ethereum block number is not newer than the last accepted one.
-    EthOutOfOrder = 127,
+    // ── 119–121: Axelar GMP integration ────────────────────────────────────────
+    /// The Axelar Gateway contract address has not been configured.
+    AxelarGatewayNotConfigured = 119,
+    /// This Axelar `command_id` has already been executed (replay).
+    AxelarCommandAlreadyExecuted = 120,
+    /// No trusted bridge source is registered for this (source_chain, source_address).
+    AxelarSourceNotTrusted = 121,
 
-    // ── 129–132: Source accuracy calibration ──────────────────────────────────
-    /// No calibration benchmark has been submitted for the asset.
-    CalibrationBenchmarkNotFound = 129,
-    /// The calibration configuration is invalid (out-of-range percentage/bps).
-    InvalidCalibrationConfig = 130,
+    // ── 122–125: LayerZero integration ─────────────────────────────────────────
+    /// The LayerZero Endpoint contract address has not been configured.
+    LzEndpointNotConfigured = 122,
+    /// The delivered nonce does not match the expected next nonce for this pathway.
+    LzNonceOutOfOrder = 123,
+    /// No trusted bridge source is registered for this (src_eid, sender) pathway.
+    LzRemoteNotTrusted = 124,
+    /// No canonical registry chain name is configured for this LayerZero src_eid.
+    LzChainNameNotConfigured = 125,
 }

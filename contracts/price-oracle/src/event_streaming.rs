@@ -38,7 +38,13 @@ pub struct OracleEventEnvelope {
 
 impl OracleEventEnvelope {
     /// Creates a new event envelope.
-    pub fn new(ledger: u32, timestamp: u64, contract_id: String, topic: String, data: serde_json::Value) -> Self {
+    pub fn new(
+        ledger: u32,
+        timestamp: u64,
+        contract_id: String,
+        topic: String,
+        data: serde_json::Value,
+    ) -> Self {
         Self {
             ledger,
             timestamp,

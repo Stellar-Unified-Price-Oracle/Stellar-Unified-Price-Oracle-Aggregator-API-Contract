@@ -1,8 +1,7 @@
 /// Per-asset decimal precision configuration (#227)
-/// 
+///
 /// Allows different assets to have different decimal precisions (e.g., BTC=8, USDC=6, tokens=18)
 /// instead of being restricted to a single contract-wide setting.
-
 use soroban_sdk::{panic_with_error, symbol_short, Address, Bytes, Env};
 
 use crate::events::emit_admin_action;
@@ -80,7 +79,7 @@ pub fn clear_asset_decimals(env: &Env, asset: Address) {
 mod tests {
     use super::*;
     use soroban_sdk::testutils::{Address as _, Ledger};
-    use soroban_sdk::{Env, Address};
+    use soroban_sdk::{Address, Env};
 
     #[test]
     fn test_set_and_get_per_asset_decimals() {

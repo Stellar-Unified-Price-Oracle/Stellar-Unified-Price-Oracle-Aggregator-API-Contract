@@ -86,6 +86,18 @@ pub struct PriceProposalResolvedEvent {
     pub finalized: bool,
 }
 
+/// Emitted when an optimistic proposal is resolved using external off-chain data (#291).
+///
+/// Topics: `proposal_id`
+#[contractevent]
+#[derive(Clone)]
+pub struct ExternalDataResolvedEvent {
+    #[topic]
+    pub proposal_id: u32,
+    pub external_price: i128,
+    pub resolver: Address,
+}
+
 /// Emitted when the aggregate price for an asset changes.
 ///
 /// Topics: `asset`
@@ -670,6 +682,39 @@ pub struct SubscriptionExpiredEvent {
     pub consumer: Address,
 }
 
+// --- #294: Native token subscription payments ---
+
+/// Emitted when a subscription payment is received in native token.
+#[contractevent]
+#[derive(Clone)]
+pub struct SubscriptionPaymentReceivedEvent {
+    #[topic]
+    pub consumer: Address,
+    pub amount: i128,
+    pub ledger: u32,
+}
+
+/// Emitted when subscription fees are distributed to sources/relayers and treasury.
+#[contractevent]
+#[derive(Clone)]
+pub struct SubscriptionFeesDistributedEvent {
+    #[topic]
+    pub consumer: Address,
+    pub amount: i128,
+    pub treasury_share: i128,
+    pub sources_share: i128,
+}
+
+/// Emitted when a subscription payment is refunded.
+#[contractevent]
+#[derive(Clone)]
+pub struct SubscriptionPaymentRefundedEvent {
+    #[topic]
+    pub consumer: Address,
+    pub amount: i128,
+    pub reason: String,
+}
+
 // --- #67: Per-asset resolution ---
 
 /// Emitted when the per-asset resolution is set or cleared.
@@ -1222,7 +1267,7 @@ pub struct FmMinPriorityFeeChangedEvent {
 /// Emitted when the fee distribution ratio is changed (#176).
 #[contractevent]
 #[derive(Clone)]
-pub struct FmFeeDistributionRatioChangedEvent {
+pub struct FmFeeRatioChangedEvent {
     pub ratio_bps: u32,
 }
 
@@ -1628,14 +1673,6 @@ pub struct OperationQueuedEvent {
     pub expires_at_ledger: u32,
 }
 
-/// Emitted when a pending operation is successfully executed.
-#[contractevent]
-#[derive(Clone)]
-pub struct OperationExecutedEvent {
-    #[topic]
-    pub operation_id: u64,
-}
-
 /// Emitted when a pending operation is expired (either on-demand or via maintenance sweep).
 #[contractevent]
 #[derive(Clone)]
@@ -1767,107 +1804,112 @@ pub struct FeedMetadataUpdatedEvent {
 }
 
 // =============================================================================
-// Cosmos/IBC light-client price feeds
+// Canonical Cross-Chain Asset Registry Events
 // =============================================================================
 
-/// Emitted when the IBC light client configuration is set or updated.
+/// Emitted when a new foreign-chain asset mapping is registered.
 #[contractevent]
 #[derive(Clone)]
-pub struct IbcClientUpdatedEvent {
-    pub chain_id: String,
-    pub trust_threshold_pct: u32,
-    pub trusting_period: u64,
-}
-
-/// Emitted when a new trusted consensus state is accepted for a revision height.
-#[contractevent]
-#[derive(Clone)]
-pub struct IbcConsensusUpdatedEvent {
+pub struct ForeignAssetMappedEvent {
     #[topic]
-    pub revision_height: u64,
-    pub app_hash: BytesN<32>,
-    pub valid_signatures: u32,
-    pub total_validators: u32,
+    pub stellar_asset: Address,
+    pub chain: String,
+    pub foreign_address: BytesN<32>,
+    pub decimals: u32,
 }
 
-/// Emitted when an IBC denom is mapped to a Stellar asset.
+/// Emitted when an existing foreign-chain asset mapping is updated
+/// (decimals and/or enabled flag).
 #[contractevent]
 #[derive(Clone)]
-pub struct IbcAssetMappedEvent {
+pub struct ForeignAssetMappingUpdatedEvent {
+    #[topic]
+    pub stellar_asset: Address,
+    pub chain: String,
+    pub foreign_address: BytesN<32>,
+    pub decimals: u32,
+    pub enabled: bool,
+}
+
+/// Emitted when a foreign-chain asset mapping is removed.
+#[contractevent]
+#[derive(Clone)]
+pub struct ForeignAssetMappingRemovedEvent {
+    #[topic]
+    pub stellar_asset: Address,
+    pub chain: String,
+    pub foreign_address: BytesN<32>,
+}
+
+// =============================================================================
+// Axelar GMP Integration Events
+// =============================================================================
+
+/// Emitted when the trusted Axelar Gateway address is (re)configured.
+#[contractevent]
+#[derive(Clone)]
+pub struct AxelarGatewaySetEvent {
+    #[topic]
+    pub gateway: Address,
+}
+
+/// Emitted when a trusted Axelar GMP source is registered.
+#[contractevent]
+#[derive(Clone)]
+pub struct AxelarTrustedSourceSetEvent {
+    #[topic]
+    pub bridge_source: Address,
+    pub source_chain: String,
+    pub source_address: String,
+}
+
+/// Emitted when a price is applied from a verified Axelar GMP message.
+#[contractevent]
+#[derive(Clone)]
+pub struct AxelarMessageExecutedEvent {
     #[topic]
     pub asset: Address,
-    pub denom: String,
-}
-
-/// Emitted when an IBC-sourced price packet passes light-client verification
-/// and is stored.
-#[contractevent]
-#[derive(Clone)]
-pub struct IbcPriceVerifiedEvent {
     #[topic]
-    pub asset: Address,
+    pub bridge_source: Address,
+    pub command_id: BytesN<32>,
+    pub source_chain: String,
+    pub source_address: String,
     pub price: i128,
-    pub timestamp: u64,
-    pub revision_height: u64,
-    pub sequence: u64,
 }
 
 // =============================================================================
-// Ethereum bridge price feeds
+// LayerZero Integration Events
 // =============================================================================
 
-/// Emitted when the Ethereum bridge configuration is set or updated.
+/// Emitted when the trusted LayerZero Endpoint address is (re)configured.
 #[contractevent]
 #[derive(Clone)]
-pub struct EthBridgeConfigUpdatedEvent {
+pub struct LzEndpointSetEvent {
     #[topic]
-    pub relayer: Address,
-    pub min_confirmations: u64,
-    pub max_staleness: u64,
+    pub endpoint: Address,
 }
 
-/// Emitted when an ERC-20 token address is mapped to a Stellar asset.
+/// Emitted when a trusted LayerZero remote pathway is registered.
 #[contractevent]
 #[derive(Clone)]
-pub struct EthAssetMappedEvent {
+pub struct LzTrustedRemoteSetEvent {
     #[topic]
-    pub asset: Address,
-    pub erc20: BytesN<20>,
+    pub bridge_source: Address,
+    pub src_eid: u32,
+    pub sender: BytesN<32>,
 }
 
-/// Emitted when a bridged Ethereum price is accepted and stored.
+/// Emitted when a price is applied from a verified LayerZero message.
 #[contractevent]
 #[derive(Clone)]
-pub struct EthPriceSubmittedEvent {
+pub struct LzMessageReceivedEvent {
     #[topic]
     pub asset: Address,
+    #[topic]
+    pub bridge_source: Address,
+    pub src_eid: u32,
+    pub sender: BytesN<32>,
+    pub nonce: u64,
+    pub guid: BytesN<32>,
     pub price: i128,
-    pub eth_block_number: u64,
-    pub eth_block_timestamp: u64,
-}
-
-// =============================================================================
-// Source accuracy calibration
-// =============================================================================
-
-/// Emitted when a reference benchmark price is set for an asset.
-#[contractevent]
-#[derive(Clone)]
-pub struct CalibrationBenchmarkSetEvent {
-    #[topic]
-    pub asset: Address,
-    pub reference_price: i128,
-    pub timestamp: u64,
-}
-
-/// Emitted when a source's rolling calibration score is updated.
-#[contractevent]
-#[derive(Clone)]
-pub struct CalibrationScoreUpdatedEvent {
-    #[topic]
-    pub asset: Address,
-    #[topic]
-    pub source: Address,
-    pub rolling_accuracy: u32,
-    pub sample_count: u32,
 }
