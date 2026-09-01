@@ -1,0 +1,11 @@
+# Example configuration for scripts/metrics_exporter.py
+# Copy to metrics_exporter_config.toml and fill in your deployed contract IDs.
+
+rpc_url = "https://soroban-testnet.stellar.org"
+poll_interval_secs = 15
+listen_host = "0.0.0.0"
+listen_port = 9464
+
+[[contracts]]
+contract_id = "CA...REPLACE_WITH_DEPLOYED_CONTRACT_ID"
+label = "testnet-primary"

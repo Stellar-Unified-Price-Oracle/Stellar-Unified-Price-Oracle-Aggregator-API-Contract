@@ -1,0 +1,33 @@
+# Example configuration for scripts/calibration_runner.py
+# Copy to calibration_runner_config.toml and fill in your deployed contract ID,
+# testnet asset addresses, and the oracle sources you want to score.
+
+[oracle]
+contract_id = "CA...REPLACE_WITH_DEPLOYED_CONTRACT_ID"
+network = "testnet"
+admin_identity = "admin"  # `stellar keys` identity name; must match the oracle's configured admin
+
+[schedule]
+interval_secs = 300
+
+[assets.XLM_USD]
+address = "CB...REPLACE_WITH_ASSET_ADDRESS"
+coingecko_id = "stellar"
+decimals = 8
+
+  [[assets.XLM_USD.sources]]
+  name = "chainlink-relay"
+  address = "GA...REPLACE_WITH_SOURCE_ADDRESS"
+
+  [[assets.XLM_USD.sources]]
+  name = "band-relay"
+  address = "GB...REPLACE_WITH_SOURCE_ADDRESS"
+
+[assets.BTC_USD]
+address = "CC...REPLACE_WITH_ASSET_ADDRESS"
+coingecko_id = "bitcoin"
+decimals = 8
+
+  [[assets.BTC_USD.sources]]
+  name = "chainlink-relay"
+  address = "GA...REPLACE_WITH_SOURCE_ADDRESS"

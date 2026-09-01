@@ -272,6 +272,20 @@ A ready-to-import Grafana dashboard is in [`docs/monitoring/grafana-dashboard.js
 
 ---
 
+## 7. v2: SLO Dashboards, Alerts & Exporter
+
+The metrics/alerting/dashboard trio above (v1) is now complemented by a v2
+stack built directly against [`docs/SLA.md`](SLA.md)'s freshness, deviation,
+and source-count commitments:
+
+- **Exporter**: [`scripts/metrics_exporter.py`](../scripts/metrics_exporter.py) replaces the sketch Node.js poller above with a runnable Python exporter and unit-tested event → metric derivation.
+- **Alert rules**: [`docs/monitoring/alerts-v2.yml`](monitoring/alerts-v2.yml), tiered by SLA §5 incident class (P0–P3), validated with `promtool test rules docs/monitoring/alerts-v2_test.yml`.
+- **Dashboards**: `docs/monitoring/grafana-dashboard-v2-{overview,sources,governance}.json`.
+
+Full details: [`docs/monitoring/README.md`](monitoring/README.md#v2-slo-dashboards-alerts--exporter).
+
+---
+
 ## Further Reading
 
 - [Source Onboarding Guide](./source-onboarding.md)
