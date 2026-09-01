@@ -2518,6 +2518,28 @@ impl PriceOracleContract {
         history::get_compaction_metadata(&env, asset)
     }
 
+    /// Explicitly prunes the oldest history entries for `asset` down to
+    /// `target_entries`, separate from the automatic pruning that runs on
+    /// aggregation. Lets an operator proactively free storage before hitting
+    /// configured limits. Emits a
+    /// [`HistoryPrunedEvent`](crate::events::HistoryPrunedEvent) per removed
+    /// entry. Admin-only.
+    ///
+    /// # Returns
+    ///
+    /// Number of entries pruned.
+    ///
+    /// # Errors
+    ///
+    /// * [`ErrorCode::NotAuthorized`] — caller is not the admin.
+    /// * [`ErrorCode::AssetNotRegistered`] — asset is not registered.
+    pub fn prune_history(env: Env, asset: Address, target_entries: u32) -> u32 {
+        enter_reentrancy_guard(&env);
+        let result = pruning::prune_history(&env, asset, target_entries);
+        exit_reentrancy_guard(&env);
+        result
+    }
+
     // ─────────────────────────────────────────────────────────────────────────
     // #251 — History Sharding
     // ─────────────────────────────────────────────────────────────────────────

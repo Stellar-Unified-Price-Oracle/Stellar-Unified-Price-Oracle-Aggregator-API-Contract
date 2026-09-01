@@ -17,6 +17,11 @@ node_modules/
 npm-debug.log*
 yarn-error.log
 
+# Python (services/)
+__pycache__/
+*.pyc
+.pytest_cache/
+
 # Environment / secrets
 .env
 .env.*

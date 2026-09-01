@@ -28,8 +28,6 @@ use crate::types::{
 };
 // Issue #290 — record submission against schedule (liveness check)
 use crate::scheduling;
-// Issue #288 — combined timestamp + ledger-count pruning
-use crate::pruning;
 
 fn build_candidate_aggregate(
     env: &Env,
