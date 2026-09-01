@@ -245,12 +245,14 @@ See [`docs/error-codes.md`](docs/error-codes.md) for the full registry with caus
 | Document | Description |
 |---|---|
 | [Architecture](docs/ARCHITECTURE.md) | System design, data flow, module structure |
+| [Hackathon Bounty Track](docs/hackathon-bounty-track.md) | Hackathon bounty track definition, curated project ideas, judging rubric, and reward tiers |
 | [Deployment Record](docs/deployment.md) | Contract addresses, initialization parameters, admin addresses, deployment checklist |
 | [Security Audit Checklist](docs/security-audit-checklist.md) | Pre-audit review items: access control, input validation, arithmetic safety, storage safety, upgrade mechanism, event integrity, known patterns |
 | [Monitoring Dashboard](docs/monitoring/README.md) | Grafana dashboard setup and metrics reference |
 
 ## Documentation
 
+- [Hackathon Bounty Track](docs/hackathon-bounty-track.md) — reusable hackathon track definition, curated ideas mapped to open issues, judging rubric, and reward tiers (#407)
 - [Price Submission Bot Design](docs/price-submission-bot.md) — off-chain bot architecture for automated price submissions
 - [Signed CEX/Aggregator Adapters](docs/signed-price-adapters.md) — CoinGecko/Binance/Coinbase adapters with failover, staleness handling, and signed submission (#216)
 - [Disaster Recovery Plan](docs/disaster-recovery.md) — failure scenario playbooks and recovery procedures
