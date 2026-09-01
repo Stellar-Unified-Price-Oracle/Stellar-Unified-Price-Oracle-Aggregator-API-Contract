@@ -25,7 +25,10 @@ pub fn get_priority_delay(env: &Env, priority: &OperationPriority) -> u32 {
                 env.storage()
                     .persistent()
                     .extend_ttl(&key, LEDGER_THRESHOLD, LEDGER_BUMP);
-                env.storage().persistent().get(&key).unwrap_or(DEFAULT_URGENT_DELAY)
+                env.storage()
+                    .persistent()
+                    .get(&key)
+                    .unwrap_or(DEFAULT_URGENT_DELAY)
             } else {
                 DEFAULT_URGENT_DELAY
             }
@@ -38,7 +41,10 @@ pub fn get_priority_delay(env: &Env, priority: &OperationPriority) -> u32 {
                 env.storage()
                     .persistent()
                     .extend_ttl(&key, LEDGER_THRESHOLD, LEDGER_BUMP);
-                env.storage().persistent().get(&key).unwrap_or(DEFAULT_NORMAL_DELAY)
+                env.storage()
+                    .persistent()
+                    .get(&key)
+                    .unwrap_or(DEFAULT_NORMAL_DELAY)
             } else {
                 env.storage()
                     .persistent()
@@ -52,7 +58,10 @@ pub fn get_priority_delay(env: &Env, priority: &OperationPriority) -> u32 {
                 env.storage()
                     .persistent()
                     .extend_ttl(&key, LEDGER_THRESHOLD, LEDGER_BUMP);
-                env.storage().persistent().get(&key).unwrap_or(DEFAULT_LONG_TERM_DELAY)
+                env.storage()
+                    .persistent()
+                    .get(&key)
+                    .unwrap_or(DEFAULT_LONG_TERM_DELAY)
             } else {
                 DEFAULT_LONG_TERM_DELAY
             }

@@ -86,6 +86,18 @@ pub struct PriceProposalResolvedEvent {
     pub finalized: bool,
 }
 
+/// Emitted when an optimistic proposal is resolved using external off-chain data (#291).
+///
+/// Topics: `proposal_id`
+#[contractevent]
+#[derive(Clone)]
+pub struct ExternalDataResolvedEvent {
+    #[topic]
+    pub proposal_id: u32,
+    pub external_price: i128,
+    pub resolver: Address,
+}
+
 /// Emitted when the aggregate price for an asset changes.
 ///
 /// Topics: `asset`
@@ -668,6 +680,39 @@ pub struct SubscriptionExpiredEvent {
     /// Address of the consumer whose subscription expired.
     #[topic]
     pub consumer: Address,
+}
+
+// --- #294: Native token subscription payments ---
+
+/// Emitted when a subscription payment is received in native token.
+#[contractevent]
+#[derive(Clone)]
+pub struct SubscriptionPaymentReceivedEvent {
+    #[topic]
+    pub consumer: Address,
+    pub amount: i128,
+    pub ledger: u32,
+}
+
+/// Emitted when subscription fees are distributed to sources/relayers and treasury.
+#[contractevent]
+#[derive(Clone)]
+pub struct SubscriptionFeesDistributedEvent {
+    #[topic]
+    pub consumer: Address,
+    pub amount: i128,
+    pub treasury_share: i128,
+    pub sources_share: i128,
+}
+
+/// Emitted when a subscription payment is refunded.
+#[contractevent]
+#[derive(Clone)]
+pub struct SubscriptionPaymentRefundedEvent {
+    #[topic]
+    pub consumer: Address,
+    pub amount: i128,
+    pub reason: String,
 }
 
 // --- #67: Per-asset resolution ---

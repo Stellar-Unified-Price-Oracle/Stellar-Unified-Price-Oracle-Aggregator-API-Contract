@@ -137,6 +137,7 @@ pub enum DataKey {
     SubscriptionExpiry(Address),
     /// Available subscription plans mapped by duration (seconds) to amount (stroops).
     SubscriptionPlans,
+    SubscriptionPayment,
     PriceOverride(Address),
     /// Per-asset resolution override in seconds. When set, overrides the contract-wide resolution.
     AssetResolution(Address),
@@ -236,6 +237,10 @@ pub enum DataKey {
     CfgBftFaultTolerance,
     /// Aggregation method used by the BFT path.
     CfgBftAggregationMethod,
+    /// Global flag to enable standalone commit-reveal mode independent of BFT.
+    CommitRevealEnabled,
+    /// Amount to slash from sources who commit but do not reveal in a round.
+    CommitRevealSlashAmount,
 
     // -------------------------------------------------------------------------
     // #188: Economic finality gadget
@@ -749,6 +754,20 @@ pub struct SubscriptionExpiry {
     pub expiry_timestamp: u64,
 }
 
+/// Native token payment record for a subscription (#294).
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct SubscriptionPayment {
+    /// Consumer address.
+    pub consumer: Address,
+    /// Payment amount in stroops.
+    pub amount: i128,
+    /// Unix timestamp when the payment was recorded.
+    pub timestamp: u64,
+    /// Payment status: 0 = pending, 1 = completed, 2 = refunded.
+    pub status: u8,
+}
+
 /// A snapshot of the aggregate price recorded at a particular ledger.
 ///
 /// Stored in temporary storage under [`DataKey::PriceHistory`] keyed by `(asset, ledger)`.
@@ -929,6 +948,16 @@ pub struct OptimisticProposal {
     pub resolved: bool,
     pub resolution: u32,
     pub disputer: Option<Address>,
+}
+
+/// Off-chain external data proof used for optimistic dispute resolution (#291).
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct ExternalDataProof {
+    pub source: Address,
+    pub data_hash: BytesN<32>,
+    pub timestamp: u64,
+    pub signature: BytesN<64>,
 }
 
 /// SEP-40 compatible price data returned by the standard oracle interface methods.

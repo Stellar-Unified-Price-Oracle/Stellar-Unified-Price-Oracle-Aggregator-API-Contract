@@ -159,7 +159,6 @@ pub fn batch_set_asset_metadata(env: &Env, updates: Vec<AssetMetadataUpdate>) {
     }
 }
 
-
 #[allow(dead_code)]
 pub fn get_asset_metadata(env: &Env, asset: Address) -> Option<AssetMetadata> {
     crate::storage::check_registered_asset(env, &asset);

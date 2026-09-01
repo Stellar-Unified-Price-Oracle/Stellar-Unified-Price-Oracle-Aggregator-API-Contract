@@ -346,14 +346,7 @@ mod tests {
         let s2 = register_test_source(&e, &client, "S2");
         let asset = register_test_asset(&e, &client);
 
-        build_history(
-            &e,
-            &client,
-            &s1,
-            &s2,
-            &asset,
-            &[(101, 1_000_001, 5_000)],
-        );
+        build_history(&e, &client, &s1, &s2, &asset, &[(101, 1_000_001, 5_000)]);
 
         let wrong_hash: u64 = 0xDEADBEEF;
         let valid = client.verify_export(&asset, &101u32, &101u32, &wrong_hash);

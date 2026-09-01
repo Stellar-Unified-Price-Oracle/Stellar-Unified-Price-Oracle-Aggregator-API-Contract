@@ -15,8 +15,8 @@ use crate::events::{
     PriceOverrideSetEvent, PriceStaleEvent, PriceSubmittedEvent, RateLimitExceededEvent,
     SourceNonCompliantEvent, SourcesInsufficientEvent,
 };
-use crate::pause::check_not_paused;
 use crate::history::{remove_history_shard_entry, should_skip_on_write, write_history_shard};
+use crate::pause::check_not_paused;
 use crate::storage::{
     check_registered_asset, check_source, check_source_asset, compute_confidence_bps, compute_mean,
     compute_median, compute_trimmed_mean, compute_vwap, get_admin, is_subscribed,
@@ -131,6 +131,23 @@ fn enforce_commit_reveal_for_bft(env: &Env) {
     if read_bft_fault_tolerance(env) > 0 {
         panic_with_error!(env, ErrorCode::CommitRevealRequired);
     }
+    if read_commit_reveal_enabled(env) {
+        panic_with_error!(env, ErrorCode::CommitRevealRequired);
+    }
+}
+
+fn read_commit_reveal_enabled(env: &Env) -> bool {
+    env.storage()
+        .persistent()
+        .get(&DataKey::CommitRevealEnabled)
+        .unwrap_or(false)
+}
+
+fn read_commit_reveal_slash_amount(env: &Env) -> i128 {
+    env.storage()
+        .persistent()
+        .get(&DataKey::CommitRevealSlashAmount)
+        .unwrap_or(0)
 }
 
 fn aggregate_prices(env: &Env, prices: &Vec<i128>, volumes: &Vec<i128>) -> i128 {
@@ -868,7 +885,14 @@ pub(crate) fn check_deviation_circuit_breaker(
     is_circuit_breaker_tripped(env, asset)
 }
 
-pub fn submit_price(env: &Env, source: Address, asset: Address, price: i128, timestamp: u64, nonce: u64) {
+pub fn submit_price(
+    env: &Env,
+    source: Address,
+    asset: Address,
+    price: i128,
+    timestamp: u64,
+    nonce: u64,
+) {
     check_not_paused(env);
     source.require_auth();
     check_source(env, &source);
@@ -892,9 +916,11 @@ pub fn submit_price(env: &Env, source: Address, asset: Address, price: i128, tim
         panic_with_error!(env, ErrorCode::InvalidNonce);
     }
     env.storage().persistent().set(&nonce_key, &nonce);
-    env.storage()
-        .persistent()
-        .extend_ttl(&nonce_key, crate::storage::LEDGER_THRESHOLD, crate::storage::LEDGER_BUMP);
+    env.storage().persistent().extend_ttl(
+        &nonce_key,
+        crate::storage::LEDGER_THRESHOLD,
+        crate::storage::LEDGER_BUMP,
+    );
 
     if price <= 0 {
         crate::sources::record_invalid_submission(env, source.clone());
@@ -2341,4 +2367,105 @@ pub fn submit_price_merkle(
         let asset = assets_to_aggregate.get_unchecked(i);
         aggregate_asset(env, &asset, current_ledger, decimals);
     }
+}
+
+// =============================================================================
+// #292 — Standalone Commit-Reveal Mode & Slashing
+// =============================================================================
+
+/// Sets the global flag to enable standalone commit-reveal mode.
+/// When enabled, direct submissions are rejected and sources must commit/reveal.
+pub fn set_commit_reveal_enabled(env: &Env, enabled: bool) {
+    let admin = get_admin(env);
+    admin.require_auth();
+    env.storage()
+        .persistent()
+        .set(&DataKey::CommitRevealEnabled, &enabled);
+}
+
+/// Returns whether standalone commit-reveal mode is enabled.
+pub fn get_commit_reveal_enabled(env: &Env) -> bool {
+    env.storage()
+        .persistent()
+        .get(&DataKey::CommitRevealEnabled)
+        .unwrap_or(false)
+}
+
+/// Sets the slash amount applied to sources who commit but do not reveal.
+pub fn set_commit_reveal_slash_amount(env: &Env, amount: i128) {
+    let admin = get_admin(env);
+    admin.require_auth();
+    env.storage()
+        .persistent()
+        .set(&DataKey::CommitRevealSlashAmount, &amount);
+}
+
+/// Returns the configured slash amount for non-revealing sources.
+pub fn get_commit_reveal_slash_amount(env: &Env) -> i128 {
+    env.storage()
+        .persistent()
+        .get(&DataKey::CommitRevealSlashAmount)
+        .unwrap_or(0)
+}
+
+/// Permissionless keeper endpoint: slashes a source that committed but failed
+/// to reveal for the given round. Must be called after the reveal window expires.
+pub fn slash_expired_commits(env: &Env, asset: Address, source: Address, round_ledger: u32) {
+    let current_ledger = env.ledger().sequence();
+    let commit_window = get_commit_window(env);
+    let reveal_window = get_reveal_window(env);
+    let reveal_end = round_ledger + commit_window + reveal_window;
+
+    if current_ledger < reveal_end {
+        panic_with_error!(env, ErrorCode::CommitExpired);
+    }
+
+    let commit_key = DataKey::PriceCommit(asset.clone(), source.clone(), round_ledger);
+    let commit: crate::types::PriceCommit = env
+        .storage()
+        .temporary()
+        .get(&commit_key)
+        .unwrap_or_else(|| panic_with_error!(env, ErrorCode::CommitNotFound));
+
+    if commit.revealed {
+        panic_with_error!(env, ErrorCode::CommitExpired);
+    }
+
+    let slash_amount = read_commit_reveal_slash_amount(env);
+    if slash_amount <= 0 {
+        panic_with_error!(env, ErrorCode::SlashFailed);
+    }
+
+    let bond_key = DataKey::OptimisticBondBalance(source.clone());
+    let current_bond: i128 = env.storage().persistent().get(&bond_key).unwrap_or(0);
+
+    let actual_slash = current_bond.min(slash_amount);
+    if actual_slash <= 0 {
+        panic_with_error!(env, ErrorCode::SlashFailed);
+    }
+
+    let remaining = current_bond.saturating_sub(actual_slash);
+    env.storage().persistent().set(&bond_key, &remaining);
+    env.storage()
+        .persistent()
+        .extend_ttl(&bond_key, LEDGER_THRESHOLD, LEDGER_BUMP);
+
+    let treasury_key = DataKey::TreasuryBalance;
+    let treasury: i128 = env.storage().persistent().get(&treasury_key).unwrap_or(0);
+    env.storage()
+        .persistent()
+        .set(&treasury_key, &treasury.saturating_add(actual_slash));
+    env.storage()
+        .persistent()
+        .extend_ttl(&treasury_key, LEDGER_THRESHOLD, LEDGER_BUMP);
+
+    env.storage().temporary().remove(&commit_key);
+
+    crate::events::SourceSlashedEvent {
+        source: source.clone(),
+        slash_amount: actual_slash,
+        remaining_stake: remaining,
+        slash_percent: 0,
+    }
+    .publish(env);
 }

@@ -251,8 +251,7 @@ pub fn set_sampling_size(env: &Env, n: u32) {
     }
     write_sampling_size(env, n);
 
-    env.events()
-        .publish((symbol_short!("vdf_size"),), (n,));
+    env.events().publish((symbol_short!("vdf_size"),), (n,));
 }
 
 /// Returns the configured sampling size. Default: 3.

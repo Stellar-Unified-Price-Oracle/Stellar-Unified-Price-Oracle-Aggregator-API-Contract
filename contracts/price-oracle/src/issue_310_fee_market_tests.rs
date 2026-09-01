@@ -7,7 +7,7 @@ use soroban_sdk::{
     Env,
 };
 
-use crate::test_helpers::{setup_contract, register_test_source, register_test_asset};
+use crate::test_helpers::{register_test_asset, register_test_source, setup_contract};
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
@@ -116,7 +116,12 @@ fn test_max_history_enforced() {
 
     for i in 0..5 {
         set_ledger(&e, 100 + i, 1_000 + (i as u64));
-        client.submit_price(&source, &asset, &(1_000_000 + (i as i128)), &(1_000 + (i as u64)));
+        client.submit_price(
+            &source,
+            &asset,
+            &(1_000_000 + (i as i128)),
+            &(1_000 + (i as u64)),
+        );
     }
 
     assert_eq!(client.get_max_history_length(), 3u32);

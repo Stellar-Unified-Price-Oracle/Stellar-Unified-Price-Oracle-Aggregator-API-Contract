@@ -130,11 +130,7 @@ fn read_instance(env: &Env, req: &StorageBatchRequest) -> StorageBatchResult {
 /// generic "present" marker so the caller at least knows the key exists.
 fn serialise_key_value_persistent(env: &Env, key: &DataKey) -> String {
     // Try reading as bool first (covers flags like PauseFlag, SrcActive, etc.)
-    if let Some(v) = env
-        .storage()
-        .persistent()
-        .get::<DataKey, bool>(key)
-    {
+    if let Some(v) = env.storage().persistent().get::<DataKey, bool>(key) {
         return if v {
             String::from_str(env, "true")
         } else {
@@ -142,19 +138,11 @@ fn serialise_key_value_persistent(env: &Env, key: &DataKey) -> String {
         };
     }
     // Try reading as u32 (covers counters and config values)
-    if let Some(v) = env
-        .storage()
-        .persistent()
-        .get::<DataKey, u32>(key)
-    {
+    if let Some(v) = env.storage().persistent().get::<DataKey, u32>(key) {
         return format_u32(env, v);
     }
     // Try reading as i128 (covers prices, balances)
-    if let Some(v) = env
-        .storage()
-        .persistent()
-        .get::<DataKey, i128>(key)
-    {
+    if let Some(v) = env.storage().persistent().get::<DataKey, i128>(key) {
         return format_i128(env, v);
     }
     // Fallback: key exists but value type is complex
@@ -312,7 +300,11 @@ mod tests {
 
         // CfgMinSources is always written during initialize
         let mut requests: Vec<StorageBatchRequest> = Vec::new(&e);
-        requests.push_back(make_request(&e, DataKey::CfgMinSources, StorageTier::Persistent));
+        requests.push_back(make_request(
+            &e,
+            DataKey::CfgMinSources,
+            StorageTier::Persistent,
+        ));
 
         let results = client.get_storage_batch(&requests);
         assert_eq!(results.len(), 1);
@@ -353,13 +345,21 @@ mod tests {
         let dummy = Address::generate(&e);
 
         let mut requests: Vec<StorageBatchRequest> = Vec::new(&e);
-        requests.push_back(make_request(&e, DataKey::CfgDecimals, StorageTier::Persistent));
+        requests.push_back(make_request(
+            &e,
+            DataKey::CfgDecimals,
+            StorageTier::Persistent,
+        ));
         requests.push_back(make_request(
             &e,
             DataKey::SrcActive(dummy.clone()),
             StorageTier::Persistent,
         ));
-        requests.push_back(make_request(&e, DataKey::CfgMaxHistory, StorageTier::Persistent));
+        requests.push_back(make_request(
+            &e,
+            DataKey::CfgMaxHistory,
+            StorageTier::Persistent,
+        ));
 
         let results = client.get_storage_batch(&requests);
         assert_eq!(results.len(), 3);
@@ -376,9 +376,21 @@ mod tests {
         let (client, _admin) = setup_contract(&e);
 
         let mut requests: Vec<StorageBatchRequest> = Vec::new(&e);
-        requests.push_back(make_request(&e, DataKey::CfgMinSources, StorageTier::Persistent));
-        requests.push_back(make_request(&e, DataKey::CfgMaxHistory, StorageTier::Persistent));
-        requests.push_back(make_request(&e, DataKey::CfgDecimals, StorageTier::Persistent));
+        requests.push_back(make_request(
+            &e,
+            DataKey::CfgMinSources,
+            StorageTier::Persistent,
+        ));
+        requests.push_back(make_request(
+            &e,
+            DataKey::CfgMaxHistory,
+            StorageTier::Persistent,
+        ));
+        requests.push_back(make_request(
+            &e,
+            DataKey::CfgDecimals,
+            StorageTier::Persistent,
+        ));
 
         let results = client.get_storage_batch(&requests);
         assert_eq!(results.len(), 3);
@@ -395,7 +407,11 @@ mod tests {
         let (client, _admin) = setup_contract(&e);
 
         let mut requests: Vec<StorageBatchRequest> = Vec::new(&e);
-        requests.push_back(make_request(&e, DataKey::CfgMinSources, StorageTier::Persistent));
+        requests.push_back(make_request(
+            &e,
+            DataKey::CfgMinSources,
+            StorageTier::Persistent,
+        ));
 
         let results = client.get_storage_batch(&requests);
         let r = results.get_unchecked(0);
@@ -410,7 +426,11 @@ mod tests {
         let (client, _admin) = setup_contract(&e);
 
         let mut requests: Vec<StorageBatchRequest> = Vec::new(&e);
-        requests.push_back(make_request(&e, DataKey::CfgDecimals, StorageTier::Persistent));
+        requests.push_back(make_request(
+            &e,
+            DataKey::CfgDecimals,
+            StorageTier::Persistent,
+        ));
 
         let results = client.get_storage_batch(&requests);
         let r = results.get_unchecked(0);
@@ -448,7 +468,11 @@ mod tests {
 
         // Batch read of the same key
         let mut requests: Vec<StorageBatchRequest> = Vec::new(&e);
-        requests.push_back(make_request(&e, DataKey::CfgMinSources, StorageTier::Persistent));
+        requests.push_back(make_request(
+            &e,
+            DataKey::CfgMinSources,
+            StorageTier::Persistent,
+        ));
         let results = client.get_storage_batch(&requests);
         let r = results.get_unchecked(0);
 

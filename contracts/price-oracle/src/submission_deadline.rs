@@ -2,7 +2,6 @@
 ///
 /// Defines submission windows (start_ledger, end_ledger) per aggregation round.
 /// Out-of-window submissions are excluded from aggregation, preventing last-millisecond manipulation.
-
 use soroban_sdk::{panic_with_error, symbol_short, Address, Bytes, Env};
 
 use crate::events::emit_admin_action;
@@ -103,7 +102,7 @@ pub fn clear_current_round(env: &Env) {
 mod tests {
     use super::*;
     use soroban_sdk::testutils::Ledger;
-    use soroban_sdk::{Env, Address};
+    use soroban_sdk::{Address, Env};
 
     #[test]
     fn test_start_and_get_aggregation_round() {

@@ -16,13 +16,18 @@ mod assets;
 // When the `fuzz` feature is enabled it is also re-exported so that the
 // fuzz crate can call `price_oracle::core::*` directly.
 mod audit_log;
+mod audit_log;
+mod batch_storage;
 mod config_history;
+mod config_history;
+mod contribution_quality;
 #[cfg_attr(feature = "fuzz", allow(dead_code))]
 pub(crate) mod core;
 mod correlation;
 mod cross_reference;
 mod deadline_rebate;
 mod dex;
+mod emergency_pause;
 mod errors;
 mod event_indexing;
 mod events;
@@ -31,9 +36,11 @@ mod export_history;
 mod fee_market;
 mod finality;
 mod freeze;
+mod freeze;
 mod gas_metering;
 mod health;
 mod history;
+mod metadata;
 mod migration;
 mod multisig;
 mod notifications;
@@ -41,9 +48,12 @@ mod operations;
 mod optimistic;
 mod pause;
 mod per_asset_decimals;
+mod price_callback;
+mod price_proof;
 mod prices;
 mod pruning;
 mod rate_limiting;
+mod rbac;
 mod rbac;
 mod recovery;
 mod reentrancy;
@@ -220,19 +230,26 @@ mod wasm_binary_size_tests;
 pub use types::{
     AggregatePrice,
     AggregationMethod,
+    AmmWeightConfig,
     Asset,
     BatchOperation,
     BatchSimulationResult,
+    BatchSimulationResult,
     ConfigSnapshot,
+    ContractMetadata,
     CrossReferenceResult,
     DataKey,
     DecentralizationReport,
     DemeritConfig,
+    // DEX / AMM integration
+    DexPrice,
     DisqualificationStatus,
     ErrorCode,
     // History export
     ExportedEntry,
     ExportedHistorySnapshot,
+    // Optimistic oracle external-data proof (#291)
+    ExternalDataProof,
     FinalityStatus,
     FinalizedPrice,
     FrozenPrice,
@@ -242,6 +259,7 @@ pub use types::{
     NotificationPreference,
     // Timelock priority
     OperationPriority,
+    OperationSimulationResult,
     OperationSimulationResult,
     OracleSources,
     PendingBatch,
@@ -924,6 +942,34 @@ impl PriceOracleContract {
     /// * [`ErrorCode::NoActiveSubscription`] — no active subscription found.
     pub fn cancel_subscription(env: Env, consumer: Address) {
         subscription::cancel_subscription(&env, consumer);
+    }
+
+    // --- #294: Native token fee collection for subscriptions ---
+
+    /// Distributes collected subscription fees to treasury and sources/relayers.
+    ///
+    /// Admin-only.
+    ///
+    /// # Errors
+    /// * [`ErrorCode::NotAuthorized`] — caller is not admin.
+    /// * [`ErrorCode::NoData`] — no payment exists for consumer.
+    pub fn distribute_subscription_fees(env: Env, consumer: Address) {
+        reentrancy::enter(&env);
+        subscription::distribute_subscription_fees(&env, &consumer);
+        reentrancy::exit(&env);
+    }
+
+    /// Refunds a consumer's subscription payment.
+    ///
+    /// Admin-only.
+    ///
+    /// # Errors
+    /// * [`ErrorCode::NotAuthorized`] — caller is not admin.
+    /// * [`ErrorCode::NoData`] — no payment exists for consumer.
+    pub fn refund_subscription(env: Env, consumer: Address) {
+        reentrancy::enter(&env);
+        subscription::refund_subscription_payment(&env, &consumer);
+        reentrancy::exit(&env);
     }
 
     // --- #304: Consumer Contract Authorization ---
@@ -1732,6 +1778,42 @@ impl PriceOracleContract {
         optimistic::get_proposal(&env, proposal_id)
     }
 
+    /// Resolves a disputed optimistic proposal using off-chain external data (#291).
+    ///
+    /// Admin-only. Validates the external proof (source registration, timestamp, signature
+    /// commitment) and writes the external price into the main oracle aggregate.
+    ///
+    /// # Arguments
+    ///
+    /// * `env` - The Soroban execution environment.
+    /// * `proposal_id` - The disputed proposal to resolve.
+    /// * `external_price` - The off-chain verified price to write.
+    /// * `proof` - External data proof from a registered source.
+    ///
+    /// # Errors
+    ///
+    /// * [`ErrorCode::NotAuthorized`] — caller is not the admin.
+    /// * [`ErrorCode::ProposalNotFound`] — proposal does not exist.
+    /// * [`ErrorCode::ProposalNotDisputed`] — proposal is not in disputed state.
+    /// * [`ErrorCode::ProposalAlreadyResolved`] — proposal is already resolved/finalized.
+    /// * [`ErrorCode::InvalidExternalProof`] — proof validation failed.
+    pub fn resolve_via_external_data(
+        env: Env,
+        proposal_id: u32,
+        external_price: i128,
+        proof: ExternalDataProof,
+    ) {
+        reentrancy::enter(&env);
+        optimistic::resolve_via_external_data(&env, proposal_id, external_price, proof);
+        reentrancy::exit(&env);
+    }
+
+    /// Returns all active optimistic proposals (Pending or Disputed), finalizing
+    /// any expired entries on the fly.
+    pub fn get_active_proposals(env: Env) -> Vec<OptimisticProposal> {
+        optimistic::get_active_proposals(&env)
+    }
+
     /// Sets the dispute window (in ledgers) applied to new optimistic proposals.
     ///
     /// # Errors
@@ -1789,7 +1871,14 @@ impl PriceOracleContract {
     /// * [`ErrorCode::InvalidPrice`] — if `price` is ≤ 0.
     /// * [`ErrorCode::PriceBelowMinimum`] — if `price` is below the asset's minimum price.
     /// * [`ErrorCode::InvalidTimestamp`] — if `timestamp` is too far in the future.
-    pub fn submit_price(env: Env, source: Address, asset: Address, price: i128, timestamp: u64, nonce: u64) {
+    pub fn submit_price(
+        env: Env,
+        source: Address,
+        asset: Address,
+        price: i128,
+        timestamp: u64,
+        nonce: u64,
+    ) {
         reentrancy::enter(&env);
         // Measure budget before and after to record last submit_price cost.
         let before_cpu = env.budget().cpu_instruction_count();
@@ -2459,11 +2548,7 @@ impl PriceOracleContract {
     /// # Errors
     ///
     /// * [`ErrorCode::AssetNotRegistered`] — asset is not registered.
-    pub fn get_bucket_entries(
-        env: Env,
-        asset: Address,
-        ledger: u32,
-    ) -> Vec<PriceHistoryEntry> {
+    pub fn get_bucket_entries(env: Env, asset: Address, ledger: u32) -> Vec<PriceHistoryEntry> {
         history::get_bucket_entries(&env, asset, ledger)
     }
 
@@ -2602,11 +2687,7 @@ impl PriceOracleContract {
     /// # Errors
     ///
     /// * [`ErrorCode::NotAuthorized`] — if `consumer` is not allowed.
-    pub fn lastprice_authorized(
-        env: Env,
-        consumer: Address,
-        asset: Asset,
-    ) -> Option<PriceData> {
+    pub fn lastprice_authorized(env: Env, consumer: Address, asset: Asset) -> Option<PriceData> {
         consumer.require_auth();
         consumer_auth::check_consumer_authorized(&env, &consumer);
         enter_reentrancy_guard(&env);
@@ -2797,6 +2878,39 @@ impl PriceOracleContract {
     /// A [`HealthReport`] reflecting current oracle state.
     pub fn health_check(env: Env) -> HealthReport {
         health::health_check(&env)
+    }
+
+    // --- Contract Metadata (#293) ---
+
+    /// Returns whether the contract supports the given 4-byte interface identifier.
+    ///
+    /// Uses ERC-165-style interface discovery. Supported interface IDs are declared
+    /// in [`ContractMetadata`](crate::types::ContractMetadata).
+    ///
+    /// # Arguments
+    ///
+    /// * `env` - The Soroban execution environment.
+    /// * `interface_id` - 4-byte interface identifier to query.
+    ///
+    /// # Returns
+    ///
+    /// `true` if the interface is supported; `false` otherwise.
+    pub fn supports_interface(env: Env, interface_id: soroban_sdk::BytesN<4>) -> bool {
+        metadata::supports_interface(&env, &interface_id)
+    }
+
+    /// Returns human-readable contract metadata including name, version, description,
+    /// admin address, decimals, and the list of supported 4-byte interface identifiers.
+    ///
+    /// # Arguments
+    ///
+    /// * `env` - The Soroban execution environment.
+    ///
+    /// # Returns
+    ///
+    /// A [`ContractMetadata`] struct describing this oracle contract.
+    pub fn get_contract_metadata(env: Env) -> ContractMetadata {
+        metadata::get_contract_metadata(&env)
     }
 
     // --- Storage Migration (#112) ---
@@ -3947,6 +4061,58 @@ impl PriceOracleContract {
     }
 
     // =========================================================================
+    // #292 — Standalone Commit-Reveal Mode & Slashing
+    // =========================================================================
+
+    /// Enables or disables standalone commit-reveal mode.
+    ///
+    /// When enabled, direct `submit_price` calls are rejected and sources must
+    /// use `commit_price` / `reveal_price`. Admin-only.
+    ///
+    /// # Errors
+    /// * [`ErrorCode::NotAuthorized`] — caller is not admin.
+    pub fn set_commit_reveal_enabled(env: Env, enabled: bool) {
+        reentrancy::enter(&env);
+        prices::set_commit_reveal_enabled(&env, enabled);
+        reentrancy::exit(&env);
+    }
+
+    /// Returns whether standalone commit-reveal mode is enabled.
+    pub fn get_commit_reveal_enabled(env: Env) -> bool {
+        prices::get_commit_reveal_enabled(&env)
+    }
+
+    /// Sets the slash amount applied to sources who commit but do not reveal.
+    ///
+    /// Admin-only. Set to `0` to disable slashing.
+    ///
+    /// # Errors
+    /// * [`ErrorCode::NotAuthorized`] — caller is not admin.
+    pub fn set_commit_reveal_slash_amount(env: Env, amount: i128) {
+        reentrancy::enter(&env);
+        prices::set_commit_reveal_slash_amount(&env, amount);
+        reentrancy::exit(&env);
+    }
+
+    /// Returns the configured slash amount for non-revealing sources.
+    pub fn get_commit_reveal_slash_amount(env: Env) -> i128 {
+        prices::get_commit_reveal_slash_amount(&env)
+    }
+
+    /// Permissionless keeper endpoint: slashes a source that committed but failed
+    /// to reveal for the given round.
+    ///
+    /// Must be called after the reveal window expires.
+    ///
+    /// # Errors
+    /// * [`ErrorCode::CommitNotFound`] — no commit exists for this tuple.
+    /// * [`ErrorCode::CommitExpired`] — reveal window has not expired.
+    /// * [`ErrorCode::SlashFailed`] — source has no bond to slash.
+    pub fn slash_expired_commits(env: Env, asset: Address, source: Address, round_ledger: u32) {
+        prices::slash_expired_commits(&env, asset, source, round_ledger);
+    }
+
+    // =========================================================================
     // #188 — Economic Finality Gadget
     // =========================================================================
 
@@ -4837,7 +5003,11 @@ impl PriceOracleContract {
     }
 
     /// Returns the bridge oracle configuration for an asset pair, or `None`.
-    pub fn bridge_get_oracle(env: Env, source_asset: Address, target_asset: Address) -> Option<BridgeOracleConfig> {
+    pub fn bridge_get_oracle(
+        env: Env,
+        source_asset: Address,
+        target_asset: Address,
+    ) -> Option<BridgeOracleConfig> {
         bridge_oracle::get_bridge_oracle(&env, source_asset, target_asset)
     }
 
@@ -4846,17 +5016,32 @@ impl PriceOracleContract {
     /// # Errors
     /// * [`ErrorCode::NotAuthorized`] — caller is not the bridge oracle.
     /// * [`ErrorCode::InvalidConfiguration`] — price is non-positive.
-    pub fn bridge_submit_price(env: Env, source_asset: Address, target_asset: Address, price: i128, timestamp: u64) {
+    pub fn bridge_submit_price(
+        env: Env,
+        source_asset: Address,
+        target_asset: Address,
+        price: i128,
+        timestamp: u64,
+    ) {
         bridge_oracle::submit_bridged_price(&env, source_asset, target_asset, price, timestamp);
     }
 
     /// Returns the latest bridged price for an asset pair, or `None`.
-    pub fn bridge_get_price(env: Env, source_asset: Address, target_asset: Address) -> Option<BridgedPrice> {
+    pub fn bridge_get_price(
+        env: Env,
+        source_asset: Address,
+        target_asset: Address,
+    ) -> Option<BridgedPrice> {
         bridge_oracle::get_bridged_price(&env, source_asset, target_asset)
     }
 
     /// Normalizes a raw bridge price into the oracle decimal scale.
-    pub fn bridge_normalize_price(env: Env, raw_price: i128, target_decimals: u32, config: BridgeOracleConfig) -> i128 {
+    pub fn bridge_normalize_price(
+        env: Env,
+        raw_price: i128,
+        target_decimals: u32,
+        config: BridgeOracleConfig,
+    ) -> i128 {
         bridge_oracle::normalize_bridged_price(&env, raw_price, target_decimals, &config)
     }
 

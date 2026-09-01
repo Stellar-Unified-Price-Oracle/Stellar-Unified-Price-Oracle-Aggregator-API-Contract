@@ -336,3 +336,68 @@ fn test_batch_over_100_rejected() {
     }
     client.reveal_prices_batch(&source, &reveals);
 }
+
+// --- #292: Standalone Commit-Reveal Mode & Slashing ---
+
+#[test]
+fn test_standalone_commit_reveal_blocks_direct_submission() {
+    let e = Env::default();
+    e.mock_all_auths();
+    let (client, _) = setup_contract(&e);
+    let source = register_test_source(&e, &client, "S1");
+    let asset = register_test_asset(&e, &client);
+
+    client.set_commit_reveal_enabled(&true);
+    assert!(client.get_commit_reveal_enabled());
+
+    let result = client.try_submit_price(&source, &asset, &100i128, &1000u64);
+    assert!(result.is_err());
+}
+
+#[test]
+fn test_standalone_commit_reveal_full_lifecycle() {
+    let e = Env::default();
+    e.mock_all_auths();
+    let (client, _) = setup_contract(&e);
+    let source = register_test_source(&e, &client, "S1");
+    let asset = register_test_asset(&e, &client);
+
+    client.set_commit_reveal_enabled(&true);
+    client.set_commit_window(&20u32);
+    client.set_reveal_window(&20u32);
+
+    advance_ledger(&e, 5);
+    let round = client.current_round_ledger();
+    let price = 100_000i128;
+    let salt_val = 42u64;
+    let hash = make_hash(&e, price, salt_val, round);
+
+    client.commit_price(&source, &asset, &hash);
+    assert_eq!(client.get_source_price(&asset, &source).price, 0i128);
+
+    advance_ledger(&e, 22);
+    client.reveal_price(&source, &asset, &price, &salt_bytes(&e, salt_val), &round);
+    assert_eq!(client.get_source_price(&asset, &source).price, price);
+}
+
+#[test]
+fn test_slash_expired_commits() {
+    let e = Env::default();
+    e.mock_all_auths();
+    let (client, _) = setup_contract(&e);
+    let source = register_test_source(&e, &client, "S1");
+    let asset = register_test_asset(&e, &client);
+
+    client.set_commit_reveal_enabled(&true);
+    client.set_commit_window(&20u32);
+    client.set_reveal_window(&20u32);
+    client.set_commit_reveal_slash_amount(&1000i128);
+
+    advance_ledger(&e, 5);
+    let round = client.current_round_ledger();
+    let hash = make_hash(&e, 100_000i128, 1u64, round);
+    client.commit_price(&source, &asset, &hash);
+
+    advance_ledger(&e, 50);
+    client.slash_expired_commits(&asset, &source, &round);
+}

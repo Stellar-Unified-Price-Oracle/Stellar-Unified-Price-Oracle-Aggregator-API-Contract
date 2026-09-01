@@ -2,12 +2,11 @@
 ///
 /// Enforces per-operation-type daily limits. Prevents compromised admin key from causing
 /// massive damage in a single transaction.
-
 use soroban_sdk::{panic_with_error, symbol_short, Address, Bytes, Env};
 
 use crate::events::emit_admin_action;
 use crate::storage::{get_admin, LEDGER_BUMP, LEDGER_THRESHOLD};
-use crate::types::{AdminOperationType, AdminOpLimit, DataKey, ErrorCode};
+use crate::types::{AdminOpLimit, AdminOperationType, DataKey, ErrorCode};
 
 // Default limits per operation type per day
 const DEFAULT_ADD_SOURCE_LIMIT: u32 = 5;
@@ -104,9 +103,7 @@ pub fn increment_admin_op_counter(env: &Env, op_type: u32) {
         .unwrap_or(0);
 
     let new_count = current_count.saturating_add(1);
-    env.storage()
-        .persistent()
-        .set(&count_key, &new_count);
+    env.storage().persistent().set(&count_key, &new_count);
 
     env.storage()
         .persistent()
@@ -133,7 +130,7 @@ pub fn validate_admin_op_allowed(env: &Env, op_type: u32) {
 mod tests {
     use super::*;
     use soroban_sdk::testutils::Ledger;
-    use soroban_sdk::{Env, Address};
+    use soroban_sdk::{Address, Env};
 
     #[test]
     fn test_admin_op_limits_track_daily_count() {

@@ -71,14 +71,14 @@ pub fn stake_source(env: &Env, source: Address, amount: i128, token_contract: Ad
 
     // Record the staked amount.
     let key = DataKey::SourceStake(source.clone());
-    let existing: SourceStakeRecord = env
-        .storage()
-        .persistent()
-        .get(&key)
-        .unwrap_or(SourceStakeRecord {
-            amount: 0,
-            last_updated_ledger: env.ledger().sequence(),
-        });
+    let existing: SourceStakeRecord =
+        env.storage()
+            .persistent()
+            .get(&key)
+            .unwrap_or(SourceStakeRecord {
+                amount: 0,
+                last_updated_ledger: env.ledger().sequence(),
+            });
 
     let new_record = SourceStakeRecord {
         amount: existing.amount.saturating_add(amount),
@@ -183,8 +183,10 @@ pub fn update_reputation_on_submission(
     let decay = get_decay_factor(env) as i128;
 
     // Deviation in basis points.
-    let deviation_bps =
-        ((source_price - median_price).abs().saturating_mul(BPS_PRECISION)) / median_price;
+    let deviation_bps = ((source_price - median_price)
+        .abs()
+        .saturating_mul(BPS_PRECISION))
+        / median_price;
 
     // accuracy: 100 at 0 deviation, 0 at >= 5000 bps (50%), with a cliff at 3000 bps.
     let accuracy: i128 = if deviation_bps >= 5000 {
@@ -205,10 +207,9 @@ pub fn update_reputation_on_submission(
     let new_score = ((old_score * (100 - decay)) + (accuracy * decay)) / 100;
     let new_score = new_score.clamp(MIN_REPUTATION, MAX_REPUTATION);
 
-    env.storage().persistent().set(
-        &DataKey::SourceReputation(source.clone()),
-        &new_score,
-    );
+    env.storage()
+        .persistent()
+        .set(&DataKey::SourceReputation(source.clone()), &new_score);
     env.storage().persistent().extend_ttl(
         &DataKey::SourceReputation(source.clone()),
         LEDGER_THRESHOLD,
@@ -283,14 +284,14 @@ pub fn slash_source(env: &Env, source: Address, force: bool) {
     }
 
     let key = DataKey::SourceStake(source.clone());
-    let record: SourceStakeRecord = env
-        .storage()
-        .persistent()
-        .get(&key)
-        .unwrap_or(SourceStakeRecord {
-            amount: 0,
-            last_updated_ledger: env.ledger().sequence(),
-        });
+    let record: SourceStakeRecord =
+        env.storage()
+            .persistent()
+            .get(&key)
+            .unwrap_or(SourceStakeRecord {
+                amount: 0,
+                last_updated_ledger: env.ledger().sequence(),
+            });
 
     if record.amount == 0 {
         // Nothing to slash; silently return.
@@ -319,9 +320,10 @@ pub fn slash_source(env: &Env, source: Address, force: bool) {
         .persistent()
         .get(&treasury_key)
         .unwrap_or(0i128);
-    env.storage()
-        .persistent()
-        .set(&treasury_key, &current_treasury.saturating_add(slash_amount));
+    env.storage().persistent().set(
+        &treasury_key,
+        &current_treasury.saturating_add(slash_amount),
+    );
     env.storage()
         .persistent()
         .extend_ttl(&treasury_key, LEDGER_THRESHOLD, LEDGER_BUMP);

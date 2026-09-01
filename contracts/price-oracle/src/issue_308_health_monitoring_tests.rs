@@ -7,7 +7,7 @@ use soroban_sdk::{
     Address, Env, String,
 };
 
-use crate::test_helpers::{setup_contract, register_test_source, register_test_asset};
+use crate::test_helpers::{register_test_asset, register_test_source, setup_contract};
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
@@ -45,7 +45,10 @@ fn test_get_oracle_description() {
     let (client, _admin) = setup_contract(&e);
 
     let desc = client.get_description();
-    assert_eq!(desc, String::from_str(&e, "Stellar Price Oracle Aggregator"));
+    assert_eq!(
+        desc,
+        String::from_str(&e, "Stellar Price Oracle Aggregator")
+    );
 }
 
 #[test]
