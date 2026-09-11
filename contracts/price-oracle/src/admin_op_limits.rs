@@ -135,7 +135,7 @@ mod tests {
     #[test]
     fn test_admin_op_limits_track_daily_count() {
         let env = Env::default();
-        let admin = Address::random(&env);
+        let admin = Address::generate(&env);
 
         env.ledger().with_mut(|l| {
             l.timestamp = 1000; // Some day
@@ -168,7 +168,7 @@ mod tests {
     #[test]
     fn test_check_admin_op_limit() {
         let env = Env::default();
-        let admin = Address::random(&env);
+        let admin = Address::generate(&env);
 
         env.ledger().with_mut(|l| {
             l.timestamp = 1000;
@@ -200,7 +200,7 @@ mod tests {
     #[test]
     fn test_validate_admin_op_allowed_panics() {
         let env = Env::default();
-        let admin = Address::random(&env);
+        let admin = Address::generate(&env);
 
         env.ledger().with_mut(|l| {
             l.timestamp = 1000;

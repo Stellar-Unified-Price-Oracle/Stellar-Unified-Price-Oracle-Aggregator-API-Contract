@@ -4,7 +4,7 @@
 
 use soroban_sdk::{
     testutils::{Address as _, Ledger, LedgerInfo},
-    Env,
+    Env, Vec,
 };
 
 use crate::test_helpers::{register_test_asset, register_test_source, setup_contract};

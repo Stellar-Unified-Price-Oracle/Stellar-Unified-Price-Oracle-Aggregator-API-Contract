@@ -1,7 +1,7 @@
 #![cfg(test)]
 
 use crate::test_helpers::*;
-use soroban_sdk::{testutils::Address as _, Address, String};
+use soroban_sdk::{testutils::Address as _, Address, Env, String};
 
 #[test]
 fn test_emergency_pause_activates() {

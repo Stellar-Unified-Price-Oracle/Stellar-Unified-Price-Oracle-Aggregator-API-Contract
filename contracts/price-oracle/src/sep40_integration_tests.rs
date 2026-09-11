@@ -6,7 +6,7 @@
 
 #![cfg(test)]
 
-use soroban_sdk::{
+use soroban_sdk::{Vec, 
     contract, contractimpl,
     testutils::{Address as _, Ledger, LedgerInfo},
     Address, Env, Symbol, Vec,

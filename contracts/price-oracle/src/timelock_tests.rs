@@ -52,9 +52,9 @@ fn rejects_execution_before_urgent_delay() {
         client.propose_operation_with_priority(&0u32, &data, &(OperationPriority::Urgent as u32));
 
     // Try to execute immediately (should succeed for Urgent with 1 ledger delay)
-    let result = std::panic::catch_unwind(|| {
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         client.execute_operation(&op_id);
-    });
+    }));
     // This might succeed if current ledger is >= proposed ledger + 1
     let _ = result;
 }
@@ -69,9 +69,9 @@ fn rejects_execution_before_normal_delay() {
         client.propose_operation_with_priority(&0u32, &data, &(OperationPriority::Normal as u32));
 
     // Try to execute immediately (should fail for Normal with 10 ledger delay)
-    let result = std::panic::catch_unwind(|| {
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         client.execute_operation(&op_id);
-    });
+    }));
     assert!(result.is_err());
 }
 
@@ -85,9 +85,9 @@ fn rejects_execution_before_long_term_delay() {
         client.propose_operation_with_priority(&0u32, &data, &(OperationPriority::LongTerm as u32));
 
     // Try to execute immediately (should fail for LongTerm with 100 ledger delay)
-    let result = std::panic::catch_unwind(|| {
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         client.execute_operation(&op_id);
-    });
+    }));
     assert!(result.is_err());
 }
 
@@ -101,9 +101,9 @@ fn cancels_pending_operation() {
         client.propose_operation_with_priority(&0u32, &data, &(OperationPriority::Normal as u32));
 
     // Cancel the operation
-    let result = std::panic::catch_unwind(|| {
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         client.cancel_operation(&op_id);
-    });
+    }));
     assert!(result.is_ok());
 }
 
@@ -112,9 +112,9 @@ fn rejects_cancel_of_nonexistent_operation() {
     let e = Env::default();
     let (client, _admin) = setup_timelock_case(&e);
 
-    let result = std::panic::catch_unwind(|| {
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         client.cancel_operation(&999u32);
-    });
+    }));
     assert!(result.is_err());
 }
 
@@ -123,9 +123,9 @@ fn rejects_execute_of_nonexistent_operation() {
     let e = Env::default();
     let (client, _admin) = setup_timelock_case(&e);
 
-    let result = std::panic::catch_unwind(|| {
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         client.execute_operation(&999u32);
-    });
+    }));
     assert!(result.is_err());
 }
 
@@ -135,19 +135,19 @@ fn sets_and_gets_priority_delays() {
     let (client, _admin) = setup_timelock_case(&e);
 
     // Set delays for each priority
-    let result_urgent = std::panic::catch_unwind(|| {
+    let result_urgent = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         client.set_priority_delay(&(OperationPriority::Urgent as u32), &5u32);
-    });
+    }));
     assert!(result_urgent.is_ok());
 
-    let result_normal = std::panic::catch_unwind(|| {
+    let result_normal = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         client.set_priority_delay(&(OperationPriority::Normal as u32), &15u32);
-    });
+    }));
     assert!(result_normal.is_ok());
 
-    let result_long_term = std::panic::catch_unwind(|| {
+    let result_long_term = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         client.set_priority_delay(&(OperationPriority::LongTerm as u32), &150u32);
-    });
+    }));
     assert!(result_long_term.is_ok());
 }
 
@@ -177,9 +177,9 @@ fn proposes_batch_operation() {
     };
     operations.push_back(batch_op);
 
-    let result = std::panic::catch_unwind(|| {
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         client.propose_batch(&operations);
-    });
+    }));
     assert!(result.is_ok());
 }
 
@@ -198,9 +198,9 @@ fn rejects_batch_execution_before_delay() {
     let batch_id = client.propose_batch(&operations);
 
     // Try to execute immediately (should fail)
-    let result = std::panic::catch_unwind(|| {
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         client.execute_batch(&batch_id);
-    });
+    }));
     assert!(result.is_err());
 }
 
@@ -219,9 +219,9 @@ fn cancels_pending_batch() {
     let batch_id = client.propose_batch(&operations);
 
     // Cancel the batch
-    let result = std::panic::catch_unwind(|| {
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         client.cancel_batch(&batch_id);
-    });
+    }));
     assert!(result.is_ok());
 }
 
@@ -258,8 +258,8 @@ fn can_cancel_before_execution_window() {
     );
 
     // Cancel immediately (should always succeed before execution)
-    let result = std::panic::catch_unwind(|| {
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         client.cancel_operation(&op_id);
-    });
+    }));
     assert!(result.is_ok());
 }

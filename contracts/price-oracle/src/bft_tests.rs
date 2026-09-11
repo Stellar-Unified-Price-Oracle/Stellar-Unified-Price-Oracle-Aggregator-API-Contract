@@ -2,7 +2,7 @@
 
 use soroban_sdk::{
     testutils::{Address as _, Ledger, LedgerInfo},
-    Address, Bytes, BytesN, Env,
+    Address, Bytes, BytesN, Env, Vec,
 };
 
 use crate::test_helpers::*;

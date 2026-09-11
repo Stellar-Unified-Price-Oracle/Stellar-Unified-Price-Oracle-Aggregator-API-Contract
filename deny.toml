@@ -9,8 +9,6 @@
 version = 2
 # Pull vulnerability data from the RustSec advisory database.
 db-urls = ["https://github.com/rustsec/advisory-db"]
-# Fail the check when a crate has a known vulnerability.
-vulnerability = "deny"
 # Only fail when a directly depended on crate from the workspace is
 # unmaintained; transitive unmaintained crates are ignored so the check
 # stays green while we evaluate replacements.
@@ -41,11 +39,11 @@ allow = [
     "CC0-1.0",
     "Zlib",
 ]
-# Copyleft licenses (GPL, LGPL, AGPL, MPL) are unwanted in a smart-contract
-# binary — warn so we catch them early without blocking the build outright.
-copyleft = "warn"
-# Deny any license not in the allow list.
-default = "deny"
+# NOTE: cargo-deny v2 config (version = 2). The deprecated `copyleft` and
+# `default` keys have been removed: all licenses not explicitly allowed
+# (or excepted) are denied by default, which matches the previous
+# `default = "deny"` behaviour. Copyleft licenses are not in the allow
+# list, so they are rejected without needing the removed key.
 # Per-crate overrides for crates whose SPDX expression needs clarification.
 exceptions = []
 # Confidence threshold for license text scanning (0.0 – 1.0).

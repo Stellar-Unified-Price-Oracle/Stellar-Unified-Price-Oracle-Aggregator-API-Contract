@@ -6,6 +6,18 @@
 // here until that wiring lands, rather than deleting working, tested implementations.
 #![allow(dead_code)]
 #![allow(unused_imports)]
+// soroban-sdk 26 deprecates `Events::publish` in favour of the `#[contractevent]`
+// macro. Migrating all 24 publish call-sites is a larger refactor; allow the
+// deprecation (including `String::from_slice`) until that migration lands.
+#![allow(deprecated)]
+
+// Link `std` for the native test build only. Several generated test files rely on
+// `format!`/`vec!`/`to_string()` and `std::panic::catch_unwind`, which are not
+// available in the default `no_std` test harness. The contract WASM build is
+// unaffected: this item is gated out when compiling for wasm32v1-none.
+#[cfg(all(test, not(target_arch = "wasm32v1-none")))]
+#[macro_use]
+extern crate std;
 
 mod admin;
 mod admin_op_limits;
@@ -17,19 +29,27 @@ mod asset_inactivity;
 mod assets;
 // The core module is always compiled (it has no Env deps).
 // When the `fuzz` feature is enabled it is also re-exported so that the
-// fuzz crate can call `price_oracle::core::*` directly.
+// fuzz crate can call `price_oracle::core_pricing::*` directly.
+#[cfg(feature = "fuzz")]
+pub mod core_pricing;
+#[cfg(not(feature = "fuzz"))]
+pub(crate) mod core_pricing;
+// The fuzz harness differentially tests the SDK-Vec aggregation wrappers
+// against the pure core, so expose storage under the same feature.
 mod audit_log;
 mod batch_storage;
 mod config_history;
 mod contribution_quality;
-#[cfg_attr(feature = "fuzz", allow(dead_code))]
-pub(crate) mod core_pricing;
 mod correlation;
 mod cross_reference;
 mod deadline_rebate;
 mod dex;
 mod emergency_pause;
 mod errors;
+#[cfg(feature = "fuzz")]
+pub mod storage;
+#[cfg(not(feature = "fuzz"))]
+pub(crate) mod storage;
 // #223 — Price freeze mechanism for market emergencies (wired in from disk).
 mod event_indexing;
 mod events;
@@ -71,7 +91,6 @@ mod source_deviation;
 mod sources;
 mod state_channel;
 mod state_introspection;
-mod storage;
 mod submission_deadline;
 mod subscription;
 // #304 — Consumer contract authorization (wired in from disk).

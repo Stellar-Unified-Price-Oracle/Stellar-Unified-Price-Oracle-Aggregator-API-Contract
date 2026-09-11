@@ -19,9 +19,9 @@ fn setup_price_bounds_case<'a>(e: &'a Env) -> (PriceOracleContractClient<'a>, Ad
 fn rejects_out_of_bounds_submissions() {
     let e = Env::default();
     let (client, source, asset) = setup_price_bounds_case(&e);
-    let result = std::panic::catch_unwind(|| {
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         client.submit_price(&source, &asset, &1500i128, &1000u64);
-    });
+    }));
     assert!(result.is_err());
 }
 
@@ -31,9 +31,9 @@ fn trips_circuit_breaker_for_large_price_move() {
     let (client, source, asset) = setup_price_bounds_case(&e);
     client.submit_price(&source, &asset, &100i128, &1000u64);
 
-    let result = std::panic::catch_unwind(|| {
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         client.submit_price(&source, &asset, &1000i128, &1001u64);
-    });
+    }));
     assert!(result.is_err());
     assert!(client.is_asset_paused(&asset));
     assert!(client.is_circuit_breaker_tripped(&asset));

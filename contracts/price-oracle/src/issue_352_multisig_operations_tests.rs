@@ -2,7 +2,7 @@
 
 #![cfg(test)]
 
-use soroban_sdk::{
+use soroban_sdk::{Vec, 
     testutils::{Address as _, Ledger, LedgerInfo},
     Env, String,
 };

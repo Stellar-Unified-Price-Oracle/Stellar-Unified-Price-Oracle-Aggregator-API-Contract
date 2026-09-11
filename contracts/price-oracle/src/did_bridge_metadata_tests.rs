@@ -1,12 +1,9 @@
 #![cfg(test)]
 
-use soroban_sdk::{Address, Env, String};
+use soroban_sdk::{Address, Env, String, Vec};
 
 use crate::test_helpers::*;
-use crate::{
-    BridgeOracleConfig, BridgedPrice, DidDocument, DidVerification, EcosystemMetadata,
-    FeedMetadata, SourceDidLink,
-};
+use crate::{BridgeOracleConfig, BridgedPrice, EcosystemMetadata, FeedMetadata, SourceDidLink};
 
 mod did_tests {
     use super::*;
@@ -88,7 +85,6 @@ mod bridge_oracle_tests {
             target_asset: target_asset.clone(),
             oracle_contract: oracle_contract.clone(),
             decimals: 18,
-            enabled: true,
         };
 
         client.bridge_register_oracle(&config);
@@ -148,8 +144,6 @@ mod ecosystem_metadata_tests {
             asset: asset.clone(),
             symbol: String::from_str(&e, "TEST"),
             description: String::from_str(&e, "Test feed"),
-            decimals: 18,
-            updated_at: 1234567890,
         };
 
         client.metadata_register_feed(&feed);
@@ -167,12 +161,13 @@ mod event_streaming_tests {
 
     #[test]
     fn test_event_envelope_creation() {
+        let e = Env::default();
         let envelope = OracleEventEnvelope::new(
             12345,
             67890,
-            String::from_str(&Env::default(), "contract_id"),
-            String::from_str(&Env::default(), "price_updated"),
-            serde_json::json!({"asset": "G..."}),
+            String::from_str(&e, "contract_id"),
+            String::from_str(&e, "price_updated"),
+            soroban_sdk::Bytes::new(&e),
         );
         assert_eq!(envelope.ledger, 12345);
         assert_eq!(envelope.topic, "price_updated");

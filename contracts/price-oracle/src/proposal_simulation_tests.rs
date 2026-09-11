@@ -1,4 +1,5 @@
 #[cfg(test)]
+use soroban_sdk::Vec;
 mod tests {
     use super::super::*;
 

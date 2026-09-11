@@ -2,7 +2,7 @@
 
 use crate::test_helpers::*;
 use crate::types::Role;
-use soroban_sdk::{testutils::Address as _, Address, String};
+use soroban_sdk::{testutils::Address as _, Address, Env, String};
 
 #[test]
 fn test_admin_has_all_roles() {

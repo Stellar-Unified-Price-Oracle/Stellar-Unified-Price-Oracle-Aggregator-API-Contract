@@ -148,9 +148,9 @@ fn test_governor_operation_auth_failure() {
     clear_auth(&e);
 
     let source = Address::generate(&e);
-    let result = std::panic::catch_unwind(|| {
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         client.add_source(&source, &String::from_str(&e, "UnauthorizedSource"));
-    });
+    }));
 
     assert!(result.is_err());
 }

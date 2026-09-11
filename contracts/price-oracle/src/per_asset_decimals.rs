@@ -85,8 +85,8 @@ mod tests {
     #[test]
     fn test_set_and_get_per_asset_decimals() {
         let env = Env::default();
-        let admin = Address::random(&env);
-        let asset = Address::random(&env);
+        let admin = Address::generate(&env);
+        let asset = Address::generate(&env);
 
         // Initialize contract
         env.ledger().with_mut(|l| {
@@ -115,8 +115,8 @@ mod tests {
     #[test]
     fn test_fallback_to_contract_decimals() {
         let env = Env::default();
-        let admin = Address::random(&env);
-        let asset = Address::random(&env);
+        let admin = Address::generate(&env);
+        let asset = Address::generate(&env);
 
         env.ledger().with_mut(|l| {
             l.timestamp = 1000;
@@ -140,8 +140,8 @@ mod tests {
     #[test]
     fn test_clear_asset_decimals() {
         let env = Env::default();
-        let admin = Address::random(&env);
-        let asset = Address::random(&env);
+        let admin = Address::generate(&env);
+        let asset = Address::generate(&env);
 
         env.ledger().with_mut(|l| {
             l.timestamp = 1000;
@@ -170,8 +170,8 @@ mod tests {
     #[should_panic(expected = "InvalidConfiguration")]
     fn test_decimals_too_high() {
         let env = Env::default();
-        let admin = Address::random(&env);
-        let asset = Address::random(&env);
+        let admin = Address::generate(&env);
+        let asset = Address::generate(&env);
 
         env.ledger().with_mut(|l| {
             l.timestamp = 1000;

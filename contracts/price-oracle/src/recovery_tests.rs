@@ -9,7 +9,7 @@
 //! - Auto-execution after the cancellation-window delay elapses
 //! - Misuse: non-guardians, double approval, conflicting candidates, premature execution
 
-use soroban_sdk::{
+use soroban_sdk::{Vec, 
     testutils::{Address as _, Ledger, LedgerInfo},
     Address, Env, Vec,
 };

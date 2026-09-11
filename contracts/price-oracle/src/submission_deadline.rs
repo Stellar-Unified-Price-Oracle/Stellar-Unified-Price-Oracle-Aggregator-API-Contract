@@ -107,7 +107,7 @@ mod tests {
     #[test]
     fn test_start_and_get_aggregation_round() {
         let env = Env::default();
-        let admin = Address::random(&env);
+        let admin = Address::generate(&env);
 
         env.ledger().with_mut(|l| {
             l.timestamp = 1000;
@@ -139,7 +139,7 @@ mod tests {
     #[test]
     fn test_is_submission_within_deadline() {
         let env = Env::default();
-        let admin = Address::random(&env);
+        let admin = Address::generate(&env);
 
         env.ledger().with_mut(|l| {
             l.timestamp = 1000;
@@ -170,7 +170,7 @@ mod tests {
     #[test]
     fn test_no_round_accepts_all() {
         let env = Env::default();
-        let admin = Address::random(&env);
+        let admin = Address::generate(&env);
 
         env.ledger().with_mut(|l| {
             l.timestamp = 1000;
@@ -194,7 +194,7 @@ mod tests {
     #[test]
     fn test_clear_current_round() {
         let env = Env::default();
-        let admin = Address::random(&env);
+        let admin = Address::generate(&env);
 
         env.ledger().with_mut(|l| {
             l.timestamp = 1000;
@@ -220,7 +220,7 @@ mod tests {
     #[test]
     fn test_invalid_round_window() {
         let env = Env::default();
-        let admin = Address::random(&env);
+        let admin = Address::generate(&env);
 
         env.ledger().with_mut(|l| {
             l.timestamp = 1000;
