@@ -22,7 +22,7 @@
 use soroban_sdk::{panic_with_error, Address, Env};
 
 use crate::events::{
-    RelayerBondConfigChangedEvent, RelayerBondDepositedEvent, RelayerBondWithdrawnEvent,
+    emit_relayer_bond_config_changed, RelayerBondDepositedEvent, RelayerBondWithdrawnEvent,
     RelayerFailureRecordedEvent, RelayerSlashedEvent,
 };
 use crate::storage::{get_admin, LEDGER_BUMP, LEDGER_THRESHOLD};
@@ -44,7 +44,7 @@ pub fn set_relayer_bond_amount(env: &Env, amount: i128) {
     env.storage()
         .persistent()
         .set(&DataKey::RelayerBondAmount, &amount);
-    RelayerBondConfigChangedEvent { admin, amount }.publish(env);
+    emit_relayer_bond_config_changed(env, admin, amount);
 }
 
 /// Returns the currently configured required relayer bond amount. Defaults to `0`

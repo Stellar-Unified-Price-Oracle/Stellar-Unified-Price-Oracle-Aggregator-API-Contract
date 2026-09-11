@@ -59,7 +59,7 @@ pub fn append_audit_entry(env: &Env, action: Symbol, admin: Address, data: Bytes
     // Create audit entry
     let entry = AuditEntry {
         id: entry_id,
-        action,
+        action: action.clone(),
         admin: admin.clone(),
         timestamp,
         data: data.clone(),

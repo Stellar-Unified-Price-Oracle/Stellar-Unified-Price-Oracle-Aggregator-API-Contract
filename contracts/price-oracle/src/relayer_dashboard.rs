@@ -65,7 +65,9 @@ pub fn record_relayer_submission_stats(
         .get(&latency_hist_key)
         .unwrap_or(Vec::new(env));
     latency_history.push_back(latency);
-    env.storage().persistent().set(&latency_hist_key, &latency_history);
+    env.storage()
+        .persistent()
+        .set(&latency_hist_key, &latency_history);
     env.storage().persistent().extend_ttl(
         &latency_hist_key,
         crate::storage::LEDGER_THRESHOLD,
@@ -106,9 +108,10 @@ pub fn record_relayer_submission_stats(
         .persistent()
         .get(&asset_latency_sum_key)
         .unwrap_or(0u64);
-    env.storage()
-        .persistent()
-        .set(&asset_latency_sum_key, &asset_latency_sum.saturating_add(latency));
+    env.storage().persistent().set(
+        &asset_latency_sum_key,
+        &asset_latency_sum.saturating_add(latency),
+    );
     env.storage().persistent().extend_ttl(
         &asset_latency_sum_key,
         crate::storage::LEDGER_THRESHOLD,
@@ -121,9 +124,10 @@ pub fn record_relayer_submission_stats(
         .persistent()
         .get(&asset_latency_count_key)
         .unwrap_or(0u64);
-    env.storage()
-        .persistent()
-        .set(&asset_latency_count_key, &asset_latency_count.saturating_add(1));
+    env.storage().persistent().set(
+        &asset_latency_count_key,
+        &asset_latency_count.saturating_add(1),
+    );
     env.storage().persistent().extend_ttl(
         &asset_latency_count_key,
         crate::storage::LEDGER_THRESHOLD,
@@ -251,12 +255,18 @@ fn collect_per_asset_stats(env: &Env, relayer: &Address) -> Vec<RelayerAssetStat
         let latency_sum: u64 = env
             .storage()
             .persistent()
-            .get(&DataKey::RelayerAssetLatencySum(relayer.clone(), asset.clone()))
+            .get(&DataKey::RelayerAssetLatencySum(
+                relayer.clone(),
+                asset.clone(),
+            ))
             .unwrap_or(0u64);
         let latency_count: u64 = env
             .storage()
             .persistent()
-            .get(&DataKey::RelayerAssetLatencyCount(relayer.clone(), asset.clone()))
+            .get(&DataKey::RelayerAssetLatencyCount(
+                relayer.clone(),
+                asset.clone(),
+            ))
             .unwrap_or(0u64);
         let avg_latency_seconds = if latency_count > 0 {
             latency_sum / latency_count
@@ -268,7 +278,10 @@ fn collect_per_asset_stats(env: &Env, relayer: &Address) -> Vec<RelayerAssetStat
             asset,
             submissions,
             successful_submissions: submissions,
-            failed_submissions: crate::relayer_bonds::get_relayer_failure_count(env, relayer.clone()) as u32,
+            failed_submissions: crate::relayer_bonds::get_relayer_failure_count(
+                env,
+                relayer.clone(),
+            ) as u32,
             success_rate_bps,
             avg_latency_seconds,
         });
@@ -321,7 +334,7 @@ fn compute_latency_percentiles(env: &Env, relayer: &Address) -> Map<u32, u64> {
         } else {
             0
         };
-        percentiles.set(&pct, &value);
+        percentiles.set(pct, value);
     }
     percentiles
 }

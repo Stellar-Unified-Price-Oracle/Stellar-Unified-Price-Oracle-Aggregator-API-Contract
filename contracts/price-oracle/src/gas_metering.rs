@@ -2,6 +2,38 @@ use soroban_sdk::{Address, Env, String};
 
 use crate::types::{DataKey, GasRecord};
 
+/// CPU instruction cost consumed so far.
+///
+/// The budget API is only available in test/testutils builds, so this returns
+/// `0` when compiling the contract for WASM.
+pub fn cpu_usage(env: &Env) -> u64 {
+    #[cfg(any(test, feature = "testutils"))]
+    {
+        env.budget().cpu_instruction_cost()
+    }
+    #[cfg(not(any(test, feature = "testutils")))]
+    {
+        let _ = env;
+        0
+    }
+}
+
+/// Memory cost consumed so far.
+///
+/// The budget API is only available in test/testutils builds, so this returns
+/// `0` when compiling the contract for WASM.
+pub fn mem_usage(env: &Env) -> u64 {
+    #[cfg(any(test, feature = "testutils"))]
+    {
+        env.budget().memory_bytes_cost()
+    }
+    #[cfg(not(any(test, feature = "testutils")))]
+    {
+        let _ = env;
+        0
+    }
+}
+
 pub fn write_last_gas(env: &Env, method: String, cpu: u64, mem: u64) {
     let record = GasRecord {
         method,

@@ -137,7 +137,7 @@ pub enum DataKey {
     SubscriptionExpiry(Address),
     /// Available subscription plans mapped by duration (seconds) to amount (stroops).
     SubscriptionPlans,
-    SubscriptionPayment,
+    SubscriptionPayment(Address),
     PriceOverride(Address),
     /// Per-asset resolution override in seconds. When set, overrides the contract-wide resolution.
     AssetResolution(Address),
@@ -405,9 +405,9 @@ pub enum DataKey {
     AdminOpDailyLimit(u32),
 
     /// AMM pool data for an asset (#180).
-    AmmPool(Address),
-    /// AMM maximum deviation basis points for an asset.
-    AmmMaxDeviationBps(Address),
+    AmmPool(Symbol),
+    /// AMM maximum deviation basis points (global setting).
+    AmmMaxDeviationBps,
     /// AMM weight configuration for aggregation inclusion.
     AmmWeight(Address),
     /// Stellar DEX pool reserves for an asset pair.
@@ -426,11 +426,11 @@ pub enum DataKey {
     CrossChainRelayConfig,
 
     /// Submission deadline for an asset (#202).
-    SubmissionDeadline(Address),
+    SubmissionDeadline(Address, Address),
     /// Rebate amount available for a source/asset pair (#202).
     SubmissionRebate(Address, Address),
     /// Total rebate balance available for distribution (#202).
-    RebateBalance,
+    RebateBalance(Address),
 
     /// Event type registry for structured event indexing (#201).
     EventTypeRegistry,
@@ -633,6 +633,144 @@ pub enum DataKey {
     LzTrustedRemote(u32, BytesN<32>),
     /// Canonical registry chain name for a LayerZero source endpoint id.
     LzEidChainName(u32),
+
+    // -------------------------------------------------------------------------
+    // #251: History sharding (weekly time buckets)
+    // -------------------------------------------------------------------------
+    /// A sharded history bucket for an asset (weekly time bucket).
+    HistoryBucket(Address, u32),
+    /// Current bucket index for an asset (u32).
+    HistoryBucketIndex(Address),
+    /// Per-asset compaction metadata (CompactionMetadata).
+    CompactionMeta(Address),
+
+    // -------------------------------------------------------------------------
+    // Config snapshot history (#205)
+    // -------------------------------------------------------------------------
+    /// A configuration snapshot by version (u32 -> ConfigSnapshot).
+    ConfigSnapshot(u32),
+    /// Latest configuration snapshot version (u32).
+    ConfigVersionCount,
+    /// Ordered list of retained configuration snapshot versions (Vec<u32>).
+    ConfigVersionIndex,
+
+    // -------------------------------------------------------------------------
+    // #262: Operation dependency graph
+    // -------------------------------------------------------------------------
+    /// An operation by id (String -> Operation).
+    Operation(String),
+    /// Dependent operation ids for an operation (String -> Vec<String>).
+    OperationDependents(String),
+
+    // -------------------------------------------------------------------------
+    // #245: Admin key social recovery
+    // -------------------------------------------------------------------------
+    /// A pending GuardianRecovery (unit key).
+    PendingRecovery,
+    /// Cancellation-window delay in ledgers (u32).
+    RecoveryDelay,
+    /// Registered guardian addresses (Vec<Address>).
+    RecoveryGuardians,
+    /// Guardian approval threshold (u32).
+    RecoveryThreshold,
+
+    // -------------------------------------------------------------------------
+    // #297: Price callbacks
+    // -------------------------------------------------------------------------
+    /// Per-asset callback registration list (Vec<Address>).
+    PriceCallbackList(Address),
+
+    // -------------------------------------------------------------------------
+    // #294: Native token subscription payments
+    // -------------------------------------------------------------------------
+    /// Address of the token contract used for subscription payments.
+    SubscriptionToken,
+    /// Token deposit balance for a consumer (i128).
+    SubscriptionTokenDeposit(Address),
+
+    // -------------------------------------------------------------------------
+    // #296: External submission proofs
+    // -------------------------------------------------------------------------
+    /// Stored submission proof for (asset, source).
+    SubmissionProof(Address, Address),
+    /// Last accepted proof nonce for a source (u64).
+    SubmissionProofNonce(Address, Address),
+
+    // -------------------------------------------------------------------------
+    // #265: Contribution quality scoring
+    // -------------------------------------------------------------------------
+    /// Contribution quality score for (source, asset) (u32).
+    ContribScore(Address, Address),
+    /// Contribution scoring window size (u32).
+    ContribScoringWindow,
+
+    // -------------------------------------------------------------------------
+    // #296: Per-asset proof requirements / retention
+    // -------------------------------------------------------------------------
+    /// Per-asset external proof requirement (u32 discriminant).
+    AssetProofRequirement(Address),
+    /// Per-asset history retention window in ledgers (u32).
+    AssetRetentionWindow(Address),
+
+    // -------------------------------------------------------------------------
+    // Severity-based alerting
+    // -------------------------------------------------------------------------
+    /// Per-asset severity thresholds (AlertSeverityThresholds).
+    AssetSeverityThresholds(Address),
+    /// Global severity thresholds (AlertSeverityThresholds).
+    CfgSeverityThresholds,
+    /// Last emitted severity for an asset (u32).
+    LastAlertSeverity(Address),
+
+    // -------------------------------------------------------------------------
+    // #218: Scheduled submissions
+    // -------------------------------------------------------------------------
+    /// Last scheduled submission record for a (source, asset) pair.
+    LastScheduledSubmission(Address, Address),
+    /// Submission schedule for a (source, asset) pair.
+    SubmissionSchedule(Address, Address),
+
+    // -------------------------------------------------------------------------
+    // Per-source submission nonce (#216)
+    // -------------------------------------------------------------------------
+    /// Last accepted price-submission nonce for a source (u64).
+    SourceNonce(Address),
+
+    // -------------------------------------------------------------------------
+    // Wormhole relay integration
+    // -------------------------------------------------------------------------
+    /// Maps a Wormhole chain id (u32) to an oracle-chain Address.
+    WormholeChainMapping(u32),
+    /// Guardian quorum (minimum valid signatures, u32).
+    WormholeGuardianQuorum,
+    /// Current Wormhole guardian set (WormholeGuardianSet).
+    WormholeGuardianSet,
+    /// Last processed VAA sequence for (chain, emitter_address) (u64).
+    WormholeLastSequence(u32, BytesN<32>),
+
+    // -------------------------------------------------------------------------
+    // #304: Consumer contract authorization
+    // -------------------------------------------------------------------------
+    /// Global consumer access mode (ConsumerAccessMode).
+    ConsumerAccessMode,
+    /// Explicit allowlist flag for a consumer (bool).
+    ConsumerAuthorized(Address),
+    /// Explicit blocklist flag for a consumer (bool).
+    ConsumerBlocked(Address),
+
+    // -------------------------------------------------------------------------
+    // #305: Price update subscription registry
+    // -------------------------------------------------------------------------
+    /// Per-asset ordered list of subscribed consumers (Vec<Address>).
+    AssetSubscriberList(Address),
+    /// Subscription flag for a (consumer, asset) pair (bool).
+    PriceUpdateSubscription(Address, Address),
+
+    // -------------------------------------------------------------------------
+    // #251: History compaction threshold
+    // -------------------------------------------------------------------------
+    /// Compaction threshold in basis points (u32).
+    CfgCompactionThresholdBps,
 }
 
 /// A price submission from a single oracle source for a specific asset.
@@ -765,7 +903,7 @@ pub struct SubscriptionPayment {
     /// Unix timestamp when the payment was recorded.
     pub timestamp: u64,
     /// Payment status: 0 = pending, 1 = completed, 2 = refunded.
-    pub status: u8,
+    pub status: u32,
 }
 
 /// A snapshot of the aggregate price recorded at a particular ledger.
@@ -1726,8 +1864,8 @@ pub struct PendingFeeSubmissions {
 pub struct MultiSigOperation {
     /// Unique sequential ID.
     pub id: u32,
-    /// Operation type (symbol or discriminant).
-    pub op_type: soroban_sdk::Symbol,
+    /// Operation type discriminant.
+    pub op_type: OperationType,
     /// Encoded payload.
     pub data: Bytes,
     /// Addresses that have approved this operation.
@@ -1738,8 +1876,6 @@ pub struct MultiSigOperation {
     pub proposed_ledger: u32,
     /// Address of the proposer.
     pub proposed_by: Address,
-    /// Whether the operation has been executed.
-    pub executed: bool,
     /// Ledger when quorum was reached and timelock started (0 = not yet).
     pub timelock_start_ledger: u32,
     /// Linked-list next pointer (0 = tail).
@@ -1822,10 +1958,8 @@ pub struct AggregationRound {
     pub start_ledger: u32,
     /// Ledger when this round ended (0 if in progress).
     pub end_ledger: u32,
-    /// Number of submissions in this round.
-    pub submission_count: u32,
-    /// Aggregated price for this round.
-    pub aggregate_price: i128,
+    /// Ledger when this round was created.
+    pub created_ledger: u32,
 }
 
 /// Groth16 verifying key for ZK proof verification (#175).
@@ -2342,3 +2476,282 @@ pub struct CrossChainPricePayload {
     pub nonce: u64,
 }
 
+// =============================================================================
+// Missing shared types restored for build parity
+// =============================================================================
+
+/// SEP-40 style interface identifiers exposed by `get_contract_metadata`.
+pub const INTERFACE_ID_SEP40: [u8; 4] = *b"SEP4";
+pub const INTERFACE_ID_ADMIN: [u8; 4] = *b"ADMI";
+pub const INTERFACE_ID_SOURCE_MGMT: [u8; 4] = *b"SRCM";
+pub const INTERFACE_ID_SUBSCRIPTION: [u8; 4] = *b"SUBS";
+pub const INTERFACE_ID_OPTIMISTIC: [u8; 4] = *b"OPTI";
+pub const INTERFACE_ID_COMMIT_REVEAL: [u8; 4] = *b"CMRV";
+pub const INTERFACE_ID_NATIVE_FEES: [u8; 4] = *b"NFEE";
+pub const INTERFACE_ID_METADATA: [u8; 4] = *b"META";
+
+/// Result of compacting an asset's price history (#251).
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct CompactionMetadata {
+    pub original_count: u32,
+    pub compacted_count: u32,
+    pub last_compaction_ledger: u32,
+    pub threshold_bps: u32,
+}
+
+/// Estimated storage footprint for a single asset's price history (#251).
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct StorageBudget {
+    pub asset: Address,
+    pub entry_count: u32,
+    pub estimated_ttl_costs: i128,
+    pub projected_monthly_cost: i128,
+    pub estimated_bytes: u32,
+}
+
+/// Aggregated storage budget across all registered assets (#251).
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct TotalStorageBudget {
+    pub asset_count: u32,
+    pub total_entry_count: u32,
+    pub total_estimated_ttl_costs: i128,
+    pub total_projected_monthly_cost: i128,
+    pub total_estimated_bytes: u32,
+}
+
+/// Deviation statistics for a source's recent price submissions.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct DeviationReport {
+    pub avg_deviation_bps: u32,
+    pub max_deviation_bps: u32,
+    pub outlier_count: u32,
+    /// Linear-regression slope of deviations over the sampled rounds.
+    pub trend: i64,
+    pub num_rounds: u32,
+}
+
+/// Consumer contract authorization mode (#304).
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[contracttype]
+pub enum ConsumerAccessMode {
+    /// No restriction — all callers may query prices (default).
+    Public = 0,
+    /// Only explicitly authorized consumers may query prices.
+    AllowedOnly = 1,
+    /// All consumers may query prices except those explicitly blocked.
+    BlockedOnly = 2,
+}
+
+/// Latest bridged price observation for a non-Stellar asset pair (#282).
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct BridgedPrice {
+    pub asset: Address,
+    pub price: i128,
+    pub timestamp: u64,
+    pub decimals: u32,
+    pub source_contract: Address,
+}
+
+/// Bridge oracle configuration for a (source_asset, target_asset) pair (#282).
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct BridgeOracleConfig {
+    pub source_asset: Address,
+    pub target_asset: Address,
+    pub oracle_contract: Address,
+    pub decimals: u32,
+}
+
+/// Stellar ecosystem metadata registry entry (#285).
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct EcosystemMetadata {
+    pub contract_id: Address,
+    pub name: String,
+    pub description: String,
+    pub version: String,
+    pub feeds: Vec<FeedMetadata>,
+    pub registered_at: u64,
+}
+
+/// Feed metadata registered in the ecosystem directory (#285).
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct FeedMetadata {
+    pub asset: Address,
+    pub symbol: String,
+    pub description: String,
+}
+
+/// Source-to-DID identity link (#283).
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct SourceDidLink {
+    pub source: Address,
+    pub did: Address,
+    pub verified: bool,
+    pub verified_at: u64,
+}
+
+/// Current Wormhole guardian set (Ed25519 public keys) and rotation index.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct WormholeGuardianSet {
+    pub guardians: Vec<BytesN<32>>,
+    pub set_index: u32,
+}
+
+/// Decoded Wormhole price payload: `price(16) || decimals(4) || timestamp(8)`.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct WormholePricePayload {
+    pub price: i128,
+    pub decimals: u32,
+    pub timestamp: u64,
+}
+
+/// A Wormhole VAA (Verified Action Approval) with Ed25519 guardian signatures.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct WormholeVaa {
+    pub emitter_chain: u32,
+    pub emitter_address: BytesN<32>,
+    pub sequence: u64,
+    pub payload: Bytes,
+    pub signatures: Vec<BytesN<64>>,
+    pub guardian_indices: Vec<u32>,
+}
+
+/// Contract-level metadata exposed via `get_contract_metadata` (SEP-40 style).
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct ContractMetadata {
+    pub name: String,
+    pub version: String,
+    pub description: String,
+    pub admin: Address,
+    pub decimals: u32,
+    pub supported_interfaces: Vec<BytesN<4>>,
+}
+
+/// A batch read request for [`crate::batch_storage`] (#295).
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct StorageBatchRequest {
+    pub key: DataKey,
+    pub tier: StorageTier,
+}
+
+/// A single result from a batch storage read (#295).
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct StorageBatchResult {
+    pub key: DataKey,
+    pub tier: StorageTier,
+    pub exists: bool,
+    pub value_json: Option<String>,
+}
+
+/// Storage tier selector for batch reads (#295).
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[contracttype]
+pub enum StorageTier {
+    Persistent = 0,
+    Temporary = 1,
+    Instance = 2,
+}
+
+/// External submission proof attached to a price submission (#296).
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct PriceProof {
+    pub proof_type: ProofType,
+    pub payload_hash: Bytes,
+    pub signature: Bytes,
+    pub signer_count: u32,
+}
+
+/// Supported external proof types (#296).
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[contracttype]
+pub enum ProofType {
+    CexSignedResponse = 0,
+    DexTrade = 1,
+    MultiSigAttestation = 2,
+}
+
+/// Per-asset external proof requirement (#296).
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[contracttype]
+pub enum AssetProofRequirement {
+    AnyOrNone = 0,
+    RequireCex = 1,
+    RequireDex = 2,
+    RequireMultiSig = 3,
+}
+
+/// Severity classification for price-movement alerts.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[contracttype]
+pub enum AlertSeverity {
+    Info = 0,
+    Warning = 1,
+    Critical = 2,
+    Emergency = 3,
+}
+
+/// Alert routing channel for a severity classification.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[contracttype]
+pub enum AlertChannel {
+    Dashboard = 0,
+    Page = 1,
+}
+
+/// Basis-point thresholds used to classify price movement severity.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct SeverityThresholds {
+    pub warning_bps: u32,
+    pub critical_bps: u32,
+    pub emergency_bps: u32,
+}
+
+/// Rolling contribution-quality record for a (source, asset) pair.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct ContribQualityRecord {
+    pub source: Address,
+    pub asset: Address,
+    pub composite_score_avg: u32,
+    pub last_round_score: u32,
+    pub avg_accuracy_score: u32,
+    pub avg_timeliness_score: u32,
+    pub avg_consistency_score: u32,
+    pub rounds_counted: u32,
+    pub last_updated_ledger: u32,
+}
+
+/// A consumer's callback registration for a price update (#297).
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct CallbackRegistration {
+    pub consumer: Address,
+    pub callback_contract: Address,
+    pub method: Symbol,
+    pub active: bool,
+}
+
+/// Token-based subscription deposit record for a consumer (#294).
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct TokenSubscriptionRecord {
+    pub start_timestamp: u64,
+    pub expiry_timestamp: u64,
+    pub deposited_amount: i128,
+}

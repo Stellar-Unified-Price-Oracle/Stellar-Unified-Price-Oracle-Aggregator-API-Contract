@@ -64,6 +64,7 @@ pub fn emergency_pause(env: &Env, reason: String, auto_unpause_ledgers: u32) {
 
     // Emit event
     EmergencyPausedEvent {
+        admin: admin.clone(),
         reason: reason.clone(),
         auto_unpause_ledger,
         initiated_by: admin.clone(),
@@ -113,6 +114,7 @@ pub fn extend_emergency_pause(env: &Env, additional_ledgers: u32) {
 
     // Emit event
     EmergencyPauseExtendedEvent {
+        admin: admin.clone(),
         reason: emergency_pause.reason.clone(),
         new_unpause_ledger: emergency_pause.auto_unpause_ledger,
         extended_by: admin.clone(),
@@ -164,6 +166,7 @@ pub fn cancel_emergency_pause(env: &Env) {
 
     // Emit event
     EmergencyUnpausedEvent {
+        admin: admin.clone(),
         reason: emergency_pause.reason,
         cancelled_by: admin.clone(),
     }

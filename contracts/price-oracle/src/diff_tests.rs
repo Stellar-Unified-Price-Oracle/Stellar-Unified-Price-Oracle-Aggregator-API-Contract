@@ -39,7 +39,7 @@
 use proptest::prelude::*;
 use soroban_sdk::Env;
 
-use crate::core::{
+use crate::core_pricing::{
     mean_core, median_core, quickselect_core, trimmed_mean_core, weighted_median_core,
 };
 use crate::storage::{compute_mean, compute_median, compute_trimmed_mean, compute_weighted_median};

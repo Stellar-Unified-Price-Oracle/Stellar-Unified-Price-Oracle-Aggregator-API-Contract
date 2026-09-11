@@ -4,9 +4,8 @@
 //! Prices are exposed as [`DexPrice`] observations and can be fed into the
 //! aggregation pipeline with a configurable weight.
 
-use soroban_sdk::{panic_with_error, Address, Env};
+use soroban_sdk::{panic_with_error, Address, Env, Vec};
 
-use crate::storage::LEDGER_BUMP;
 use crate::types::{DataKey, DexPrice, ErrorCode};
 
 // -----------------------------------------------------------------------------
@@ -85,9 +84,9 @@ pub fn get_dex_price(env: &Env, asset: Address) -> Option<DexPrice> {
     for pair in registered_pairs.iter() {
         if let Some((rx, ry)) = read_dex_pool(env, &pair.0, &pair.1) {
             let price = if pair.0 == asset {
-                ry * 1_000_000_000_000_000_000u128 / rx as u128
+                (ry as u128) * 1_000_000_000_000_000_000u128 / (rx as u128)
             } else {
-                rx * 1_000_000_000_000_000_000u128 / ry as u128
+                (rx as u128) * 1_000_000_000_000_000_000u128 / (ry as u128)
             };
             return Some(DexPrice {
                 asset,

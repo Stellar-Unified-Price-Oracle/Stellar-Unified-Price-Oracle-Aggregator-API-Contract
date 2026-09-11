@@ -2,9 +2,7 @@
 
 use soroban_sdk::{testutils::Address as _, Address, Bytes, Env, String};
 
-use crate::{
-    test_helpers::setup_contract, types::OperationPriority, PriceOracleContractClient,
-};
+use crate::{test_helpers::setup_contract, types::OperationPriority, PriceOracleContractClient};
 
 fn setup_timelock_case<'a>(e: &'a Env) -> (PriceOracleContractClient<'a>, Address) {
     let (client, admin) = setup_contract(e);
@@ -17,11 +15,8 @@ fn proposes_operation_with_normal_priority() {
     let (client, _admin) = setup_timelock_case(&e);
 
     let data = Bytes::new(&e);
-    let op_id = client.propose_operation_with_priority(
-        &0u32,
-        &data,
-        &(OperationPriority::Normal as u32),
-    );
+    let op_id =
+        client.propose_operation_with_priority(&0u32, &data, &(OperationPriority::Normal as u32));
     assert!(op_id > 0);
 }
 
@@ -31,11 +26,8 @@ fn proposes_operation_with_urgent_priority() {
     let (client, _admin) = setup_timelock_case(&e);
 
     let data = Bytes::new(&e);
-    let op_id = client.propose_operation_with_priority(
-        &0u32,
-        &data,
-        &(OperationPriority::Urgent as u32),
-    );
+    let op_id =
+        client.propose_operation_with_priority(&0u32, &data, &(OperationPriority::Urgent as u32));
     assert!(op_id > 0);
 }
 
@@ -45,11 +37,8 @@ fn proposes_operation_with_long_term_priority() {
     let (client, _admin) = setup_timelock_case(&e);
 
     let data = Bytes::new(&e);
-    let op_id = client.propose_operation_with_priority(
-        &0u32,
-        &data,
-        &(OperationPriority::LongTerm as u32),
-    );
+    let op_id =
+        client.propose_operation_with_priority(&0u32, &data, &(OperationPriority::LongTerm as u32));
     assert!(op_id > 0);
 }
 
@@ -59,11 +48,8 @@ fn rejects_execution_before_urgent_delay() {
     let (client, _admin) = setup_timelock_case(&e);
 
     let data = Bytes::new(&e);
-    let op_id = client.propose_operation_with_priority(
-        &0u32,
-        &data,
-        &(OperationPriority::Urgent as u32),
-    );
+    let op_id =
+        client.propose_operation_with_priority(&0u32, &data, &(OperationPriority::Urgent as u32));
 
     // Try to execute immediately (should succeed for Urgent with 1 ledger delay)
     let result = std::panic::catch_unwind(|| {
@@ -79,11 +65,8 @@ fn rejects_execution_before_normal_delay() {
     let (client, _admin) = setup_timelock_case(&e);
 
     let data = Bytes::new(&e);
-    let op_id = client.propose_operation_with_priority(
-        &0u32,
-        &data,
-        &(OperationPriority::Normal as u32),
-    );
+    let op_id =
+        client.propose_operation_with_priority(&0u32, &data, &(OperationPriority::Normal as u32));
 
     // Try to execute immediately (should fail for Normal with 10 ledger delay)
     let result = std::panic::catch_unwind(|| {
@@ -98,11 +81,8 @@ fn rejects_execution_before_long_term_delay() {
     let (client, _admin) = setup_timelock_case(&e);
 
     let data = Bytes::new(&e);
-    let op_id = client.propose_operation_with_priority(
-        &0u32,
-        &data,
-        &(OperationPriority::LongTerm as u32),
-    );
+    let op_id =
+        client.propose_operation_with_priority(&0u32, &data, &(OperationPriority::LongTerm as u32));
 
     // Try to execute immediately (should fail for LongTerm with 100 ledger delay)
     let result = std::panic::catch_unwind(|| {
@@ -117,11 +97,8 @@ fn cancels_pending_operation() {
     let (client, _admin) = setup_timelock_case(&e);
 
     let data = Bytes::new(&e);
-    let op_id = client.propose_operation_with_priority(
-        &0u32,
-        &data,
-        &(OperationPriority::Normal as u32),
-    );
+    let op_id =
+        client.propose_operation_with_priority(&0u32, &data, &(OperationPriority::Normal as u32));
 
     // Cancel the operation
     let result = std::panic::catch_unwind(|| {
@@ -180,16 +157,10 @@ fn multiple_operations_have_different_ids() {
     let (client, _admin) = setup_timelock_case(&e);
 
     let data = Bytes::new(&e);
-    let op_id_1 = client.propose_operation_with_priority(
-        &0u32,
-        &data,
-        &(OperationPriority::Normal as u32),
-    );
-    let op_id_2 = client.propose_operation_with_priority(
-        &0u32,
-        &data,
-        &(OperationPriority::Normal as u32),
-    );
+    let op_id_1 =
+        client.propose_operation_with_priority(&0u32, &data, &(OperationPriority::Normal as u32));
+    let op_id_2 =
+        client.propose_operation_with_priority(&0u32, &data, &(OperationPriority::Normal as u32));
 
     assert_ne!(op_id_1, op_id_2);
 }

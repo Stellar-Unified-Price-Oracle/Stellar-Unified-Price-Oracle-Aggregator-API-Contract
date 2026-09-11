@@ -17,7 +17,11 @@ pub fn create_operation(env: &Env, op_id: String, depends_on: Vec<String>) {
     for i in 0..depends_on.len() {
         let dep = depends_on.get_unchecked(i);
         let dkey = DataKey::OperationDependents(dep.clone());
-        let mut deps: Vec<String> = env.storage().persistent().get(&dkey).unwrap_or(Vec::new(env));
+        let mut deps: Vec<String> = env
+            .storage()
+            .persistent()
+            .get(&dkey)
+            .unwrap_or(Vec::new(env));
         deps.push_back(op_id.clone());
         env.storage().persistent().set(&dkey, &deps);
     }
@@ -72,7 +76,11 @@ pub fn cancel_operation(env: &Env, op_id: String) {
 
     // auto-cancel dependents
     let dkey = DataKey::OperationDependents(op_id.clone());
-    let dependents: Vec<String> = env.storage().persistent().get(&dkey).unwrap_or(Vec::new(env));
+    let dependents: Vec<String> = env
+        .storage()
+        .persistent()
+        .get(&dkey)
+        .unwrap_or(Vec::new(env));
     for i in 0..dependents.len() {
         let dep = dependents.get_unchecked(i);
         // recursive cancel

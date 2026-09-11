@@ -1,7 +1,7 @@
 #![cfg(test)]
 
-use soroban_sdk::{testutils::Address as _, Address, Env, String, Vec};
 use crate::test_helpers::*;
+use soroban_sdk::{testutils::Address as _, Address, Env, String, Vec};
 
 #[test]
 fn test_sdk_v27_contract_initialization() {

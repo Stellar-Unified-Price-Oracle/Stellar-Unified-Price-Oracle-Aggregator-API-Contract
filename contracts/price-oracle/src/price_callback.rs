@@ -259,10 +259,10 @@ fn try_invoke_callback(
     // we use `try_call`.  Use the raw host `try_call` via the env.
     //
     // `env.try_invoke_contract` is available in soroban-sdk ≥ 0.10 / sdk v26.
-    let result: Result<soroban_sdk::Val, soroban_sdk::Error> =
-        env.try_invoke_contract(contract, method, args);
-
-    result.is_ok()
+    match env.try_invoke_contract::<soroban_sdk::Val, soroban_sdk::Error>(contract, method, args) {
+        Ok(Ok(_)) => true,
+        _ => false,
+    }
 }
 
 // ---------------------------------------------------------------------------

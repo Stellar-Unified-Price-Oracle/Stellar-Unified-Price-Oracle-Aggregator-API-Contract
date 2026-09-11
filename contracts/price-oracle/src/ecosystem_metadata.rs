@@ -77,12 +77,11 @@ pub fn register_feed_metadata(env: &Env, feed: FeedMetadata) {
         registered_at: env.ledger().timestamp(),
     });
 
-    let asset_key = format!("{}", feed.asset);
     let mut found = false;
     for i in 0..metadata.feeds.len() {
         let existing = metadata.feeds.get_unchecked(i);
         if existing.asset == feed.asset {
-            metadata.feeds.set(i, &feed);
+            metadata.feeds.set(i, feed.clone());
             found = true;
             break;
         }

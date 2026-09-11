@@ -1,7 +1,7 @@
 #![cfg(test)]
 
-use soroban_sdk::{testutils::Address as _, Address, Env, String};
 use crate::test_helpers::*;
+use soroban_sdk::{testutils::Address as _, Address, Env, String};
 
 #[test]
 fn test_contract_initialization_minimal_size() {
@@ -149,7 +149,13 @@ fn test_contract_size_stability() {
         let source = register_test_source(&e, &client, &format!("Source{}", i));
         let asset = register_test_asset(&e, &client);
         client.set_min_sources_required(&1u32);
-        submit_test_price(&client, &source, &asset, 1000 + (i as i128 * 100), 100 + (i as u64 * 10));
+        submit_test_price(
+            &client,
+            &source,
+            &asset,
+            1000 + (i as i128 * 100),
+            100 + (i as u64 * 10),
+        );
     }
 
     let assets = client.list_assets();

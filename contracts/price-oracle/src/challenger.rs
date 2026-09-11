@@ -5,7 +5,9 @@
 
 use soroban_sdk::{panic_with_error, symbol_short, Address, Bytes, Env, Vec};
 
-use crate::events::{emit_admin_action, ChallengePricedEvent, ChallengeResolvedEvent, RewardsClaimedEvent};
+use crate::events::{
+    emit_admin_action, ChallengePricedEvent, ChallengeResolvedEvent, RewardsClaimedEvent,
+};
 use crate::storage::{get_admin, LEDGER_BUMP, LEDGER_THRESHOLD};
 use crate::types::{Challenge, DataKey, ErrorCode};
 
@@ -26,7 +28,13 @@ use crate::types::{Challenge, DataKey, ErrorCode};
 ///
 /// * [`ErrorCode::AssetNotRegistered`] — if the asset is not registered.
 /// * [`ErrorCode::InvalidPrice`] — if `expected_price` is <= 0.
-pub fn challenge_price(env: &Env, asset: Address, expected_price: i128, proof_data: Bytes) {
+pub fn challenge_price(
+    env: &Env,
+    challenger: Address,
+    asset: Address,
+    expected_price: i128,
+    proof_data: Bytes,
+) {
     // Validate asset is registered
     crate::storage::check_registered_asset(env, &asset);
 
@@ -34,7 +42,6 @@ pub fn challenge_price(env: &Env, asset: Address, expected_price: i128, proof_da
         panic_with_error!(env, ErrorCode::InvalidPrice);
     }
 
-    let challenger = env.invoker();
     let current_ledger = env.ledger().sequence();
 
     // Get next challenge ID
@@ -76,12 +83,7 @@ pub fn challenge_price(env: &Env, asset: Address, expected_price: i128, proof_da
     }
     .publish(env);
 
-    emit_admin_action(
-        env,
-        symbol_short!("chall"),
-        challenger.clone(),
-        proof_data,
-    );
+    emit_admin_action(env, symbol_short!("chall"), challenger.clone(), proof_data);
 }
 
 /// Resolve a challenge as valid or invalid.
@@ -154,12 +156,7 @@ pub fn resolve_challenge(env: &Env, challenge_id: u32, is_valid: bool) {
     }
     .publish(env);
 
-    emit_admin_action(
-        env,
-        symbol_short!("resch"),
-        admin,
-        Bytes::new(env),
-    );
+    emit_admin_action(env, symbol_short!("resch"), admin, Bytes::new(env));
 }
 
 /// Claim accumulated challenge rewards.
@@ -173,9 +170,7 @@ pub fn resolve_challenge(env: &Env, challenge_id: u32, is_valid: bool) {
 /// # Returns
 ///
 /// The amount of rewards claimed (in stroops).
-pub fn claim_rewards(env: &Env) -> i128 {
-    let claimer = env.invoker();
-
+pub fn claim_rewards(env: &Env, claimer: Address) -> i128 {
     let rewards: i128 = env
         .storage()
         .persistent()
@@ -198,12 +193,7 @@ pub fn claim_rewards(env: &Env) -> i128 {
     }
     .publish(env);
 
-    emit_admin_action(
-        env,
-        symbol_short!("claim"),
-        claimer,
-        Bytes::new(env),
-    );
+    emit_admin_action(env, symbol_short!("claim"), claimer, Bytes::new(env));
 
     rewards
 }
@@ -222,7 +212,11 @@ pub fn claim_rewards(env: &Env) -> i128 {
 pub fn get_challenge_history(env: &Env, asset: Address, limit: u32) -> Vec<Challenge> {
     crate::storage::check_registered_asset(env, &asset);
 
-    let effective_limit = if limit == 0 || limit > 100 { 100 } else { limit };
+    let effective_limit = if limit == 0 || limit > 100 {
+        100
+    } else {
+        limit
+    };
 
     let challenge_count: u32 = env
         .storage()

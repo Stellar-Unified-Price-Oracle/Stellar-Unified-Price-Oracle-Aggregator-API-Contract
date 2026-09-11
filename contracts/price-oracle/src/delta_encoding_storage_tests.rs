@@ -1,7 +1,7 @@
 #![cfg(test)]
 
-use soroban_sdk::{testutils::Address as _, Address, Env};
 use crate::test_helpers::*;
+use soroban_sdk::{testutils::Address as _, Address, Env};
 
 #[test]
 fn test_delta_encoding_basic() {
@@ -124,7 +124,14 @@ fn test_delta_encoding_stable_asset() {
 
     let stable_price = 1000000;
     for i in 0..10 {
-        submit_test_price_n(&client, &source, &asset, stable_price, 100 + (i as u64 * 100), (i + 1) as u64);
+        submit_test_price_n(
+            &client,
+            &source,
+            &asset,
+            stable_price,
+            100 + (i as u64 * 100),
+            (i + 1) as u64,
+        );
     }
 
     let history = client.get_price_history(&asset, &0u32, &10u32);

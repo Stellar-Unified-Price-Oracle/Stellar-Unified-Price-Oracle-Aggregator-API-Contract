@@ -2677,14 +2677,14 @@ fn test_supports_interface_known() {
     let e = Env::default();
     let (client, _) = setup_contract(&e);
 
-    let sep40_id = soroban_sdk::BytesN::from_slice(&e, crate::types::INTERFACE_ID_SEP40);
-    let admin_id = soroban_sdk::BytesN::from_slice(&e, crate::types::INTERFACE_ID_ADMIN);
-    let src_id = soroban_sdk::BytesN::from_slice(&e, crate::types::INTERFACE_ID_SOURCE_MGMT);
-    let sub_id = soroban_sdk::BytesN::from_slice(&e, crate::types::INTERFACE_ID_SUBSCRIPTION);
-    let opt_id = soroban_sdk::BytesN::from_slice(&e, crate::types::INTERFACE_ID_OPTIMISTIC);
-    let cr_id = soroban_sdk::BytesN::from_slice(&e, crate::types::INTERFACE_ID_COMMIT_REVEAL);
-    let fee_id = soroban_sdk::BytesN::from_slice(&e, crate::types::INTERFACE_ID_NATIVE_FEES);
-    let meta_id = soroban_sdk::BytesN::from_slice(&e, crate::types::INTERFACE_ID_METADATA);
+    let sep40_id = soroban_sdk::BytesN::from_array(&e, &crate::types::INTERFACE_ID_SEP40);
+    let admin_id = soroban_sdk::BytesN::from_array(&e, &crate::types::INTERFACE_ID_ADMIN);
+    let src_id = soroban_sdk::BytesN::from_array(&e, &crate::types::INTERFACE_ID_SOURCE_MGMT);
+    let sub_id = soroban_sdk::BytesN::from_array(&e, &crate::types::INTERFACE_ID_SUBSCRIPTION);
+    let opt_id = soroban_sdk::BytesN::from_array(&e, &crate::types::INTERFACE_ID_OPTIMISTIC);
+    let cr_id = soroban_sdk::BytesN::from_array(&e, &crate::types::INTERFACE_ID_COMMIT_REVEAL);
+    let fee_id = soroban_sdk::BytesN::from_array(&e, &crate::types::INTERFACE_ID_NATIVE_FEES);
+    let meta_id = soroban_sdk::BytesN::from_array(&e, &crate::types::INTERFACE_ID_METADATA);
 
     assert!(client.supports_interface(&sep40_id));
     assert!(client.supports_interface(&admin_id));
@@ -2701,7 +2701,7 @@ fn test_supports_interface_unknown() {
     let e = Env::default();
     let (client, _) = setup_contract(&e);
 
-    let unknown = soroban_sdk::BytesN::from_slice(&e, &[0xde, 0xad, 0xbe, 0xef]);
+    let unknown = soroban_sdk::BytesN::from_array(&e, &[0xde, 0xad, 0xbe, 0xef]);
     assert!(!client.supports_interface(&unknown));
 }
 

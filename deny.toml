@@ -11,9 +11,10 @@ version = 2
 db-urls = ["https://github.com/rustsec/advisory-db"]
 # Fail the check when a crate has a known vulnerability.
 vulnerability = "deny"
-# Warn (rather than deny) on unmaintained crates so the build stays green
-# while we evaluate replacements.
-unmaintained = "warn"
+# Only fail when a directly depended on crate from the workspace is
+# unmaintained; transitive unmaintained crates are ignored so the check
+# stays green while we evaluate replacements.
+unmaintained = "workspace"
 # Warn on crates that have been yanked from crates.io.
 yanked = "warn"
 # Acknowledged advisories that we have evaluated and accept.

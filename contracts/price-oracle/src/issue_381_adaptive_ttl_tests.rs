@@ -7,7 +7,7 @@ use soroban_sdk::{
     Env,
 };
 
-use crate::test_helpers::{setup_contract, register_test_source, register_test_asset};
+use crate::test_helpers::{register_test_asset, register_test_source, setup_contract};
 
 fn set_ledger(e: &Env, seq: u32, ts: u64) {
     e.ledger().set(LedgerInfo {

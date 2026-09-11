@@ -65,6 +65,7 @@ pub fn set_source_schedule(
 
     SourceRotationSetEvent {
         asset,
+        admin: admin.clone(),
         rotation_interval,
         overlap_period,
         num_sources: sources.len() as u32,
@@ -106,13 +107,13 @@ pub fn attempt_rotation(env: &Env, asset: &Address) -> bool {
             .storage()
             .persistent()
             .get(&active_key)
-            .unwrap_or_else(Vec::new);
+            .unwrap_or_else(|| Vec::new(env));
 
         let standby: Vec<Address> = env
             .storage()
             .persistent()
             .get(&standby_key)
-            .unwrap_or_else(Vec::new);
+            .unwrap_or_else(|| Vec::new(env));
 
         if standby.is_empty() {
             return false; // No standby set to rotate to
@@ -140,6 +141,7 @@ pub fn attempt_rotation(env: &Env, asset: &Address) -> bool {
 
         SourcesRotatedEvent {
             asset: asset.clone(),
+            rotated_at_ledger: current_ledger,
             new_active_count: standby.len() as u32,
             next_rotation_ledger: sched.next_rotation_ledger,
         }
@@ -164,7 +166,7 @@ pub fn get_active_sources(env: &Env, asset: &Address) -> Vec<Address> {
     env.storage()
         .persistent()
         .get(&key)
-        .unwrap_or_else(Vec::new)
+        .unwrap_or_else(|| Vec::new(env))
 }
 
 /// Returns the standby source set for an asset.
@@ -180,7 +182,7 @@ pub fn get_standby_sources(env: &Env, asset: &Address) -> Vec<Address> {
     env.storage()
         .persistent()
         .get(&key)
-        .unwrap_or_else(Vec::new)
+        .unwrap_or_else(|| Vec::new(env))
 }
 
 /// Returns the rotation schedule for an asset.

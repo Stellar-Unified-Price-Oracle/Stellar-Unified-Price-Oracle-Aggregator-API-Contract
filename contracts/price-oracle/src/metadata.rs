@@ -1,4 +1,4 @@
-use soroban_sdk::{Address, BytesN, Env, String};
+use soroban_sdk::{BytesN, Env, String, Vec};
 
 use crate::admin::{get_admin_address, get_decimals, get_description};
 use crate::storage::read_registered_assets;
@@ -13,14 +13,14 @@ const CONTRACT_VERSION: &str = "1.0.0";
 
 fn supported_interfaces(env: &Env) -> Vec<BytesN<4>> {
     let mut interfaces: Vec<BytesN<4>> = Vec::new(env);
-    interfaces.push_back(BytesN::from_slice(env, INTERFACE_ID_SEP40));
-    interfaces.push_back(BytesN::from_slice(env, INTERFACE_ID_ADMIN));
-    interfaces.push_back(BytesN::from_slice(env, INTERFACE_ID_SOURCE_MGMT));
-    interfaces.push_back(BytesN::from_slice(env, INTERFACE_ID_SUBSCRIPTION));
-    interfaces.push_back(BytesN::from_slice(env, INTERFACE_ID_OPTIMISTIC));
-    interfaces.push_back(BytesN::from_slice(env, INTERFACE_ID_COMMIT_REVEAL));
-    interfaces.push_back(BytesN::from_slice(env, INTERFACE_ID_NATIVE_FEES));
-    interfaces.push_back(BytesN::from_slice(env, INTERFACE_ID_METADATA));
+    interfaces.push_back(BytesN::from_array(env, &INTERFACE_ID_SEP40));
+    interfaces.push_back(BytesN::from_array(env, &INTERFACE_ID_ADMIN));
+    interfaces.push_back(BytesN::from_array(env, &INTERFACE_ID_SOURCE_MGMT));
+    interfaces.push_back(BytesN::from_array(env, &INTERFACE_ID_SUBSCRIPTION));
+    interfaces.push_back(BytesN::from_array(env, &INTERFACE_ID_OPTIMISTIC));
+    interfaces.push_back(BytesN::from_array(env, &INTERFACE_ID_COMMIT_REVEAL));
+    interfaces.push_back(BytesN::from_array(env, &INTERFACE_ID_NATIVE_FEES));
+    interfaces.push_back(BytesN::from_array(env, &INTERFACE_ID_METADATA));
     interfaces
 }
 

@@ -70,6 +70,7 @@ pub fn set_verification_key(env: &Env, vk: Groth16VerifyingKey) {
     admin.require_auth();
     write_vk(env, &vk);
     crate::events::ZkVerifyingKeySetEvent {
+        admin: admin.clone(),
         set_at_ledger: env.ledger().sequence(),
     }
     .publish(env);

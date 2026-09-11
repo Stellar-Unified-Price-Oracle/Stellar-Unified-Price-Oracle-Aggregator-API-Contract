@@ -12,8 +12,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      # Pin to the exact version in rust-toolchain.toml. Installing via
+      # @stable leaves the pinned 1.91.0 override without rustfmt/clippy,
+      # which makes `make check` and `make lint` fail with "not installed
+      # for the toolchain '1.91.0'".
       - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@1.91.0
         with:
           targets: wasm32v1-none
           components: rustfmt, clippy
@@ -33,13 +37,23 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@1.91.0
         with:
           targets: wasm32v1-none
       - name: Cache dependencies
         uses: Swatinem/rust-cache@v2
-      - name: Install Stellar CLI
-        run: cargo install --locked stellar-cli --version "^23"
+      # Use a prebuilt stellar-cli release instead of `cargo install
+      # --locked stellar-cli`, which compiles from source, needs system
+      # libraries the runner image lacks (libdbus-1-dev, pkg-config), and
+      # only succeeds with a "^23" resolution that no longer exists.
+      - name: Install Stellar CLI (prebuilt binary)
+        run: |
+          set -euo pipefail
+          STELLAR_CLI_VERSION="26.1.0"
+          curl -fsSL \
+            "https://github.com/stellar/stellar-cli/releases/download/v${STELLAR_CLI_VERSION}/stellar-cli-${STELLAR_CLI_VERSION}-x86_64-unknown-linux-gnu.tar.gz" \
+            | tar -xz -C /usr/local/bin
+          stellar --version
       - name: Generate ABI
         run: ./scripts/generate-abi.sh
       - name: Upload generated ABI
@@ -70,6 +84,12 @@ jobs:
         uses: dtolnay/rust-toolchain@nightly
         with:
           components: rustfmt
+
+      # rust-toolchain.toml pins 1.91.0 and would override the nightly
+      # toolchain above, so set an explicit directory override (stronger
+      # than the toolchain file) for this job only.
+      - name: Force nightly for this job
+        run: rustup override set nightly
 
       - name: Cache dependencies
         uses: Swatinem/rust-cache@v2

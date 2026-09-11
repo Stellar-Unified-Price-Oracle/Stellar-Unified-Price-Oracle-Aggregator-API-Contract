@@ -105,7 +105,9 @@ pub fn grant_enterprise_tier(env: &Env, consumer: Address) {
         .unwrap_or(crate::types::ConsumerInfo {
             tier: crate::types::ConsumerTier::Free,
             subscription_expiry_ledger: 0,
-            subscription_expiry_timestamp: 0,
+            subscription_expiry_ts: 0,
+            queries_this_ledger: 0,
+            quota_reset_ledger: 0,
         });
 
     info.tier = crate::types::ConsumerTier::Premium;
@@ -136,7 +138,9 @@ pub fn revoke_enterprise_tier(env: &Env, consumer: Address) {
         .unwrap_or(crate::types::ConsumerInfo {
             tier: crate::types::ConsumerTier::Free,
             subscription_expiry_ledger: 0,
-            subscription_expiry_timestamp: 0,
+            subscription_expiry_ts: 0,
+            queries_this_ledger: 0,
+            quota_reset_ledger: 0,
         });
 
     info.tier = crate::types::ConsumerTier::Free;

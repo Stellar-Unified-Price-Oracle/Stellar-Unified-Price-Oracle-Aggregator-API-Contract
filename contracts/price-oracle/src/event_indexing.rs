@@ -63,7 +63,7 @@ pub fn get_event_type_registry(env: &Env) -> Vec<u32> {
     env.storage()
         .persistent()
         .get::<_, Vec<u32>>(&key)
-        .unwrap_or_else(Vec::new)
+        .unwrap_or_else(|| Vec::new(env))
 }
 
 /// Registers a new event type in the registry.
@@ -77,10 +77,10 @@ pub fn register_event_type(env: &Env, event_type: u32) {
         .storage()
         .persistent()
         .get::<_, Vec<u32>>(&key)
-        .unwrap_or_else(Vec::new);
+        .unwrap_or_else(|| Vec::new(env));
 
     // Check if already registered
-    if types.iter().any(|&t| t == event_type) {
+    if types.iter().any(|t| t == event_type) {
         return;
     }
 

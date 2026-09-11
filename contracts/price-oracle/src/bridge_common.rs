@@ -40,7 +40,10 @@ fn read_array<const N: usize>(bytes: &Bytes, offset: u32) -> [u8; N] {
 pub fn encode_price_payload(env: &Env, payload: &CrossChainPricePayload) -> Bytes {
     let mut buf = Bytes::new(env);
     buf.append(&payload.foreign_asset.clone().into());
-    buf.append(&Bytes::from_slice(env, &(payload.price as u128).to_le_bytes()));
+    buf.append(&Bytes::from_slice(
+        env,
+        &(payload.price as u128).to_le_bytes(),
+    ));
     buf.append(&Bytes::from_slice(env, &payload.decimals.to_le_bytes()));
     buf.append(&Bytes::from_slice(env, &payload.timestamp.to_le_bytes()));
     buf.append(&Bytes::from_slice(env, &payload.nonce.to_le_bytes()));
@@ -147,9 +150,10 @@ pub(crate) fn apply_bridged_price(
         ledger_timestamp: ledger_time,
         volume: None,
     };
-    env.storage()
-        .persistent()
-        .set(&DataKey::Submission(asset.clone(), bridge_source.clone()), &entry);
+    env.storage().persistent().set(
+        &DataKey::Submission(asset.clone(), bridge_source.clone()),
+        &entry,
+    );
     env.storage().persistent().extend_ttl(
         &DataKey::Submission(asset.clone(), bridge_source.clone()),
         LEDGER_THRESHOLD,

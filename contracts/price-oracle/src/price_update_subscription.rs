@@ -117,11 +117,7 @@ pub fn subscribe_price_updates(env: &Env, consumer: Address, asset: Address) {
     list.push_back(consumer.clone());
     write_subscriber_list(env, &asset, &list);
 
-    PriceUpdateSubscribedEvent {
-        consumer,
-        asset,
-    }
-    .publish(env);
+    PriceUpdateSubscribedEvent { consumer, asset }.publish(env);
 }
 
 /// Removes `consumer`'s interest registration for `asset`.
@@ -158,11 +154,7 @@ pub fn unsubscribe_price_updates(env: &Env, consumer: Address, asset: Address) {
     }
     write_subscriber_list(env, &asset, &new_list);
 
-    PriceUpdateUnsubscribedEvent {
-        consumer,
-        asset,
-    }
-    .publish(env);
+    PriceUpdateUnsubscribedEvent { consumer, asset }.publish(env);
 }
 
 /// Returns the list of all consumers currently subscribed to `asset`.

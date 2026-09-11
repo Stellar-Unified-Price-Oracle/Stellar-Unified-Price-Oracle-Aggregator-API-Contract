@@ -1,7 +1,7 @@
 #![cfg(test)]
 
-use soroban_sdk::{testutils::Address as _, Address, Env, String};
 use crate::test_helpers::*;
+use soroban_sdk::{testutils::Address as _, Address, Env, String};
 
 #[test]
 fn test_external_governor_delegation() {
@@ -91,11 +91,7 @@ fn test_governor_multiple_allowed_operations() {
     let governor = Address::generate(&e);
     client.set_external_governor(&governor);
 
-    let ops = vec![
-        "update_sources",
-        "update_assets",
-        "set_min_sources",
-    ];
+    let ops = vec!["update_sources", "update_assets", "set_min_sources"];
 
     for op_str in ops.iter() {
         client.allow_governor_op(&String::from_str(&e, op_str));

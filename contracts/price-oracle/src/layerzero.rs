@@ -54,7 +54,9 @@ pub fn set_layerzero_endpoint(env: &Env, endpoint: Address) {
     let admin = get_admin(env);
     admin.require_auth();
 
-    env.storage().persistent().set(&DataKey::LzEndpoint, &endpoint);
+    env.storage()
+        .persistent()
+        .set(&DataKey::LzEndpoint, &endpoint);
     env.storage()
         .persistent()
         .extend_ttl(&DataKey::LzEndpoint, LEDGER_THRESHOLD, LEDGER_BUMP);
@@ -227,7 +229,14 @@ mod tests {
         env.mock_all_auths();
         let admin = Address::generate(env);
         let asset = Address::generate(env);
-        crate::admin::initialize(env, admin.clone(), 1, 100, 18, String::from_str(env, "Oracle"));
+        crate::admin::initialize(
+            env,
+            admin.clone(),
+            1,
+            100,
+            18,
+            String::from_str(env, "Oracle"),
+        );
         crate::assets::register_asset(env, asset.clone());
         env.ledger().with_mut(|l| l.timestamp = 1_000_000);
         (admin, asset, Address::generate(env))
@@ -242,7 +251,11 @@ mod tests {
         chain: &String,
         foreign_address: &BytesN<32>,
     ) {
-        crate::sources::add_source(env, bridge_source.clone(), String::from_str(env, "LayerZero"));
+        crate::sources::add_source(
+            env,
+            bridge_source.clone(),
+            String::from_str(env, "LayerZero"),
+        );
         crate::sources::add_source_asset(env, bridge_source.clone(), asset.clone());
         set_layerzero_endpoint(env, endpoint.clone());
         set_lz_chain_name(env, ETH_EID, chain.clone());
@@ -264,7 +277,15 @@ mod tests {
         let sender = BytesN::from_array(&env, &[21u8; 32]);
         let chain = String::from_str(&env, "ethereum");
         let foreign_address = BytesN::from_array(&env, &[22u8; 32]);
-        wire_lz(&env, &asset, &endpoint, &bridge_source, &sender, &chain, &foreign_address);
+        wire_lz(
+            &env,
+            &asset,
+            &endpoint,
+            &bridge_source,
+            &sender,
+            &chain,
+            &foreign_address,
+        );
 
         let payload = CrossChainPricePayload {
             foreign_asset: foreign_address,
@@ -303,7 +324,15 @@ mod tests {
         let sender = BytesN::from_array(&env, &[23u8; 32]);
         let chain = String::from_str(&env, "ethereum");
         let foreign_address = BytesN::from_array(&env, &[24u8; 32]);
-        wire_lz(&env, &asset, &endpoint, &bridge_source, &sender, &chain, &foreign_address);
+        wire_lz(
+            &env,
+            &asset,
+            &endpoint,
+            &bridge_source,
+            &sender,
+            &chain,
+            &foreign_address,
+        );
 
         let payload = CrossChainPricePayload {
             foreign_asset: foreign_address,
@@ -335,7 +364,15 @@ mod tests {
         let sender = BytesN::from_array(&env, &[25u8; 32]);
         let chain = String::from_str(&env, "ethereum");
         let foreign_address = BytesN::from_array(&env, &[26u8; 32]);
-        wire_lz(&env, &asset, &endpoint, &bridge_source, &sender, &chain, &foreign_address);
+        wire_lz(
+            &env,
+            &asset,
+            &endpoint,
+            &bridge_source,
+            &sender,
+            &chain,
+            &foreign_address,
+        );
 
         let payload = CrossChainPricePayload {
             foreign_asset: foreign_address,

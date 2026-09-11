@@ -54,17 +54,15 @@ mod tests {
 
     #[test]
     fn test_operation_status_progression() {
-        let mut operations = vec![
-            PendingOperation {
-                id: 1,
-                operation_type: "upgrade".to_string(),
-                status: OperationStatus::Proposed,
-                created_at: 100,
-                ready_at: 5100,
-                approvals: 0,
-                cancellation_status: false,
-            },
-        ];
+        let mut operations = vec![PendingOperation {
+            id: 1,
+            operation_type: "upgrade".to_string(),
+            status: OperationStatus::Proposed,
+            created_at: 100,
+            ready_at: 5100,
+            approvals: 0,
+            cancellation_status: false,
+        }];
 
         operations[0].status = OperationStatus::Approved;
         assert_eq!(operations[0].status, OperationStatus::Approved);
@@ -120,7 +118,9 @@ mod tests {
 
         let queued_count = operations
             .iter()
-            .filter(|op| op.status == OperationStatus::Queued || op.status == OperationStatus::Ready)
+            .filter(|op| {
+                op.status == OperationStatus::Queued || op.status == OperationStatus::Ready
+            })
             .count();
         assert_eq!(queued_count, 2);
 
@@ -205,7 +205,10 @@ mod tests {
             },
         ];
 
-        let pending = operations.iter().filter(|op| op.status != OperationStatus::Cancelled).count();
+        let pending = operations
+            .iter()
+            .filter(|op| op.status != OperationStatus::Cancelled)
+            .count();
         assert_eq!(pending, 2);
 
         let ready = operations
@@ -233,7 +236,10 @@ mod tests {
         let governance_ops: Vec<_> = op_types
             .iter()
             .filter(|op_type| {
-                matches!(*op_type, "parameter_change" | "upgrade" | "source_add" | "source_remove")
+                matches!(
+                    *op_type,
+                    "parameter_change" | "upgrade" | "source_add" | "source_remove"
+                )
             })
             .collect();
 

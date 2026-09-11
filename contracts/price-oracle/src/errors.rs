@@ -248,13 +248,14 @@ pub enum ErrorCode {
     /// No callback registration found for the given (consumer, asset) pair (#297).
     CallbackNotFound = 115,
 
-    // ── 116–118: Canonical cross-chain asset registry ─────────────────────────
+    // ── 126–128: Canonical cross-chain asset registry (renumbered off the
+    // 116–118 collision with the Freeze & pagination block) ──────────────────
     /// A foreign asset mapping already exists for this (chain, foreign_address) pair.
-    ForeignAssetAlreadyMapped = 116,
+    ForeignAssetAlreadyMapped = 126,
     /// No foreign asset mapping exists for this (chain, foreign_address) pair.
-    ForeignAssetNotMapped = 117,
+    ForeignAssetNotMapped = 127,
     /// The foreign asset mapping exists but has been disabled by the admin.
-    ForeignAssetMappingDisabled = 118,
+    ForeignAssetMappingDisabled = 128,
 
     // ── 119–121: Axelar GMP integration ────────────────────────────────────────
     /// The Axelar Gateway contract address has not been configured.
@@ -273,4 +274,57 @@ pub enum ErrorCode {
     LzRemoteNotTrusted = 124,
     /// No canonical registry chain name is configured for this LayerZero src_eid.
     LzChainNameNotConfigured = 125,
+
+    // ── 129–143: Operations, recovery, wormhole, severity & misc (#262, #245,
+    // #296, #294, #265, #304-adjacent, cross-chain relay) ────────────────────
+    /// An operation with the same id already exists.
+    OperationAlreadyExists = 129,
+    /// The operation is not in a state that allows the requested transition.
+    InvalidOperationState = 130,
+    /// A dependency operation has not been executed yet.
+    DependencyNotMet = 131,
+    /// No configuration snapshot exists for the requested version.
+    ConfigVersionNotFound = 132,
+    /// The caller is not a registered recovery guardian.
+    NotGuardian = 133,
+    /// A recovery is already pending for a different candidate admin.
+    RecoveryAlreadyPending = 134,
+    /// This guardian has already approved the pending recovery.
+    RecoveryAlreadyApproved = 135,
+    /// No recovery is currently pending.
+    RecoveryNotPending = 136,
+    /// The recovery cancellation-window delay has not elapsed.
+    RecoveryDelayNotElapsed = 137,
+    /// The consumer does not have an active subscription.
+    NoActiveSubscription = 138,
+    /// The configured guardian set is invalid.
+    InvalidGuardianConfig = 139,
+    /// The configured severity thresholds are invalid.
+    InvalidSeverityThresholds = 140,
+    /// The batch is empty.
+    BatchEmpty = 141,
+    /// The batch exceeds the maximum allowed size.
+    BatchTooLarge = 142,
+    /// The batch is not ordered by priority fee.
+    BatchNotFeePrioritized = 143,
+    /// No guardian set has been configured.
+    GuardianSetNotConfigured = 144,
+    /// The guardian quorum was not met.
+    GuardianQuorumNotMet = 145,
+    /// The guardian signature set is invalid.
+    InvalidGuardianSignatureSet = 146,
+    /// The VAA payload is invalid.
+    InvalidVaaPayload = 147,
+    /// The VAA has already been processed.
+    VaaAlreadyProcessed = 148,
+    /// The Wormhole chain id is not mapped to an oracle chain.
+    UnmappedWormholeChain = 149,
+    /// The relayer's performance bond is insufficient.
+    RelayerBondInsufficient = 150,
+    /// The relayer failure threshold has not been reached.
+    RelayerFailureThresholdNotReached = 151,
+    /// The external submission proof failed validation.
+    InvalidExternalProof = 152,
+    /// The source's stake could not be slashed.
+    SlashFailed = 153,
 }

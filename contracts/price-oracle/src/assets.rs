@@ -1,13 +1,13 @@
 use soroban_sdk::{panic_with_error, symbol_short, Address, Bytes, Env, Vec};
 
 use crate::events::{
-    emit_admin_action, AssetRegisteredEvent, AssetUnregisteredEvent, CircuitBreakerResetEvent,
-    CircuitBreakerTrippedEvent,
+    emit_admin_action, AssetRegisteredEvent, AssetUnregisteredEvent, CircuitBreakerEventEntry,
+    CircuitBreakerResetEvent, CircuitBreakerTrippedEvent,
 };
 use crate::storage::{
     get_admin, read_registered_assets, write_registered_assets, LEDGER_BUMP, LEDGER_THRESHOLD,
 };
-use crate::types::{AssetMetadata, AssetMetadataUpdate, DataKey, ErrorCode};
+use crate::types::{AssetMetadata, AssetMetadataUpdate, DataKey, ErrorCode, PriceBounds};
 
 pub fn register_asset(env: &Env, asset: Address) {
     let admin = get_admin(env);
@@ -121,10 +121,11 @@ pub fn set_asset_metadata(env: &Env, asset: Address, metadata: AssetMetadata) {
 
     crate::events::AssetMetadataUpdatedEvent {
         asset,
+        admin: admin.clone(),
         name: metadata.name,
         symbol: metadata.symbol,
         decimals: metadata.decimals,
-        logo_uri: metadata.logo_uri,
+        logo_uri: Some(metadata.logo_uri),
     }
     .publish(env);
 }
@@ -150,10 +151,11 @@ pub fn batch_set_asset_metadata(env: &Env, updates: Vec<AssetMetadataUpdate>) {
 
         crate::events::AssetMetadataUpdatedEvent {
             asset: update.asset.clone(),
+            admin: admin.clone(),
             name: update.name,
             symbol: update.symbol,
             decimals: update.decimals,
-            logo_uri: update.logo_uri,
+            logo_uri: Some(update.logo_uri),
         }
         .publish(env);
     }

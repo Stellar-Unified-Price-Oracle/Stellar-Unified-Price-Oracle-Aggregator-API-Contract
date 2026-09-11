@@ -77,7 +77,10 @@ mod tests {
             op_type: GovernanceOperationType::ContractUpgrade,
             pre_state: "version: 1.0.0".to_string(),
             post_state: "version: 1.1.0".to_string(),
-            events_emitted: vec!["ContractUpgraded".to_string(), "MigrationExecuted".to_string()],
+            events_emitted: vec![
+                "ContractUpgraded".to_string(),
+                "MigrationExecuted".to_string(),
+            ],
             estimated_gas: 200000,
             side_effects_count: 1,
         };
@@ -131,7 +134,8 @@ mod tests {
             },
         ];
 
-        let average_gas = simulations.iter().map(|s| s.estimated_gas).sum::<u64>() / simulations.len() as u64;
+        let average_gas =
+            simulations.iter().map(|s| s.estimated_gas).sum::<u64>() / simulations.len() as u64;
         assert_eq!(average_gas, 100000);
 
         let max_gas = simulations.iter().map(|s| s.estimated_gas).max().unwrap();
@@ -149,7 +153,11 @@ mod tests {
 
     #[test]
     fn test_multi_parameter_simulation() {
-        let changes = vec![("fee", "100", "150"), ("timeout", "3600", "7200"), ("max_sources", "10", "20")];
+        let changes = vec![
+            ("fee", "100", "150"),
+            ("timeout", "3600", "7200"),
+            ("max_sources", "10", "20"),
+        ];
 
         let result = SimulationResult {
             op_type: GovernanceOperationType::ParameterChange,
@@ -161,7 +169,11 @@ mod tests {
                 "fee: {}, timeout: {}, max_sources: {}",
                 changes[0].2, changes[1].2, changes[2].2
             ),
-            events_emitted: vec!["ParameterChanged".to_string(), "ParameterChanged".to_string(), "ParameterChanged".to_string()],
+            events_emitted: vec![
+                "ParameterChanged".to_string(),
+                "ParameterChanged".to_string(),
+                "ParameterChanged".to_string(),
+            ],
             estimated_gas: 75000,
             side_effects_count: 0,
         };

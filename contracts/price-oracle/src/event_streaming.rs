@@ -4,12 +4,15 @@
 //! to PostgreSQL and ClickHouse for analytics and historical queries.
 //!
 //! This module contains no on-chain logic; it documents the expected event
-//! schema and provides a reference listener implementation.
+//! schema and provides a reference listener implementation. It must remain
+//! `#![no_std]`-compatible (part of the compiled contract crate), so the
+//! structs use [`soroban_sdk::String`] instead of `std::String` and no serde
+//! derives (serde is not a contract dependency).
 
-use serde::{Deserialize, Serialize};
+use soroban_sdk::String;
 
 /// External database sink configuration.
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug)]
 pub struct EventSinkConfig {
     /// PostgreSQL connection string (e.g. `postgres://user:pass@host:5432/db`).
     pub postgres_url: String,
@@ -22,7 +25,7 @@ pub struct EventSinkConfig {
 }
 
 /// Canonical event envelope emitted by the oracle contract.
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug)]
 pub struct OracleEventEnvelope {
     /// Ledger sequence number when the event was emitted.
     pub ledger: u32,
@@ -33,7 +36,7 @@ pub struct OracleEventEnvelope {
     /// Event topic (first indexed field).
     pub topic: String,
     /// Serialized event data.
-    pub data: serde_json::Value,
+    pub data: String,
 }
 
 impl OracleEventEnvelope {
@@ -43,7 +46,7 @@ impl OracleEventEnvelope {
         timestamp: u64,
         contract_id: String,
         topic: String,
-        data: serde_json::Value,
+        data: String,
     ) -> Self {
         Self {
             ledger,

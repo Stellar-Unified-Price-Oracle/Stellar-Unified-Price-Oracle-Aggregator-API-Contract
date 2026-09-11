@@ -36,7 +36,11 @@ fn mapping_key(chain: &String, foreign_address: &BytesN<32>) -> DataKey {
 }
 
 fn append_index(env: &Env, key: DataKey, entry: (String, BytesN<32>)) {
-    let mut list: Vec<(String, BytesN<32>)> = env.storage().persistent().get(&key).unwrap_or(Vec::new(env));
+    let mut list: Vec<(String, BytesN<32>)> = env
+        .storage()
+        .persistent()
+        .get(&key)
+        .unwrap_or(Vec::new(env));
     list.push_back(entry);
     env.storage().persistent().set(&key, &list);
     env.storage()
@@ -45,7 +49,11 @@ fn append_index(env: &Env, key: DataKey, entry: (String, BytesN<32>)) {
 }
 
 fn remove_from_index(env: &Env, key: DataKey, entry: &(String, BytesN<32>)) {
-    let list: Vec<(String, BytesN<32>)> = env.storage().persistent().get(&key).unwrap_or(Vec::new(env));
+    let list: Vec<(String, BytesN<32>)> = env
+        .storage()
+        .persistent()
+        .get(&key)
+        .unwrap_or(Vec::new(env));
     let mut updated: Vec<(String, BytesN<32>)> = Vec::new(env);
     for item in list.iter() {
         if item != *entry {
@@ -194,7 +202,9 @@ pub fn get_foreign_asset_mapping(
     chain: String,
     foreign_address: BytesN<32>,
 ) -> Option<ForeignAssetMapping> {
-    env.storage().persistent().get(&mapping_key(&chain, &foreign_address))
+    env.storage()
+        .persistent()
+        .get(&mapping_key(&chain, &foreign_address))
 }
 
 /// Returns every foreign-chain mapping currently registered for `asset`.
@@ -272,7 +282,13 @@ mod tests {
         let chain = String::from_str(&env, "ethereum");
         let foreign_address = BytesN::from_array(&env, &[7u8; 32]);
 
-        register_foreign_asset_mapping(&env, asset.clone(), chain.clone(), foreign_address.clone(), 6);
+        register_foreign_asset_mapping(
+            &env,
+            asset.clone(),
+            chain.clone(),
+            foreign_address.clone(),
+            6,
+        );
 
         let mapping = resolve_enabled_mapping(&env, &chain, &foreign_address);
         assert_eq!(mapping.stellar_asset, asset);
@@ -288,7 +304,13 @@ mod tests {
 
         let chain = String::from_str(&env, "ethereum");
         let foreign_address = BytesN::from_array(&env, &[1u8; 32]);
-        register_foreign_asset_mapping(&env, asset.clone(), chain.clone(), foreign_address.clone(), 6);
+        register_foreign_asset_mapping(
+            &env,
+            asset.clone(),
+            chain.clone(),
+            foreign_address.clone(),
+            6,
+        );
         register_foreign_asset_mapping(&env, asset, chain, foreign_address, 6);
     }
 
@@ -328,7 +350,13 @@ mod tests {
 
         let chain = String::from_str(&env, "avalanche");
         let foreign_address = BytesN::from_array(&env, &[3u8; 32]);
-        register_foreign_asset_mapping(&env, asset.clone(), chain.clone(), foreign_address.clone(), 18);
+        register_foreign_asset_mapping(
+            &env,
+            asset.clone(),
+            chain.clone(),
+            foreign_address.clone(),
+            18,
+        );
         assert!(get_foreign_asset_mapping(&env, chain.clone(), foreign_address.clone()).is_some());
 
         remove_foreign_asset_mapping(&env, chain.clone(), foreign_address.clone());
@@ -345,8 +373,20 @@ mod tests {
 
         let eth = String::from_str(&env, "ethereum");
         let poly = String::from_str(&env, "polygon");
-        register_foreign_asset_mapping(&env, asset.clone(), eth, BytesN::from_array(&env, &[4u8; 32]), 6);
-        register_foreign_asset_mapping(&env, asset.clone(), poly, BytesN::from_array(&env, &[5u8; 32]), 18);
+        register_foreign_asset_mapping(
+            &env,
+            asset.clone(),
+            eth,
+            BytesN::from_array(&env, &[4u8; 32]),
+            6,
+        );
+        register_foreign_asset_mapping(
+            &env,
+            asset.clone(),
+            poly,
+            BytesN::from_array(&env, &[5u8; 32]),
+            18,
+        );
 
         let mappings = get_foreign_mappings_for_asset(&env, asset);
         assert_eq!(mappings.len(), 2);

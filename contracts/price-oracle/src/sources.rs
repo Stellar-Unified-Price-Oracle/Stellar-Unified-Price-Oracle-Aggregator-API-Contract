@@ -1,7 +1,7 @@
 use soroban_sdk::{panic_with_error, symbol_short, Address, Bytes, Env, String, Vec};
 
 use crate::events::{
-    emit_admin_action, DemeritConfigChangedEvent, InvalidSubmissionRecordedEvent,
+    emit_admin_action, DemeritConfigChangedEvent, InvalidSubmissionEvent,
     RemovalCooldownChangedEvent, SourceActiveAgainEvent, SourceAddedEvent, SourceAssetAddedEvent,
     SourceAssetRemovedEvent, SourceBondConfigChangedEvent, SourceBondDepositedEvent,
     SourceBondForfeitedEvent, SourceBondReturnedEvent, SourceDemeritsResetEvent,

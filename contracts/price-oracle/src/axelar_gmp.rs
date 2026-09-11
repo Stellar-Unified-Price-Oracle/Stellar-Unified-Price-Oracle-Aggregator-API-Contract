@@ -43,7 +43,9 @@ use soroban_sdk::{panic_with_error, Address, Bytes, BytesN, Env, String};
 
 use crate::asset_registry::resolve_enabled_mapping;
 use crate::bridge_common::{apply_bridged_price, decode_price_payload};
-use crate::events::{AxelarGatewaySetEvent, AxelarMessageExecutedEvent, AxelarTrustedSourceSetEvent};
+use crate::events::{
+    AxelarGatewaySetEvent, AxelarMessageExecutedEvent, AxelarTrustedSourceSetEvent,
+};
 use crate::pause::check_not_paused;
 use crate::storage::{check_source, get_admin, LEDGER_BUMP, LEDGER_THRESHOLD};
 use crate::types::{DataKey, ErrorCode};
@@ -202,7 +204,14 @@ mod tests {
         env.mock_all_auths();
         let admin = Address::generate(env);
         let asset = Address::generate(env);
-        crate::admin::initialize(env, admin.clone(), 1, 100, 18, String::from_str(env, "Oracle"));
+        crate::admin::initialize(
+            env,
+            admin.clone(),
+            1,
+            100,
+            18,
+            String::from_str(env, "Oracle"),
+        );
         crate::assets::register_asset(env, asset.clone());
         env.ledger().with_mut(|l| l.timestamp = 1_000_000);
         (admin, asset, Address::generate(env))
@@ -241,7 +250,14 @@ mod tests {
         let bridge_source = Address::generate(&env);
         let chain = String::from_str(&env, "ethereum");
         let foreign_address = BytesN::from_array(&env, &[11u8; 32]);
-        wire_axelar(&env, &asset, &gateway, &bridge_source, &chain, &foreign_address);
+        wire_axelar(
+            &env,
+            &asset,
+            &gateway,
+            &bridge_source,
+            &chain,
+            &foreign_address,
+        );
 
         let payload = CrossChainPricePayload {
             foreign_asset: foreign_address,
@@ -277,7 +293,14 @@ mod tests {
         let bridge_source = Address::generate(&env);
         let chain = String::from_str(&env, "ethereum");
         let foreign_address = BytesN::from_array(&env, &[12u8; 32]);
-        wire_axelar(&env, &asset, &gateway, &bridge_source, &chain, &foreign_address);
+        wire_axelar(
+            &env,
+            &asset,
+            &gateway,
+            &bridge_source,
+            &chain,
+            &foreign_address,
+        );
 
         let payload = CrossChainPricePayload {
             foreign_asset: foreign_address,
@@ -316,7 +339,14 @@ mod tests {
         let bridge_source = Address::generate(&env);
         let chain = String::from_str(&env, "ethereum");
         let foreign_address = BytesN::from_array(&env, &[13u8; 32]);
-        wire_axelar(&env, &asset, &gateway, &bridge_source, &chain, &foreign_address);
+        wire_axelar(
+            &env,
+            &asset,
+            &gateway,
+            &bridge_source,
+            &chain,
+            &foreign_address,
+        );
 
         let payload = CrossChainPricePayload {
             foreign_asset: foreign_address,

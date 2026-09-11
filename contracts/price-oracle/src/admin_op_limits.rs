@@ -107,7 +107,7 @@ pub fn increment_admin_op_counter(env: &Env, op_type: u32) {
 
     env.storage()
         .persistent()
-        .bump(&count_key, LEDGER_THRESHOLD, LEDGER_BUMP);
+        .extend_ttl(&count_key, LEDGER_THRESHOLD, LEDGER_BUMP);
 }
 
 /// Get the current count of operations performed today for a given type.

@@ -2,7 +2,6 @@
 ///
 /// Compares prices with the same oracle on other chains. Deviation beyond threshold
 /// triggers alerts and freezes aggregation for that asset.
-
 use soroban_sdk::{panic_with_error, symbol_short, Address, Bytes, Env, String};
 
 use crate::events::emit_admin_action;
@@ -77,7 +76,15 @@ pub(crate) fn store_cross_chain_price(
     let admin = get_admin(env);
     admin.require_auth();
 
-    record_reference_price(env, asset, oracle_chain, price, decimals, chain_id, timestamp);
+    record_reference_price(
+        env,
+        asset,
+        oracle_chain,
+        price,
+        decimals,
+        chain_id,
+        timestamp,
+    );
 }
 
 /// Records a cross-chain reference price observation without an authorization
@@ -134,7 +141,15 @@ pub fn submit_cross_chain_price(
     let admin = get_admin(env);
     admin.require_auth();
 
-    store_cross_chain_price(env, asset, oracle_chain, price, decimals, chain_id, timestamp);
+    store_cross_chain_price(
+        env,
+        asset,
+        oracle_chain,
+        price,
+        decimals,
+        chain_id,
+        timestamp,
+    );
 }
 
 /// Get the most recent cross-chain price for an asset from a specific oracle.
@@ -204,7 +219,7 @@ pub fn verify_cross_chain_price(
 mod tests {
     use super::*;
     use soroban_sdk::testutils::{Address as _, Ledger};
-    use soroban_sdk::{Env, Address, String as SorobanString};
+    use soroban_sdk::{Address, Env, String as SorobanString};
 
     #[test]
     fn test_cross_chain_verification_flag() {

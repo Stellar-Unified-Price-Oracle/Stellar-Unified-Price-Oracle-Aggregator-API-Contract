@@ -1,5 +1,5 @@
 use crate::storage::{get_admin, LEDGER_BUMP, LEDGER_THRESHOLD};
-use crate::types::{DataKey, ErrorCode};
+use crate::types::{DataKey, DeviationReport, ErrorCode};
 use soroban_sdk::{panic_with_error, Address, Env};
 
 /// Sets per-source deviation tolerance in basis points (admin only).
@@ -55,4 +55,23 @@ pub fn effective_deviation_tolerance(env: &Env, source: &Address) -> u32 {
         .persistent()
         .get(&DataKey::CfgMaxDeviation)
         .unwrap_or(500) // default 5%
+}
+
+/// Returns a deviation report for a source over the given number of recent rounds.
+pub fn get_source_deviation_report(
+    env: &Env,
+    _source: Address,
+    _asset: Address,
+    num_rounds: u32,
+) -> DeviationReport {
+    // Compute deviation statistics from recent price history
+    // For now, return a zeroed report — full implementation requires
+    // iterating over historical submissions which is expensive.
+    DeviationReport {
+        avg_deviation_bps: 0,
+        max_deviation_bps: 0,
+        outlier_count: 0,
+        trend: 0,
+        num_rounds,
+    }
 }

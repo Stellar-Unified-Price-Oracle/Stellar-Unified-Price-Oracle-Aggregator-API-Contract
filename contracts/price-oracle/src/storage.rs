@@ -189,7 +189,7 @@ fn select_pivot(prices: &mut soroban_sdk::Vec<i128>, left: u32, right: u32) -> u
         i += 5;
     }
     let mid = left + ((store - left - 1) / 2);
-    select_kth(prices, left, store - 1, mid)
+    median_of_five(prices, left, store - 1)
 }
 
 fn select_kth(prices: &mut soroban_sdk::Vec<i128>, mut left: u32, mut right: u32, k: u32) -> i128 {
@@ -491,7 +491,7 @@ pub fn get_storage_ttl_status(env: &Env) -> soroban_sdk::Vec<crate::types::Stora
         let agg_key = DataKey::Aggregate(a.clone());
         let exists = env.storage().persistent().has(&agg_key);
         out.push_back(crate::types::StorageTtlEntry {
-            key: soroban_sdk::String::from_str(env, &format!("Aggregate({})", i)),
+            key: soroban_sdk::String::from_str(env, "Aggregate"),
             exists,
             remaining_ttl: 0,
         });
@@ -507,10 +507,7 @@ pub fn get_storage_ttl_status(env: &Env) -> soroban_sdk::Vec<crate::types::Stora
                     let hist_key = DataKey::PriceHistory(a.clone(), ledger);
                     let exists_hist = env.storage().temporary().has(&hist_key);
                     out.push_back(crate::types::StorageTtlEntry {
-                        key: soroban_sdk::String::from_str(
-                            env,
-                            &format!("PriceHistory({}, {})", i, ledger),
-                        ),
+                        key: soroban_sdk::String::from_str(env, "PriceHistory"),
                         exists: exists_hist,
                         remaining_ttl: 0,
                     });

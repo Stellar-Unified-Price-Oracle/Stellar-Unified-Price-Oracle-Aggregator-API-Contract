@@ -498,9 +498,6 @@ fn aggregate_asset(env: &Env, asset: &Address, current_ledger: u32, decimals: u3
     let max_events = get_max_events_per_call(env);
     let mut event_count: u32 = 0;
 
-    // Issue #290: record submission for liveness / schedule enforcement
-    scheduling::record_submission(env, &source, &asset);
-
     let min_required = get_min_sources_required(env);
     let oracle_sources: OracleSources = read_oracle_sources(env);
     let total_sources = oracle_sources.sources.len();
@@ -516,7 +513,7 @@ fn aggregate_asset(env: &Env, asset: &Address, current_ledger: u32, decimals: u3
         let hash: soroban_sdk::BytesN<32> = env.crypto().sha256(&seq_bytes).into();
         // Derive a 32-bit seed from the first 4 bytes of the hash.
         let mut seed_arr: [u8; 4] = [0u8; 4];
-        seed_arr.copy_from_slice(&hash.as_slice()[0..4]);
+        seed_arr.copy_from_slice(&hash.to_array()[0..4]);
         let seed = u32::from_le_bytes(seed_arr);
 
         let mut selected: Vec<Address> = Vec::new(env);
@@ -653,13 +650,13 @@ fn aggregate_asset(env: &Env, asset: &Address, current_ledger: u32, decimals: u3
         );
 
         // Record gas usage for this aggregation run.
-        let before_cpu = env.budget().cpu_instruction_count();
-        let before_mem = env.budget().memory_bytes_count();
+        let before_cpu = crate::gas_metering::cpu_usage(&env);
+        let before_mem = crate::gas_metering::mem_usage(&env);
         // NOTE: the measured delta here only captures the remainder of the
         // aggregation function after this point; callers (e.g. submit_price)
         // record end-to-end cost. Still store an aggregate-internal snapshot.
-        let after_cpu = env.budget().cpu_instruction_count();
-        let after_mem = env.budget().memory_bytes_count();
+        let after_cpu = crate::gas_metering::cpu_usage(&env);
+        let after_mem = crate::gas_metering::mem_usage(&env);
         let cpu_delta = after_cpu.saturating_sub(before_cpu);
         let mem_delta = after_mem.saturating_sub(before_mem);
         crate::gas_metering::write_last_gas(
@@ -1070,14 +1067,14 @@ fn compute_twap_window(
 
     for i in 0..snapshots.len() {
         let (ledger, price) = snapshots.get_unchecked(i);
-        let segment_start = if *ledger < start_ledger {
+        let segment_start = if ledger < start_ledger {
             start_ledger
         } else {
-            *ledger
+            ledger
         };
         if next_boundary > segment_start {
             let weight = next_boundary - segment_start;
-            total_weight = total_weight.saturating_add(weight);
+            total_weight = total_weight.saturating_add(weight as u64);
             weighted_price = weighted_price.saturating_add(price.saturating_mul(weight as i128));
             if method == TwapMethod::Geometric {
                 weighted_log2 =
@@ -1314,10 +1311,7 @@ pub fn get_aggregate_with_version(
     crate::types::VersionedAggregatePrice { aggregate, version }
 }
 
-pub fn get_price_with_confidence(
-    env: &Env,
-    asset: Address,
-) -> Option<(AggregatePrice, u32)> {
+pub fn get_price_with_confidence(env: &Env, asset: Address) -> Option<(AggregatePrice, u32)> {
     let aggregate = get_price(env, asset.clone(), 0)?;
 
     let mut prices: Vec<i128> = Vec::new(env);
@@ -1702,6 +1696,7 @@ pub fn trigger_aggregation(env: &Env, asset: Address) {
             num_sources: contributing_sources,
             decimals,
             is_override: false,
+            version: 0,
         };
         env.storage()
             .persistent()
@@ -2244,7 +2239,7 @@ fn hash_leaf(env: &Env, leaf: &MerkleLeaf) -> soroban_sdk::BytesN<32> {
         env,
         &leaf.timestamp.to_le_bytes(),
     ));
-    env.crypto().sha256(&data)
+    env.crypto().sha256(&data).into()
 }
 
 /// Hashes two 32-byte nodes together to produce the parent node hash.
@@ -2262,7 +2257,7 @@ fn hash_pair(
         env,
         right.to_array().as_ref(),
     ));
-    env.crypto().sha256(&data)
+    env.crypto().sha256(&data).into()
 }
 
 /// Verifies a merkle proof and returns `true` if the proof is valid for `root`.

@@ -31,7 +31,7 @@ pub fn start_aggregation_round(env: &Env, start_ledger: u32, end_ledger: u32) {
         .persistent()
         .set(&DataKey::CurrentAggregationRound, &round);
 
-    env.storage().persistent().bump(
+    env.storage().persistent().extend_ttl(
         &DataKey::CurrentAggregationRound,
         LEDGER_THRESHOLD,
         LEDGER_BUMP,

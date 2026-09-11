@@ -16,7 +16,9 @@
 
 use soroban_sdk::{panic_with_error, Address, Env, Vec};
 
-use crate::events::{CorrelationBandSetEvent, CorrelationPriceFlaggedEvent, CorrelationViolationEvent};
+use crate::events::{
+    CorrelationBandSetEvent, CorrelationPriceFlaggedEvent, CorrelationViolationEvent,
+};
 use crate::storage::{get_admin, LEDGER_BUMP, LEDGER_THRESHOLD};
 use crate::types::{CorrelationBand, CorrelationPair, DataKey, ErrorCode};
 

@@ -1,3 +1,4 @@
+use soroban_sdk::xdr::ToXdr;
 use soroban_sdk::{panic_with_error, Address, Bytes, BytesN, Env, Vec};
 
 use crate::admin::{get_decimals, get_max_history_length, get_timestamp_threshold};
@@ -159,6 +160,7 @@ fn finalize_if_expired(env: &Env, proposal: &OptimisticProposal) -> OptimisticPr
 
 pub fn propose_price(
     env: &Env,
+    proposer: Address,
     asset: Address,
     price: i128,
     timestamp: u64,
@@ -179,7 +181,6 @@ pub fn propose_price(
         panic_with_error!(env, ErrorCode::BondTooSmall);
     }
 
-    let proposer = env.invoker();
     proposer.require_auth();
 
     let proposal_id = read_proposal_count(env) + 1;
@@ -215,8 +216,7 @@ pub fn propose_price(
     proposal_id
 }
 
-pub fn dispute_proposal(env: &Env, proposal_id: u32) {
-    let disputer = env.invoker();
+pub fn dispute_proposal(env: &Env, disputer: Address, proposal_id: u32) {
     disputer.require_auth();
 
     let proposal = read_proposal(env, proposal_id).unwrap_or_else(|| {
@@ -347,11 +347,11 @@ pub fn resolve_via_external_data(
     preimage.append(&proof.source.to_xdr(env));
     let price_bytes = external_price.to_le_bytes();
     for b in price_bytes.iter() {
-        preimage.push_back(b);
+        preimage.push_back(*b);
     }
     let ts_bytes = proof.timestamp.to_le_bytes();
     for b in ts_bytes.iter() {
-        preimage.push_back(b);
+        preimage.push_back(*b);
     }
     let expected_hash: BytesN<32> = env.crypto().sha256(&preimage).into();
     if expected_hash != proof.data_hash {

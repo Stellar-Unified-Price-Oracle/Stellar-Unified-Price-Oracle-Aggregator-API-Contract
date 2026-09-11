@@ -240,3 +240,39 @@ pub fn get_address_roles(env: &Env, holder: &Address) -> Vec<u32> {
 
     roles
 }
+
+/// Returns all roles held by a given address as `Role` enum values.
+pub fn get_roles_for_holder(env: &Env, holder: &Address) -> Vec<Role> {
+    let admin = get_admin(env);
+    let mut roles = Vec::new(env);
+
+    if holder == &admin {
+        roles.push_back(Role::SourceManager);
+        roles.push_back(Role::AssetManager);
+        roles.push_back(Role::PriceUpdater);
+        roles.push_back(Role::ConfigManager);
+        roles.push_back(Role::UpgradeManager);
+        return roles;
+    }
+
+    for role_discriminant in 0..5u32 {
+        if env
+            .storage()
+            .persistent()
+            .get::<_, u32>(&DataKey::DelegatedRole(holder.clone(), role_discriminant))
+            .is_some()
+        {
+            let role = match role_discriminant {
+                0 => Role::SourceManager,
+                1 => Role::AssetManager,
+                2 => Role::PriceUpdater,
+                3 => Role::ConfigManager,
+                4 => Role::UpgradeManager,
+                _ => continue,
+            };
+            roles.push_back(role);
+        }
+    }
+
+    roles
+}

@@ -7,7 +7,7 @@ use crate::events::{
     DisputeWindowChangedEvent, EventsPerCallChangedEvent, HeartbeatIntervalChangedEvent,
     HistoryPerAssetChangedEvent, InterpolationChangedEvent, MaxAggSourcesChangedEvent,
     MaxHistoryChangedEvent, MaxSourcesChangedEvent, MinSourcesChangedEvent,
-    OptimisticMinBondChangedEvent, QueryRateLimitChangedEvent, ResolutionChangedEvent,
+    OptimisticBondChangedEvent, QueryRateLimitChangedEvent, ResolutionChangedEvent,
     SubmitIntervalChangedEvent,
 };
 use crate::storage::{

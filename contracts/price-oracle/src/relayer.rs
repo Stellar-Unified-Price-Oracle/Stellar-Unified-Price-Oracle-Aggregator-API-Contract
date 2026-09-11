@@ -200,11 +200,9 @@ pub fn get_relayer_delegation(
     let key = DataKey::SourceRelayerDelegation(source, relayer);
     let result = env.storage().persistent().get(&key);
     if result.is_some() {
-        env.storage().persistent().extend_ttl(
-            &key,
-            LEDGER_THRESHOLD,
-            LEDGER_BUMP,
-        );
+        env.storage()
+            .persistent()
+            .extend_ttl(&key, LEDGER_THRESHOLD, LEDGER_BUMP);
     }
     result
 }
@@ -327,7 +325,7 @@ pub fn submit_prices_relayed(env: &Env, relayer: Address, submissions: Vec<Relay
 
     validate_fee_priority_order(env, &submissions);
 
-    let mut total_priority_fee: u128 = 0;
+    let mut total_priority_fee: i128 = 0;
     for i in 0..len {
         let leg = submissions.get_unchecked(i);
         leg.source.require_auth();
@@ -341,7 +339,7 @@ pub fn submit_prices_relayed(env: &Env, relayer: Address, submissions: Vec<Relay
             leg.timestamp,
         ) {
             accrue_relayer_submission_metrics(env, &relayer, leg.priority_fee);
-            total_priority_fee = total_priority_fee.saturating_add(leg.priority_fee);
+            total_priority_fee = total_priority_fee.saturating_add(leg.priority_fee as i128);
         }
     }
 
@@ -564,7 +562,8 @@ pub fn challenge_relayed_submission(
     check_registered_asset(env, &asset);
     check_source_asset(env, &source, &asset);
 
-    let valid_auth = is_relayer(env, relayer.clone()) || has_valid_relayer_delegation(env, &source, &relayer);
+    let valid_auth =
+        is_relayer(env, relayer.clone()) || has_valid_relayer_delegation(env, &source, &relayer);
     if valid_auth {
         panic_with_error!(env, ErrorCode::NotAuthorized);
     }
@@ -599,18 +598,21 @@ pub fn challenge_relayed_submission(
     env.storage()
         .persistent()
         .set(&DataKey::RelayerBond(relayer.clone()), &new_balance);
-    env.storage()
-        .persistent()
-        .extend_ttl(&DataKey::RelayerBond(relayer.clone()), LEDGER_THRESHOLD, LEDGER_BUMP);
+    env.storage().persistent().extend_ttl(
+        &DataKey::RelayerBond(relayer.clone()),
+        LEDGER_THRESHOLD,
+        LEDGER_BUMP,
+    );
 
     let treasury = env
         .storage()
         .persistent()
         .get(&DataKey::TreasuryBalance)
         .unwrap_or(0i128);
-    env.storage()
-        .persistent()
-        .set(&DataKey::TreasuryBalance, &(treasury.saturating_add(slash_amount)));
+    env.storage().persistent().set(
+        &DataKey::TreasuryBalance,
+        &(treasury.saturating_add(slash_amount)),
+    );
     env.storage()
         .persistent()
         .extend_ttl(&DataKey::TreasuryBalance, LEDGER_THRESHOLD, LEDGER_BUMP);
@@ -621,9 +623,14 @@ pub fn challenge_relayed_submission(
         .persistent()
         .get(&DataKey::ChallengerRewards(challenger.clone()))
         .unwrap_or(0i128);
-    env.storage()
-        .persistent()
-        .set(&DataKey::ChallengerRewards(challenger), &(existing.saturating_add(reward)));
+    env.storage().persistent().set(
+        &DataKey::ChallengerRewards(challenger),
+        &(existing.saturating_add(reward)),
+    );
 
-    crate::relayer_bonds::record_relayer_failure(env, relayer.clone(), crate::types::RelayerFailureReason::UnauthorizedPrice);
+    crate::relayer_bonds::record_relayer_failure(
+        env,
+        relayer.clone(),
+        crate::types::RelayerFailureReason::UnauthorizedPrice,
+    );
 }

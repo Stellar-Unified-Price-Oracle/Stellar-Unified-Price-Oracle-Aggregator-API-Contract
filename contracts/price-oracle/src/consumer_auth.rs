@@ -130,7 +130,7 @@ pub fn set_consumer_access_mode(env: &Env, mode: u32) {
 
     ConsumerAccessModeChangedEvent {
         admin,
-        new_mode: mode,
+        new_mode: mode_enum.clone(),
     }
     .publish(env);
 }
@@ -181,11 +181,7 @@ pub fn block_consumer(env: &Env, consumer: Address) {
     );
 
     // Re-use the deauthorized event to indicate the consumer was blocked.
-    ConsumerDeauthorizedEvent {
-        consumer,
-        admin,
-    }
-    .publish(env);
+    ConsumerDeauthorizedEvent { consumer, admin }.publish(env);
 }
 
 /// Removes `consumer` from the blocklist.  Admin-only.
@@ -198,9 +194,5 @@ pub fn unblock_consumer(env: &Env, consumer: Address) {
         env.storage().persistent().remove(&key);
     }
 
-    ConsumerAuthorizedEvent {
-        consumer,
-        admin,
-    }
-    .publish(env);
+    ConsumerAuthorizedEvent { consumer, admin }.publish(env);
 }

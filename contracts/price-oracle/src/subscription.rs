@@ -1,8 +1,9 @@
-use soroban_sdk::{panic_with_error, token, Address, Env};
+use soroban_sdk::{panic_with_error, token, Address, Env, String};
 
 use crate::events::{
     SubscriptionCancelledEvent, SubscriptionCreatedEvent, SubscriptionFeesDistributedEvent,
-    SubscriptionPaymentRefundedEvent, SubscriptionRenewedEvent, SubscriptionTokenSetEvent,
+    SubscriptionPaymentReceivedEvent, SubscriptionPaymentRefundedEvent, SubscriptionRenewedEvent,
+    SubscriptionTokenSetEvent,
 };
 use crate::storage::{
     get_admin, get_plan_amount, read_subscription_expiry, read_subscription_plans,
@@ -343,8 +344,8 @@ pub fn refund_subscription_payment(env: &Env, consumer: &Address) {
 
     SubscriptionPaymentRefundedEvent {
         consumer: consumer.clone(),
-        amount: payment.amount,
-        reason: String::from_slice(env, "Subscription failed"),
+        amount: updated.amount,
+        reason: String::from_str(env, "Subscription failed"),
     }
     .publish(env);
 }

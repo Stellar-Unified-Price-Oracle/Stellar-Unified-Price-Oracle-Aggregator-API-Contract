@@ -5,6 +5,7 @@
 // public functions are reachable from the deployed contract yet. Silencing dead_code
 // here until that wiring lands, rather than deleting working, tested implementations.
 #![allow(dead_code)]
+#![allow(unused_imports)]
 
 mod admin;
 mod admin_op_limits;
@@ -18,26 +19,24 @@ mod assets;
 // When the `fuzz` feature is enabled it is also re-exported so that the
 // fuzz crate can call `price_oracle::core::*` directly.
 mod audit_log;
-mod audit_log;
 mod batch_storage;
-mod config_history;
 mod config_history;
 mod contribution_quality;
 #[cfg_attr(feature = "fuzz", allow(dead_code))]
-pub(crate) mod core;
+pub(crate) mod core_pricing;
 mod correlation;
 mod cross_reference;
 mod deadline_rebate;
 mod dex;
 mod emergency_pause;
 mod errors;
+// #223 — Price freeze mechanism for market emergencies (wired in from disk).
 mod event_indexing;
 mod events;
 mod exotic_pricing;
 mod export_history;
 mod fee_market;
 mod finality;
-mod freeze;
 mod freeze;
 mod gas_metering;
 mod health;
@@ -56,9 +55,10 @@ mod prices;
 mod pruning;
 mod rate_limiting;
 mod rbac;
-mod rbac;
 mod recovery;
 mod reentrancy;
+// #235 — Price challenge / dispute mechanism (wired in from disk).
+mod challenger;
 mod relayer;
 mod relayer_bonds;
 mod relayer_dashboard;
@@ -74,6 +74,10 @@ mod state_introspection;
 mod storage;
 mod submission_deadline;
 mod subscription;
+// #304 — Consumer contract authorization (wired in from disk).
+mod consumer_auth;
+// #305 — Price update subscription registry (wired in from disk).
+mod price_update_subscription;
 mod timelock;
 mod triggers;
 mod ttl_batching;
@@ -83,10 +87,6 @@ mod verification;
 mod whitelisting;
 mod wormhole_relay;
 mod zk_verify;
-mod batch_storage;
-mod price_proof;
-mod price_callback;
-mod contribution_quality;
 
 // =============================================================================
 // #283 — Stellar DID Integration
@@ -130,6 +130,10 @@ mod bridge_common;
 // wired into the crate (same class of dropped-wiring bug called out at the top of
 // this file); wired in now because `bridge_common` extends it for Axelar/LayerZero.
 mod cross_chain_verify;
+
+// #182 — Cross-chain relay (validator-set / event-proof verification, wired in
+// from disk).
+mod cross_chain_relay;
 
 #[cfg(test)]
 mod circuit_breaker_tests;
@@ -231,59 +235,31 @@ mod delta_encoding_storage_tests;
 mod wasm_binary_size_tests;
 
 pub use types::{
-    AggregatePrice,
-    AggregationMethod,
-    AmmWeightConfig,
-    Asset,
-    BatchOperation,
-    BatchSimulationResult,
-    BatchSimulationResult,
-    ConfigSnapshot,
-    ContractMetadata,
-    CrossReferenceResult,
-    DataKey,
-    DecentralizationReport,
-    DemeritConfig,
-    // DEX / AMM integration
-    DexPrice,
-    DisqualificationStatus,
-    ErrorCode,
-    // History export
-    ExportedEntry,
-    ExportedHistorySnapshot,
-    // Optimistic oracle external-data proof (#291)
-    ExternalDataProof,
-    FinalityStatus,
-    FinalizedPrice,
-    FrozenPrice,
-    GasRecord,
-    HealthReport,
-    MigrationState,
-    NotificationPreference,
-    // Timelock priority
-    OperationPriority,
-    OperationSimulationResult,
-    OperationSimulationResult,
-    OracleSources,
-    PendingBatch,
-    PendingFinalityEntry,
-    PriceCommit,
-    PriceData,
-    PriceEntry,
-    PriceHistoryEntry,
-    PriceOverrideEntry,
-    RelayerInfo,
-    SourceRelayerDelegation,
-    // Batch dry-run simulation
-    SimulationWarning,
-    // State introspection
-    StateDump, StateAnalysis, StateDiff, StateDiffEntry,
-    // DEX / AMM integration
-    DexPrice, AmmWeightConfig, SoroswapPool,
-    // Cross-chain asset registry & bridge message format
-    ForeignAssetMapping, CrossChainPricePayload,
-    // Cross-chain reference-price verification (#226)
-    CrossChainPriceEntry,
+    AdminOpLimit, AdminOperationType, AggregatePrice, AggregationMethod, AggregationRound,
+    AlertSubscription, AmmPool, AmmWeightConfig, Asset, AssetDecimalConfig, AssetMetadata,
+    AssetMetadataUpdate, AssetPricingConfig, AssetType, AuditEntry, BatchItem, BatchOperation,
+    BatchSimulationResult, BftAggregationMethod, BridgeOracleConfig, BridgedPrice, Challenge,
+    CompactionMetadata, ConfigSnapshot, ConsumerAccessMode, ConsumerInfo, ConsumerTier,
+    ContractMetadata, CorrelationBand, CorrelationPair, CrossChainPriceEntry,
+    CrossChainPricePayload, CrossChainRelayConfig, CrossReferenceResult, DataKey,
+    DecentralizationReport, DemeritConfig, DeviationReport, DexPrice, DisqualificationStatus,
+    EcosystemMetadata, EmergencyPause, ErrorCode, ExportedEntry, ExportedHistorySnapshot,
+    ExternalDataProof, FeeMarketSubmission, FeedMetadata, FinalityStatus, FinalizedPrice,
+    ForeignAssetMapping, FrozenPrice, GasRecord, Groth16Proof, Groth16VerifyingKey,
+    GuardianRecovery, HealthReport, MigrationState, MigrationStatus, MultiSigOperation,
+    NotificationPreference, Operation, OperationKind, OperationPriority, OperationSimulationResult,
+    OperationStatus, OperationTemplate, OperationType, OptimisticProposal,
+    OptimisticProposalStatus, OracleSources, PendingBatch, PendingFeeSubmissions,
+    PendingFinalityEntry, PendingOperation, PriceBounds, PriceCommit, PriceData, PriceEntry,
+    PriceEventPayload, PriceHistoryEntry, PriceOverrideEntry, ReferenceOracleEntry,
+    RelayedSubmission, RelayerAssetStat, RelayerDashboard, RelayerFailureReason, RelayerInfo, Role,
+    SimulationWarning, SoroswapPool, SourceDemeritState, SourceDidLink, SourceGeoMetadata,
+    SourceGovernance, SourceHealthStatus, SourceProposal, SourceRelayerDelegation,
+    SourceRotationSchedule, SourceStakeRecord, SourceVerification, StateAnalysis, StateChannel,
+    StateDiff, StateDiffEntry, StateDump, StellarHeader, StorageBudget, StorageTtlEntry,
+    SubscriptionExpiry, SubscriptionPayment, SubscriptionPlan, SubscriptionPlans, TemplateStep,
+    TotalStorageBudget, TwapMethod, VersionedAggregatePrice, WormholeGuardianSet,
+    WormholePricePayload, WormholeVaa, ZkPriceAttestation,
 };
 
 use soroban_sdk::{
@@ -461,8 +437,14 @@ impl PriceOracleContract {
         correlation::clear_correlation_flag(&env, source, asset);
     }
 
-    pub fn challenge_price(env: Env, asset: Address, expected_price: i128, proof_data: Bytes) {
-        challenger::challenge_price(&env, asset, expected_price, proof_data);
+    pub fn challenge_price(
+        env: Env,
+        challenger: Address,
+        asset: Address,
+        expected_price: i128,
+        proof_data: Bytes,
+    ) {
+        challenger::challenge_price(&env, challenger, asset, expected_price, proof_data);
     }
 
     pub fn resolve_challenge(env: Env, challenge_id: u32, is_valid: bool) {
@@ -1754,20 +1736,22 @@ impl PriceOracleContract {
 
     pub fn propose_price(
         env: Env,
+        proposer: Address,
         asset: Address,
         price: i128,
         timestamp: u64,
         bond_amount: i128,
     ) -> u32 {
         reentrancy::enter(&env);
-        let result = optimistic::propose_price(&env, asset, price, timestamp, bond_amount);
+        let result =
+            optimistic::propose_price(&env, proposer, asset, price, timestamp, bond_amount);
         reentrancy::exit(&env);
         result
     }
 
-    pub fn dispute_proposal(env: Env, proposal_id: u32) {
+    pub fn dispute_proposal(env: Env, disputer: Address, proposal_id: u32) {
         reentrancy::enter(&env);
-        optimistic::dispute_proposal(&env, proposal_id);
+        optimistic::dispute_proposal(&env, disputer, proposal_id);
         reentrancy::exit(&env);
     }
 
@@ -1884,11 +1868,11 @@ impl PriceOracleContract {
     ) {
         reentrancy::enter(&env);
         // Measure budget before and after to record last submit_price cost.
-        let before_cpu = env.budget().cpu_instruction_count();
-        let before_mem = env.budget().memory_bytes_count();
+        let before_cpu = crate::gas_metering::cpu_usage(&env);
+        let before_mem = crate::gas_metering::mem_usage(&env);
         prices::submit_price(&env, source, asset, price, timestamp, nonce);
-        let after_cpu = env.budget().cpu_instruction_count();
-        let after_mem = env.budget().memory_bytes_count();
+        let after_cpu = crate::gas_metering::cpu_usage(&env);
+        let after_mem = crate::gas_metering::mem_usage(&env);
         let cpu_delta = after_cpu.saturating_sub(before_cpu);
         let mem_delta = after_mem.saturating_sub(before_mem);
         crate::gas_metering::write_last_gas(
@@ -2048,8 +2032,8 @@ impl PriceOracleContract {
     /// Returns `(cpu_instructions_used, memory_bytes_used, last_recorded)` where
     /// `last_recorded` is the `GasRecord` for the most-recent submit/aggregate.
     pub fn get_gas_stats(env: Env) -> (u64, u64, Option<GasRecord>) {
-        let cpu = env.budget().cpu_instruction_count();
-        let mem = env.budget().memory_bytes_count();
+        let cpu = crate::gas_metering::cpu_usage(&env);
+        let mem = crate::gas_metering::mem_usage(&env);
         let last = crate::gas_metering::read_last_gas(&env);
         (cpu, mem, last)
     }
@@ -2733,8 +2717,8 @@ impl PriceOracleContract {
         prices::get_twap(&env, Asset::Stellar(asset), window_ledgers, method)
     }
 
-    pub fn claim_rewards(env: Env) -> i128 {
-        challenger::claim_rewards(&env)
+    pub fn claim_rewards(env: Env, claimer: Address) -> i128 {
+        challenger::claim_rewards(&env, claimer)
     }
 
     pub fn get_address_roles(env: Env, holder: Address) -> Vec<u32> {
@@ -3273,14 +3257,7 @@ impl PriceOracleContract {
         proof_data: Bytes,
     ) {
         relayer::challenge_relayed_submission(
-            &env,
-            challenger,
-            relayer,
-            source,
-            asset,
-            price,
-            timestamp,
-            proof_data,
+            &env, challenger, relayer, source, asset, price, timestamp, proof_data,
         );
     }
 
@@ -3728,7 +3705,7 @@ impl PriceOracleContract {
     ///
     /// * [`ErrorCode::NotAuthorized`] — if the caller is not the current admin.
     /// * [`ErrorCode::InvalidConfiguration`] — if `threshold_bps >= 10000`.
-    pub fn set_cross_chain_deviation_threshold(env: Env, threshold_bps: u32) {
+    pub fn set_cc_deviation_threshold(env: Env, threshold_bps: u32) {
         cross_chain_verify::set_cross_chain_deviation_threshold(&env, threshold_bps);
     }
 
@@ -3741,7 +3718,7 @@ impl PriceOracleContract {
     /// # Returns
     ///
     /// Deviation threshold in basis points.
-    pub fn get_cross_chain_deviation_threshold(env: Env) -> u32 {
+    pub fn get_cc_deviation_threshold(env: Env) -> u32 {
         cross_chain_verify::get_cross_chain_deviation_threshold(&env)
     }
 
@@ -5138,7 +5115,13 @@ impl PriceOracleContract {
         decimals: u32,
         enabled: bool,
     ) {
-        asset_registry::update_foreign_asset_mapping(&env, chain, foreign_address, decimals, enabled);
+        asset_registry::update_foreign_asset_mapping(
+            &env,
+            chain,
+            foreign_address,
+            decimals,
+            enabled,
+        );
     }
 
     /// Removes a foreign asset mapping. Admin-only.
@@ -5161,49 +5144,6 @@ impl PriceOracleContract {
     }
 
     // --- #226: Cross-chain reference-price verification ---
-
-    /// Enables or disables cross-chain reference-price verification globally. Admin-only.
-    pub fn set_cross_chain_verification_enabled(env: Env, enabled: bool) {
-        cross_chain_verify::set_cross_chain_verification_enabled(&env, enabled);
-    }
-
-    /// Returns whether cross-chain reference-price verification is enabled.
-    pub fn is_cross_chain_verification_enabled(env: Env) -> bool {
-        cross_chain_verify::is_cross_chain_verification_enabled(&env)
-    }
-
-    /// Sets the maximum allowed deviation (basis points) between this oracle's
-    /// price and a reference chain's price. Admin-only.
-    pub fn set_cross_chain_deviation_threshold(env: Env, threshold_bps: u32) {
-        cross_chain_verify::set_cross_chain_deviation_threshold(&env, threshold_bps);
-    }
-
-    /// Returns the current cross-chain deviation threshold in basis points.
-    pub fn get_cross_chain_deviation_threshold(env: Env) -> u32 {
-        cross_chain_verify::get_cross_chain_deviation_threshold(&env)
-    }
-
-    /// Records a reference price for `asset` observed on `oracle_chain`, for later
-    /// verification against this oracle's own aggregate. Admin-only.
-    pub fn submit_cross_chain_price(
-        env: Env,
-        asset: Address,
-        oracle_chain: Address,
-        price: i128,
-        decimals: u32,
-        chain_id: String,
-        timestamp: u64,
-    ) {
-        cross_chain_verify::submit_cross_chain_price(
-            &env,
-            asset,
-            oracle_chain,
-            price,
-            decimals,
-            chain_id,
-            timestamp,
-        );
-    }
 
     /// Returns the most recent recorded cross-chain reference price for `asset`
     /// from `oracle_chain`, if any (includes prices recorded by the Axelar/LayerZero
@@ -5298,7 +5238,12 @@ impl PriceOracleContract {
     /// Registers `bridge_source` (an already-registered oracle source) as the
     /// attribution target for messages from the `(src_eid, sender)` pathway.
     /// Admin-only.
-    pub fn set_lz_trusted_remote(env: Env, src_eid: u32, sender: BytesN<32>, bridge_source: Address) {
+    pub fn set_lz_trusted_remote(
+        env: Env,
+        src_eid: u32,
+        sender: BytesN<32>,
+        bridge_source: Address,
+    ) {
         layerzero::set_trusted_remote(&env, src_eid, sender, bridge_source);
     }
 

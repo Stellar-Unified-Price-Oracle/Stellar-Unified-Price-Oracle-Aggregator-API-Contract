@@ -685,7 +685,7 @@ pub struct SubscriptionExpiredEvent {
 // --- #294: Native token subscription payments ---
 
 /// Emitted when a subscription payment is received in native token.
-#[contractevent]
+#[contractevent(topics = ["subscription_payment_received"])]
 #[derive(Clone)]
 pub struct SubscriptionPaymentReceivedEvent {
     #[topic]
@@ -695,7 +695,7 @@ pub struct SubscriptionPaymentReceivedEvent {
 }
 
 /// Emitted when subscription fees are distributed to sources/relayers and treasury.
-#[contractevent]
+#[contractevent(topics = ["subscription_fees_distributed"])]
 #[derive(Clone)]
 pub struct SubscriptionFeesDistributedEvent {
     #[topic]
@@ -706,7 +706,7 @@ pub struct SubscriptionFeesDistributedEvent {
 }
 
 /// Emitted when a subscription payment is refunded.
-#[contractevent]
+#[contractevent(topics = ["subscription_payment_refunded"])]
 #[derive(Clone)]
 pub struct SubscriptionPaymentRefundedEvent {
     #[topic]
@@ -1207,6 +1207,10 @@ pub struct AssetMetadataUpdatedEvent {
     pub asset: Address,
     #[topic]
     pub admin: Address,
+    pub name: String,
+    pub symbol: String,
+    pub decimals: Option<u32>,
+    pub logo_uri: Option<String>,
 }
 
 /// Circuit breaker event entry (used as a struct in some older modules).
@@ -1231,9 +1235,9 @@ pub struct PriceSubmitDeadlineEvent {
     pub asset: Address,
     #[topic]
     pub source: Address,
-    pub price: i128,
-    pub timestamp: u64,
     pub deadline_ledger: u32,
+    pub current_ledger: u32,
+    pub rebate_amount: i128,
 }
 
 /// Emitted when a submission rebate is distributed (#202).
@@ -1244,7 +1248,7 @@ pub struct RebateDistributedEvent {
     pub source: Address,
     #[topic]
     pub asset: Address,
-    pub amount: i128,
+    pub rebate_amount: i128,
 }
 
 /// Emitted when an exotic asset pricing config is set (#177).
@@ -1280,7 +1284,7 @@ pub struct FmSubmissionEnqueuedEvent {
     #[topic]
     pub asset: Address,
     pub priority_fee: u128,
-    pub queue_position: u32,
+    pub queue_depth: u32,
 }
 
 /// Emitted when a fee market submission is processed (#176).
@@ -1292,6 +1296,9 @@ pub struct FmSubmissionProcessedEvent {
     #[topic]
     pub asset: Address,
     pub price: i128,
+    pub priority_fee: u128,
+    pub source_share: u128,
+    pub treasury_share: u128,
 }
 
 /// Emitted when multi-sig governors list is updated (#178).
@@ -1367,7 +1374,6 @@ pub struct SourceFeeCreditedEvent {
     #[topic]
     pub source: Address,
     pub amount: i128,
-    pub total_balance: i128,
 }
 
 /// Emitted when a source withdraws accumulated fees.
@@ -1385,6 +1391,7 @@ pub struct SourceFeesWithdrawnEvent {
 pub struct ZkVerifyingKeySetEvent {
     #[topic]
     pub admin: Address,
+    pub set_at_ledger: u32,
 }
 
 /// Emitted when a ZK-verified price is submitted (#175).
@@ -1397,6 +1404,7 @@ pub struct ZkPriceSubmittedEvent {
     pub source: Address,
     pub price: i128,
     pub timestamp: u64,
+    pub verified_at_ledger: u32,
 }
 
 /// Emitted when a challenge is submitted (#235).
@@ -1409,15 +1417,19 @@ pub struct ChallengePricedEvent {
     pub challenger: Address,
     pub challenge_id: u32,
     pub expected_price: i128,
+    pub challenged_ledger: u32,
 }
 
 /// Emitted when a challenge is resolved (#235).
 #[contractevent]
 #[derive(Clone)]
 pub struct ChallengeResolvedEvent {
+    #[topic]
+    pub asset: Address,
     pub challenge_id: u32,
-    pub valid: bool,
-    pub reward: i128,
+    pub is_valid: bool,
+    pub reward_amount: i128,
+    pub resolved_by: Address,
 }
 
 /// Emitted when challenger rewards are claimed (#235).
@@ -1425,7 +1437,7 @@ pub struct ChallengeResolvedEvent {
 #[derive(Clone)]
 pub struct RewardsClaimedEvent {
     #[topic]
-    pub challenger: Address,
+    pub claimer: Address,
     pub amount: i128,
 }
 
@@ -1438,6 +1450,8 @@ pub struct SourceRotationSetEvent {
     #[topic]
     pub admin: Address,
     pub rotation_interval: u32,
+    pub overlap_period: u32,
+    pub num_sources: u32,
 }
 
 /// Emitted when sources are rotated for an asset (#206).
@@ -1447,6 +1461,8 @@ pub struct SourcesRotatedEvent {
     #[topic]
     pub asset: Address,
     pub rotated_at_ledger: u32,
+    pub new_active_count: u32,
+    pub next_rotation_ledger: u32,
 }
 
 /// Emitted when an admin audit entry is appended (#239).
@@ -1456,6 +1472,9 @@ pub struct AdminAuditEntryAppendedEvent {
     #[topic]
     pub admin: Address,
     pub entry_id: u32,
+    pub action: Symbol,
+    pub timestamp: u64,
+    pub ledger: u32,
 }
 
 /// Emitted when a role is delegated (#241).
@@ -1474,9 +1493,9 @@ pub struct RoleDelegatedEvent {
 #[derive(Clone)]
 pub struct RoleRevokedEvent {
     #[topic]
-    pub revoker: Address,
+    pub delegator: Address,
     #[topic]
-    pub holder: Address,
+    pub delegatee: Address,
     pub role: u32,
 }
 
@@ -1487,6 +1506,8 @@ pub struct EmergencyPausedEvent {
     #[topic]
     pub admin: Address,
     pub auto_unpause_ledger: u32,
+    pub reason: String,
+    pub initiated_by: Address,
 }
 
 /// Emitted when an emergency pause is lifted (#240).
@@ -1495,6 +1516,8 @@ pub struct EmergencyPausedEvent {
 pub struct EmergencyUnpausedEvent {
     #[topic]
     pub admin: Address,
+    pub reason: String,
+    pub cancelled_by: Address,
 }
 
 /// Emitted when an emergency pause duration is extended (#240).
@@ -1504,6 +1527,8 @@ pub struct EmergencyPauseExtendedEvent {
     #[topic]
     pub admin: Address,
     pub new_unpause_ledger: u32,
+    pub reason: String,
+    pub extended_by: Address,
 }
 
 /// Emitted when an asset TTL extension is performed (#203).
@@ -1520,8 +1545,9 @@ pub struct AssetTtlExtendedEvent {
 #[contractevent]
 #[derive(Clone)]
 pub struct RateLimitTierChangedEvent {
-    pub tier: u32,
-    pub limit: u32,
+    #[topic]
+    pub consumer: Address,
+    pub new_tier: u32,
 }
 
 // Emitted when an invalid submission is recorded against a source (re-export from events).
@@ -1820,7 +1846,7 @@ pub struct ForeignAssetMappedEvent {
 
 /// Emitted when an existing foreign-chain asset mapping is updated
 /// (decimals and/or enabled flag).
-#[contractevent]
+#[contractevent(topics = ["foreign_asset_mapping_updated"])]
 #[derive(Clone)]
 pub struct ForeignAssetMappingUpdatedEvent {
     #[topic]
@@ -1832,7 +1858,7 @@ pub struct ForeignAssetMappingUpdatedEvent {
 }
 
 /// Emitted when a foreign-chain asset mapping is removed.
-#[contractevent]
+#[contractevent(topics = ["foreign_asset_mapping_removed"])]
 #[derive(Clone)]
 pub struct ForeignAssetMappingRemovedEvent {
     #[topic]
@@ -1912,4 +1938,625 @@ pub struct LzMessageReceivedEvent {
     pub nonce: u64,
     pub guid: BytesN<32>,
     pub price: i128,
+}
+
+// =============================================================================
+// Restored events for feature modules (health, finality, commit-reveal,
+// fee market, wormhole relay, subscription payments, source severity)
+// =============================================================================
+
+/// Emitted when a source's health status changes.
+#[contractevent]
+#[derive(Clone)]
+pub struct SourceHealthChangedEvent {
+    #[topic]
+    pub source: Address,
+    pub old_status: u32,
+    pub new_status: u32,
+    pub missed_heartbeats: u32,
+}
+
+/// Emitted when a source is automatically removed after prolonged inactivity.
+#[contractevent]
+#[derive(Clone)]
+pub struct SourceAutoRemovedEvent {
+    #[topic]
+    pub source: Address,
+    pub inactive_since_ledger: u32,
+    pub removed_at_ledger: u32,
+    pub missed_heartbeats: u32,
+}
+
+/// Emitted when the max-inactive-ledgers threshold is changed.
+#[contractevent]
+#[derive(Clone)]
+pub struct InactiveLedgersChangedEvent {
+    pub value: u32,
+}
+
+/// Emitted when the heartbeat window size is changed.
+#[contractevent]
+#[derive(Clone)]
+pub struct HeartbeatWindowChangedEvent {
+    pub value: u32,
+}
+
+/// Emitted when the fee market distribution ratio is changed.
+#[contractevent]
+#[derive(Clone)]
+pub struct FmFeeDistRatioChangedEvent {
+    pub value: u32,
+}
+
+/// Emitted when the finality window (ledgers) is changed.
+#[contractevent]
+#[derive(Clone)]
+pub struct FinalityLedgersChangedEvent {
+    pub value: u32,
+}
+
+/// Emitted when the commit-reveal commit window is changed.
+#[contractevent]
+#[derive(Clone)]
+pub struct CommitWindowChangedEvent {
+    pub value: u32,
+}
+
+/// Emitted when the commit-reveal reveal window is changed.
+#[contractevent]
+#[derive(Clone)]
+pub struct RevealWindowChangedEvent {
+    pub value: u32,
+}
+
+/// Emitted when a price enters the finality pending window.
+#[contractevent]
+#[derive(Clone)]
+pub struct PricePendingFinalityEvent {
+    #[topic]
+    pub asset: Address,
+    pub price: i128,
+    pub committed_ledger: u32,
+    pub finality_ledger: u32,
+}
+
+/// Emitted when a pending price is finalized.
+#[contractevent]
+#[derive(Clone)]
+pub struct PriceFinalizedEvent {
+    #[topic]
+    pub asset: Address,
+    pub price: i128,
+    pub committed_ledger: u32,
+    pub finalized_ledger: u32,
+    pub num_sources: u32,
+}
+
+/// Emitted when a pending price is retracted (reorg or admin action).
+#[contractevent]
+#[derive(Clone)]
+pub struct PriceRetractedEvent {
+    #[topic]
+    pub asset: Address,
+    #[topic]
+    pub admin: Address,
+    pub committed_ledger: u32,
+    pub retracted_at_ledger: u32,
+}
+
+/// Emitted when a reorg is detected for an asset.
+#[contractevent]
+#[derive(Clone)]
+pub struct ReorgDetectedEvent {
+    #[topic]
+    pub asset: Address,
+    pub detected_at_ledger: u32,
+    pub suspect_ledger: u32,
+}
+
+/// Emitted when a price is committed in the commit-reveal scheme.
+#[contractevent]
+#[derive(Clone)]
+pub struct PriceCommittedEvent {
+    #[topic]
+    pub asset: Address,
+    #[topic]
+    pub source: Address,
+    pub round_ledger: u32,
+    pub committed_at_ledger: u32,
+}
+
+/// Emitted when a committed price is revealed.
+#[contractevent]
+#[derive(Clone)]
+pub struct PriceRevealedEvent {
+    #[topic]
+    pub asset: Address,
+    #[topic]
+    pub source: Address,
+    pub price: i128,
+    pub round_ledger: u32,
+    pub revealed_at_ledger: u32,
+}
+
+/// Emitted when a source's stake is slashed for failing to reveal.
+#[contractevent]
+#[derive(Clone)]
+pub struct SourceSlashedEvent {
+    #[topic]
+    pub source: Address,
+    pub slash_amount: i128,
+    pub remaining_stake: i128,
+    pub slash_percent: u32,
+}
+
+/// Emitted when the Wormhole guardian set is (re)configured.
+#[contractevent]
+#[derive(Clone)]
+pub struct WormholeGuardianSetEvent {
+    pub set_index: u32,
+    pub guardian_count: u32,
+    pub quorum: u32,
+}
+
+/// Emitted when a price is applied from a verified Wormhole VAA.
+#[contractevent]
+#[derive(Clone)]
+pub struct WormholePriceRelayedEvent {
+    #[topic]
+    pub asset: Address,
+    pub emitter_chain: u32,
+    pub price: i128,
+    pub sequence: u64,
+}
+
+// =============================================================================
+// Consumer authorization, price-update subscriptions, scheduling, verification
+// (restored events + emit helpers for the feature modules wired in from disk)
+// =============================================================================
+
+/// Emitted when a consumer is explicitly authorized (#304).
+#[contractevent]
+#[derive(Clone)]
+pub struct ConsumerAuthorizedEvent {
+    #[topic]
+    pub consumer: Address,
+    pub admin: Address,
+}
+
+/// Emitted when a consumer is explicitly deauthorized (#304).
+#[contractevent]
+#[derive(Clone)]
+pub struct ConsumerDeauthorizedEvent {
+    #[topic]
+    pub consumer: Address,
+    pub admin: Address,
+}
+
+/// Emitted when the global consumer access mode is changed (#304).
+#[contractevent(topics = ["consumer_access_mode_changed"])]
+#[derive(Clone)]
+pub struct ConsumerAccessModeChangedEvent {
+    #[topic]
+    pub admin: Address,
+    pub new_mode: crate::types::ConsumerAccessMode,
+}
+
+/// Emitted when a consumer subscribes to price updates for an asset (#305).
+#[contractevent]
+#[derive(Clone)]
+pub struct PriceUpdateSubscribedEvent {
+    #[topic]
+    pub consumer: Address,
+    #[topic]
+    pub asset: Address,
+}
+
+/// Emitted when a consumer unsubscribes from price updates for an asset (#305).
+#[contractevent]
+#[derive(Clone)]
+pub struct PriceUpdateUnsubscribedEvent {
+    #[topic]
+    pub consumer: Address,
+    #[topic]
+    pub asset: Address,
+}
+
+/// Emitted when the subscription payment token contract is set (#294).
+#[contractevent]
+#[derive(Clone)]
+pub struct SubscriptionTokenSetEvent {
+    #[topic]
+    pub admin: Address,
+    pub token: Address,
+}
+
+/// Emitted when a consumer cancels a subscription (#294).
+#[contractevent]
+#[derive(Clone)]
+pub struct SubscriptionCancelledEvent {
+    #[topic]
+    pub consumer: Address,
+    pub refund_amount: i128,
+}
+
+/// Emitted when a submission schedule is removed (#290).
+#[contractevent]
+#[derive(Clone)]
+pub struct ScheduleRemovedEvent {
+    #[topic]
+    pub source: Address,
+    pub asset: Address,
+}
+
+/// Emitted when a pair of prices is checked for deviation (#226).
+#[contractevent]
+#[derive(Clone)]
+pub struct PriceDeviationVerifiedEvent {
+    pub price_a: i128,
+    pub price_b: i128,
+    pub deviation_bps: u32,
+    pub max_deviation_bps: u32,
+    pub within_tolerance: bool,
+}
+
+/// Emitted when an external reference price is compared against the aggregate (#226).
+#[contractevent]
+#[derive(Clone)]
+pub struct CrossOracleDeviationEvent {
+    #[topic]
+    pub asset: Address,
+    pub oracle_price: i128,
+    pub reference_price: i128,
+    pub deviation_bps: u32,
+    pub max_deviation_bps: u32,
+    pub within_tolerance: bool,
+}
+
+/// Emitted when a submission schedule is registered for a (source, asset) pair (#290).
+pub fn emit_schedule_registered(
+    env: &soroban_sdk::Env,
+    source: Address,
+    asset: Address,
+    kind: u64,
+    interval: u64,
+    deadline_multiplier: u32,
+) {
+    let sym = soroban_sdk::symbol_short!("sched_reg");
+    env.events()
+        .publish((sym, source, asset), (kind, interval, deadline_multiplier));
+}
+
+/// Emitted when a source misses its submission-schedule deadline (#290).
+pub fn emit_schedule_violation(
+    env: &soroban_sdk::Env,
+    source: Address,
+    asset: Address,
+    expected_interval: u64,
+    actual_gap: u64,
+    kind_code: u32,
+) {
+    let sym = soroban_sdk::symbol_short!("sviol");
+    env.events().publish(
+        (sym, source, asset),
+        (expected_interval, actual_gap, kind_code),
+    );
+}
+
+/// Emitted after a price-freshness check completes (#226).
+pub fn emit_price_freshness_verified(
+    env: &soroban_sdk::Env,
+    asset: Address,
+    is_fresh: bool,
+    max_age: u64,
+    price_age: u64,
+) {
+    let sym = soroban_sdk::symbol_short!("fresh_ver");
+    env.events()
+        .publish((sym, asset), (is_fresh, max_age, price_age));
+}
+
+/// Emitted when severity thresholds are (re)configured.
+#[contractevent]
+#[derive(Clone)]
+pub struct SeverityThresholdsSetEvent {
+    pub is_asset_override: bool,
+    pub warning_bps: u32,
+    pub critical_bps: u32,
+    pub emergency_bps: u32,
+}
+
+/// Emitted when a price-movement alert fires at `Warning` severity or above.
+#[contractevent]
+#[derive(Clone)]
+pub struct SeverityAlertEvent {
+    #[topic]
+    pub asset: Address,
+    pub severity: u32,
+    pub channel: u32,
+    pub movement_bps: u32,
+    pub ledger: u32,
+}
+
+/// Emitted when a price deviation is detected against a reference oracle.
+#[contractevent]
+#[derive(Clone)]
+pub struct PriceDeviationAlertEvent {
+    #[topic]
+    pub asset: Address,
+    pub our_price: i128,
+    pub reference_price: i128,
+    pub deviation_bps: u32,
+    pub ledger: u32,
+}
+
+// =============================================================================
+// Restored events for alerts, correlation, recovery, relayer network, staking
+// =============================================================================
+
+/// Emitted when a consumer subscribes to price-deviation alerts.
+#[contractevent]
+#[derive(Clone)]
+pub struct AlertSubscribedEvent {
+    #[topic]
+    pub consumer: Address,
+    #[topic]
+    pub asset: Address,
+    pub threshold_bps: u32,
+    pub ttl_ledgers: u32,
+}
+
+/// Emitted when an alert subscription expires.
+#[contractevent]
+#[derive(Clone)]
+pub struct AlertSubscriptionExpiredEvent {
+    #[topic]
+    pub consumer: Address,
+    #[topic]
+    pub asset: Address,
+    pub expired_ledger: u32,
+}
+
+/// Emitted when a price-deviation alert triggers.
+#[contractevent]
+#[derive(Clone)]
+pub struct AlertTriggeredEvent {
+    #[topic]
+    pub consumer: Address,
+    #[topic]
+    pub asset: Address,
+    pub old_price: i128,
+    pub new_price: i128,
+    pub movement_bps: u32,
+    pub threshold_bps: u32,
+}
+
+/// Emitted when a correlation band is (re)configured.
+#[contractevent]
+#[derive(Clone)]
+pub struct CorrelationBandSetEvent {
+    #[topic]
+    pub base_asset: Address,
+    #[topic]
+    pub quote_asset: Address,
+    pub min_ratio: u128,
+    pub max_ratio: u128,
+    pub enabled: bool,
+}
+
+/// Emitted when a submission violates a registered correlation band.
+#[contractevent]
+#[derive(Clone)]
+pub struct CorrelationViolationEvent {
+    #[topic]
+    pub base_asset: Address,
+    #[topic]
+    pub quote_asset: Address,
+    #[topic]
+    pub source: Address,
+    pub submitted_price: i128,
+    pub counterpart_price: i128,
+    pub ratio: u128,
+    pub min_ratio: u128,
+    pub max_ratio: u128,
+}
+
+/// Emitted when a source's price submission is flagged by correlation checks.
+#[contractevent]
+#[derive(Clone)]
+pub struct CorrelationPriceFlaggedEvent {
+    #[topic]
+    pub asset: Address,
+    #[topic]
+    pub source: Address,
+    pub flagged_price: i128,
+}
+
+/// Emitted when a recovery guardian set is configured (#245).
+#[contractevent]
+#[derive(Clone)]
+pub struct GuardiansSetEvent {
+    #[topic]
+    pub admin: Address,
+    pub guardian_count: u32,
+    pub threshold: u32,
+}
+
+/// Emitted when a recovery reaches guardian threshold and becomes ready (#245).
+#[contractevent]
+#[derive(Clone)]
+pub struct RecoveryReadyEvent {
+    #[topic]
+    pub new_admin: Address,
+    pub ready_ledger: u32,
+    pub execute_after_ledger: u32,
+}
+
+/// Emitted when a guardian approves a pending recovery (#245).
+#[contractevent]
+#[derive(Clone)]
+pub struct RecoveryApprovedEvent {
+    #[topic]
+    pub guardian: Address,
+    pub new_admin: Address,
+    pub approval_count: u32,
+    pub threshold: u32,
+}
+
+/// Emitted when a pending recovery is cancelled (#245).
+#[contractevent]
+#[derive(Clone)]
+pub struct RecoveryCancelledEvent {
+    #[topic]
+    pub admin: Address,
+    pub new_admin: Address,
+}
+
+/// Emitted when a recovery executes and installs a new admin (#245).
+#[contractevent]
+#[derive(Clone)]
+pub struct RecoveryExecutedEvent {
+    #[topic]
+    pub old_admin: Address,
+    pub new_admin: Address,
+}
+
+/// Emitted when a relayer is approved (#264).
+#[contractevent]
+#[derive(Clone)]
+pub struct RelayerAddedEvent {
+    #[topic]
+    pub relayer: Address,
+    pub admin: Address,
+    pub name: String,
+}
+
+/// Emitted when a relayer is removed (#264).
+#[contractevent]
+#[derive(Clone)]
+pub struct RelayerRemovedEvent {
+    #[topic]
+    pub relayer: Address,
+    pub admin: Address,
+}
+
+/// Emitted when a batch of prices is relayed (#264).
+#[contractevent]
+#[derive(Clone)]
+pub struct BatchPriceRelayedEvent {
+    #[topic]
+    pub relayer: Address,
+    pub submission_count: u32,
+    pub total_priority_fee: i128,
+}
+
+/// Emitted when the required relayer bond amount is changed.
+/// Uses manual publishing because the #[contractevent] macro panics at this position
+/// in the file (likely soroban-sdk proc-macro event-count limit).
+#[allow(deprecated)]
+pub fn emit_relayer_bond_config_changed(env: &soroban_sdk::Env, admin: Address, amount: i128) {
+    let sym = soroban_sdk::symbol_short!("rbcfg");
+    env.events().publish((sym, admin), (amount,));
+}
+
+/// Emitted when a relayer deposits bond.
+#[contractevent]
+#[derive(Clone)]
+pub struct RelayerBondDepositedEvent {
+    #[topic]
+    pub relayer: Address,
+    pub amount: i128,
+    pub total_deposited: i128,
+}
+
+/// Emitted when a relayer withdraws bond.
+#[contractevent]
+#[derive(Clone)]
+pub struct RelayerBondWithdrawnEvent {
+    #[topic]
+    pub relayer: Address,
+    pub amount: i128,
+}
+
+/// Emitted when a relayer failure incident is recorded.
+#[contractevent]
+#[derive(Clone)]
+pub struct RelayerFailureRecordedEvent {
+    #[topic]
+    pub relayer: Address,
+    pub reason: u32,
+    pub failure_count: u32,
+}
+
+/// Emitted when a relayer is slashed for excessive failures.
+#[contractevent]
+#[derive(Clone)]
+pub struct RelayerSlashedEvent {
+    #[topic]
+    pub relayer: Address,
+    pub slash_amount: i128,
+    pub remaining_bond: i128,
+    pub slash_percent: u32,
+}
+
+/// Emitted when a source stakes tokens.
+#[contractevent]
+#[derive(Clone)]
+pub struct SourceStakedEvent {
+    #[topic]
+    pub source: Address,
+    pub amount: i128,
+    pub total_stake: i128,
+}
+
+/// Emitted when a source unstakes tokens.
+#[contractevent]
+#[derive(Clone)]
+pub struct SourceUnstakedEvent {
+    #[topic]
+    pub source: Address,
+    pub amount_returned: i128,
+}
+
+/// Emitted when a consumer is registered with a tier (#173).
+#[contractevent]
+#[derive(Clone)]
+pub struct ConsumerRegisteredEvent {
+    #[topic]
+    pub consumer: Address,
+    pub tier: u32,
+    pub subscription_expiry_ts: u64,
+}
+
+/// Emitted when a consumer's tier changes (#173).
+#[contractevent]
+#[derive(Clone)]
+pub struct ConsumerTierChangedEvent {
+    #[topic]
+    pub consumer: Address,
+    pub old_tier: u32,
+    pub new_tier: u32,
+}
+
+/// Emitted when a consumer pays a tier fee (#173).
+#[contractevent]
+#[derive(Clone)]
+pub struct TierFeePaidEvent {
+    #[topic]
+    pub consumer: Address,
+    pub tier: u32,
+    pub amount: i128,
+}
+
+/// Emitted when price history is pruned by timestamp cutoff.
+pub fn emit_history_pruned_by_timestamp(
+    env: &soroban_sdk::Env,
+    asset: Address,
+    ledger_seq: u32,
+    timestamp: u64,
+    cutoff: u64,
+) {
+    let sym = soroban_sdk::symbol_short!("prune_ts");
+    env.events()
+        .publish((sym, asset), (ledger_seq, timestamp, cutoff));
 }

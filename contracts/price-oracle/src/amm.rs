@@ -166,8 +166,8 @@ pub fn init_amm(
     let pool = AmmPool {
         asset_x,
         asset_y,
-        reserve_x: initial_x,
-        reserve_y: initial_y,
+        reserve_x: rx,
+        reserve_y: ry,
         k,
         enabled: true,
         fee_bps: DEFAULT_FEE_BPS,
@@ -207,9 +207,9 @@ pub fn add_liquidity(env: &Env, caller: Address, asset: Symbol, amount_x: i128, 
     token_x.transfer(&caller, &contract_address, &amount_x);
     token_y.transfer(&caller, &contract_address, &amount_y);
 
-    pool.reserve_x = pool.reserve_x.saturating_add(amount_x);
-    pool.reserve_y = pool.reserve_y.saturating_add(amount_y);
-    pool.k = safe_mul_u128(env, pool.reserve_x as u128, pool.reserve_y as u128);
+    pool.reserve_x = pool.reserve_x.saturating_add(amount_x as u128);
+    pool.reserve_y = pool.reserve_y.saturating_add(amount_y as u128);
+    pool.k = safe_mul_u128(env, pool.reserve_x, pool.reserve_y);
 
     write_pool(env, &asset, &pool);
 
@@ -316,14 +316,14 @@ pub fn swap(
 
     // Update reserves
     if x_to_y {
-        pool.reserve_x = pool.reserve_x.saturating_add(amount_in);
-        pool.reserve_y = (pool.reserve_y as u128).saturating_sub(amount_out_u128) as i128;
+        pool.reserve_x = pool.reserve_x.saturating_add(amount_in as u128);
+        pool.reserve_y = pool.reserve_y.saturating_sub(amount_out_u128);
     } else {
-        pool.reserve_y = pool.reserve_y.saturating_add(amount_in);
-        pool.reserve_x = (pool.reserve_x as u128).saturating_sub(amount_out_u128) as i128;
+        pool.reserve_y = pool.reserve_y.saturating_add(amount_in as u128);
+        pool.reserve_x = pool.reserve_x.saturating_sub(amount_out_u128);
     }
     // Recompute k to stay consistent with updated reserves
-    pool.k = safe_mul_u128(env, pool.reserve_x as u128, pool.reserve_y as u128);
+    pool.k = safe_mul_u128(env, pool.reserve_x, pool.reserve_y);
 
     write_pool(env, &asset, &pool);
 

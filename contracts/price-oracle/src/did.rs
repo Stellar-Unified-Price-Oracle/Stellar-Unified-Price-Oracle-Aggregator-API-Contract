@@ -1,10 +1,10 @@
-use soroban_sdk::{panic_with_error, symbol_short, Address, Bytes, Env, String, Vec};
+use soroban_sdk::{panic_with_error, symbol_short, Address, Bytes, Env, Map, String, Vec};
 
 use crate::events::{
     emit_admin_action, DidRegisteredEvent, DidVerifiedEvent, SourceDidLinkedEvent,
 };
 use crate::storage::{get_admin, LEDGER_BUMP, LEDGER_THRESHOLD};
-use crate::types::{DataKey, DidDocument, DidVerification, ErrorCode, SourceDidLink};
+use crate::types::{DataKey, ErrorCode, SourceDidLink};
 
 const MAX_DID_DOCUMENT_LENGTH: u32 = 4096;
 
@@ -109,6 +109,7 @@ pub fn get_all_source_dids(env: &Env) -> Vec<SourceDidLink> {
         .unwrap_or_else(|| crate::types::OracleSources {
             sources: Vec::new(env),
             metadata: Map::new(env),
+            verification: Map::new(env),
         });
 
     let mut links = Vec::new(env);

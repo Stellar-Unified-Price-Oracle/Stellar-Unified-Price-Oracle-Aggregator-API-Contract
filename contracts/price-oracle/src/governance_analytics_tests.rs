@@ -75,7 +75,8 @@ mod tests {
     #[test]
     fn test_historical_participation_trend() {
         let historical_participation = vec![30, 35, 40, 45, 50, 55, 60];
-        let average_participation = historical_participation.iter().sum::<i32>() / historical_participation.len() as i32;
+        let average_participation =
+            historical_participation.iter().sum::<i32>() / historical_participation.len() as i32;
 
         assert_eq!(average_participation, 45);
         assert!(historical_participation[6] > historical_participation[0]);

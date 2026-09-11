@@ -39,6 +39,7 @@ pub fn set_asset_decimals(env: &Env, asset: Address, decimals: u32) {
 
     let config = AssetDecimalConfig {
         decimals,
+        enabled: true,
         set_ledger: env.ledger().sequence(),
     };
 
@@ -46,7 +47,7 @@ pub fn set_asset_decimals(env: &Env, asset: Address, decimals: u32) {
         .persistent()
         .set(&DataKey::AssetDecimals(asset.clone()), &config);
 
-    env.storage().persistent().bump(
+    env.storage().persistent().extend_ttl(
         &DataKey::AssetDecimals(asset),
         LEDGER_THRESHOLD,
         LEDGER_BUMP,

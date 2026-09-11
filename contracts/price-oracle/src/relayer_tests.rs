@@ -217,7 +217,14 @@ fn test_delegate_relayer_without_admin_approval() {
 
     let nonce = 1u64;
     let expiration_ledger = e.ledger().sequence() + 100;
-    let signature = sign_delegation(&e, &source, &relayer, nonce, expiration_ledger, &signing_key);
+    let signature = sign_delegation(
+        &e,
+        &source,
+        &relayer,
+        nonce,
+        expiration_ledger,
+        &signing_key,
+    );
     client.delegate_relayer(&source, &relayer, &nonce, &expiration_ledger, &signature);
 
     let delegation = client.get_relayer_delegation(&source, &relayer).unwrap();

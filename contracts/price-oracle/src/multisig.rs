@@ -113,6 +113,7 @@ pub fn set_governors(env: &Env, governors: Vec<Address>, required: u32) {
         .set(&DataKey::MsRequiredApprovals, &required);
 
     crate::events::MsGovernorsUpdatedEvent {
+        admin: admin.clone(),
         governor_count: governors.len(),
         required_approvals: required,
     }
@@ -190,10 +191,9 @@ pub fn propose_ms_operation(
 
     let op_type_num = op_type_to_u32(&op.op_type);
     crate::events::MsOperationProposedEvent {
-        operation_id: op_id,
+        op_id,
         op_type: op_type_num,
         proposed_by: proposer,
-        required_approvals: required,
         proposed_ledger: op.proposed_ledger,
     }
     .publish(env);
@@ -225,10 +225,8 @@ pub fn approve_operation(env: &Env, governor: Address, op_id: u32) {
     if op.approvals.len() >= op.required_approvals && op.timelock_start_ledger == 0 {
         op.timelock_start_ledger = env.ledger().sequence();
         crate::events::MsQuorumReachedEvent {
-            operation_id: op_id,
-            approvals: op.approvals.len(),
-            required: op.required_approvals,
-            timelock_start_ledger: op.timelock_start_ledger,
+            op_id,
+            approval_count: op.approvals.len(),
         }
         .publish(env);
     }
@@ -236,10 +234,8 @@ pub fn approve_operation(env: &Env, governor: Address, op_id: u32) {
     write_op(env, &op);
 
     crate::events::MsOperationApprovedEvent {
-        operation_id: op_id,
-        governor: governor.clone(),
-        total_approvals: op.approvals.len(),
-        required_approvals: op.required_approvals,
+        op_id,
+        approver: governor.clone(),
     }
     .publish(env);
 }
@@ -282,9 +278,8 @@ pub fn retract_approval(env: &Env, governor: Address, op_id: u32) {
     write_op(env, &op);
 
     crate::events::MsOperationRetractedEvent {
-        operation_id: op_id,
-        governor: governor.clone(),
-        total_approvals: op.approvals.len(),
+        op_id,
+        retracted_by: governor.clone(),
     }
     .publish(env);
 }
@@ -340,7 +335,7 @@ pub fn execute_ms_operation(env: &Env, executor: Address, op_id: u32) {
 
     let op_type_num = op_type_to_u32(&op.op_type);
     crate::events::MsOperationExecutedEvent {
-        operation_id: op_id,
+        op_id,
         op_type: op_type_num,
         executed_by: executor,
     }
@@ -389,8 +384,7 @@ pub fn cancel_ms_operation(env: &Env, canceller: Address, op_id: u32) {
 
     let op_type_num = op_type_to_u32(&op.op_type);
     crate::events::MsOperationCancelledEvent {
-        operation_id: op_id,
-        op_type: op_type_num,
+        op_id,
         cancelled_by: canceller,
     }
     .publish(env);
