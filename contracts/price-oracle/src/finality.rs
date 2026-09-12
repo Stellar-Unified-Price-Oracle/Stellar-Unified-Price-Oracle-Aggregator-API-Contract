@@ -225,8 +225,14 @@ pub fn try_finalize_price(env: &Env, asset: &Address, committed_ledger: u32) -> 
         .persistent()
         .extend_ttl(&fin_key, LEDGER_THRESHOLD, LEDGER_BUMP);
 
-    // Clean up the pending entry.
-    env.storage().persistent().remove(&key);
+    // Keep the entry (marked finalized) so later retraction or finalization
+    // attempts can report `AlreadyFinalized` instead of `NoData`.
+    let mut finalized_entry = entry.clone();
+    finalized_entry.status = FinalityStatus::Finalized;
+    env.storage().persistent().set(&key, &finalized_entry);
+    env.storage()
+        .persistent()
+        .extend_ttl(&key, LEDGER_THRESHOLD, LEDGER_BUMP);
 
     crate::events::PriceFinalizedEvent {
         asset: asset.clone(),

@@ -849,6 +849,9 @@ pub(crate) fn do_aggregate(env: &Env, asset: &Address) {
 /// Increments both the global and per-source submission counters used by
 /// downstream reporting.
 pub(crate) fn record_successful_submission(env: &Env, source: Address) {
+    // Track the submission for heartbeat-reactivation logic (#186).
+    crate::sources::record_price_submitted(env, &source, env.ledger().sequence());
+
     let total_key = DataKey::TotalSubmissionCount;
     let total: u32 = env.storage().persistent().get(&total_key).unwrap_or(0);
     env.storage()
@@ -1182,7 +1185,17 @@ fn exp2_fixed(log2: i128) -> i128 {
         }
         (base << (int_part as u32)) as i128
     } else {
-        (base >> ((-int_part) as u32)) as i128
+        let shift = (-int_part) as u32;
+        if shift == 0 {
+            return base as i128;
+        }
+        if shift >= 128 {
+            return 0;
+        }
+        // Round to nearest instead of truncating so exact results such as the
+        // geometric mean of 100 and 400 come out as 200, not 199.
+        let rounded = base.saturating_add(1u128 << (shift - 1));
+        (rounded >> shift) as i128
     }
 }
 
@@ -2473,7 +2486,8 @@ pub fn slash_expired_commits(env: &Env, asset: Address, source: Address, round_l
         panic_with_error!(env, ErrorCode::SlashFailed);
     }
 
-    let bond_key = DataKey::OptimisticBondBalance(source.clone());
+    // Slash from the source's deposited bond.
+    let bond_key = DataKey::SourceBond(source.clone());
     let current_bond: i128 = env.storage().persistent().get(&bond_key).unwrap_or(0);
 
     let actual_slash = current_bond.min(slash_amount);

@@ -79,7 +79,16 @@ fn test_price_history_basic() {
     let source = register_test_source(&e, &client, "Source");
     let asset = register_test_asset(&e, &client);
 
+    // History is bucketed per ledger, so advance the ledger between submits.
+    e.ledger().with_mut(|l| {
+        l.sequence_number = 1;
+        l.timestamp = 100;
+    });
     submit_test_price(&client, &source, &asset, 1000, 100);
+    e.ledger().with_mut(|l| {
+        l.sequence_number = 2;
+        l.timestamp = 200;
+    });
     submit_test_price_n(&client, &source, &asset, 1100, 200, 2);
 
     let history = client.get_price_history(&asset, &0u32, &2u32);

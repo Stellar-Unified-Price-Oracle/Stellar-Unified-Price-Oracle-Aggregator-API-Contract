@@ -623,9 +623,13 @@ pub fn challenge_relayed_submission(
         &(existing.saturating_add(reward)),
     );
 
-    crate::relayer_bonds::record_relayer_failure(
-        env,
-        relayer.clone(),
-        crate::types::RelayerFailureReason::UnauthorizedPrice,
-    );
+    // Only track failures for relayers that are still approved; a challenge
+    // against an already-revoked relayer must still complete (and slash).
+    if is_relayer(env, relayer.clone()) {
+        crate::relayer_bonds::record_relayer_failure(
+            env,
+            relayer.clone(),
+            crate::types::RelayerFailureReason::UnauthorizedPrice,
+        );
+    }
 }

@@ -1087,10 +1087,14 @@ pub fn record_price_submitted(env: &Env, source: &Address, ledger: u32) {
         .persistent()
         .set(&DataKey::SrcLastPriceLedger(source.clone()), &ledger);
     // Mark that a price has been submitted after the most recent reactivation.
-    env.storage().persistent().set(
-        &DataKey::SrcPriceSubmitAfterReactivation(source.clone()),
-        &true,
-    );
+    // Only relevant while the source is inactive: flagging an active source
+    // would let a later heartbeat-only call wrongly reactivate it.
+    if crate::storage::is_source_inactive(env, source) {
+        env.storage().persistent().set(
+            &DataKey::SrcPriceSubmitAfterReactivation(source.clone()),
+            &true,
+        );
+    }
 }
 
 /// Returns the ledger of the most recent price submission from a source.
@@ -1151,7 +1155,7 @@ pub fn check_and_prune_inactive_sources(env: &Env) -> u32 {
             .filter(|s| !check_source_inactive(env, s))
             .count() as u32;
 
-        if active_count <= min_required {
+        if active_count < min_required {
             // Removing this would break the oracle — skip.
             break;
         }

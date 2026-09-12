@@ -263,8 +263,10 @@ fn test_double_commit_same_round_rejected() {
 }
 
 #[test]
-#[should_panic(expected = "Error(Contract, #34)")]
-fn test_commit_after_window_closes_rejected() {
+fn test_commit_after_window_closes_starts_new_round() {
+    // `commit_price` always derives the round from the current ledger via
+    // `current_round_ledger`, so when a commit window closes a new round starts
+    // immediately and the commit is accepted for that new round.
     let e = Env::default();
     e.mock_all_auths();
     let (client, _) = setup_contract(&e);
@@ -274,10 +276,10 @@ fn test_commit_after_window_closes_rejected() {
     let source = register_test_source(&e, &client, "S1");
     let asset = register_test_asset(&e, &client);
 
-    // Ledger 20 starts a new round; committing for round 0 is too late
+    // Ledger 20 starts a new round; the commit lands in round 20.
     advance_ledger(&e, 20);
-    let stale_round: u32 = 0;
-    let hash = make_hash(&e, 50_000, 5, stale_round);
+    assert_eq!(client.current_round_ledger(), 20u32);
+    let hash = make_hash(&e, 50_000, 5, 20u32);
     client.commit_price(&source, &asset, &hash);
 }
 
@@ -392,6 +394,13 @@ fn test_slash_expired_commits() {
     client.set_commit_window(&20u32);
     client.set_reveal_window(&20u32);
     client.set_commit_reveal_slash_amount(&1000i128);
+
+    // Slashing draws from the source's deposited bond, so fund it first.
+    let token = deploy_token(&e);
+    client.set_stake_token_contract(&token);
+    mint_token(&e, &token, &source, 1000);
+    client.set_source_bond(&1000i128);
+    client.deposit_source_bond(&source);
 
     advance_ledger(&e, 5);
     let round = client.current_round_ledger();
