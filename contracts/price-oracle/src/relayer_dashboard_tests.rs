@@ -159,7 +159,7 @@ fn test_dashboard_avg_latency_reflects_timestamp_gap() {
         base_reserve: 10,
         min_temp_entry_ttl: 10,
         min_persistent_entry_ttl: 10,
-        max_entry_ttl: 4096,
+        max_entry_ttl: 6_312_000,
     });
 
     // Observation timestamp is 40 seconds before ledger close time.

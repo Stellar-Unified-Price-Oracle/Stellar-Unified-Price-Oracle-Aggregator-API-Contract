@@ -1,15 +1,17 @@
 #![cfg(test)]
 
 use crate::test_helpers::*;
-use soroban_sdk::{testutils::Address as _, Address, Env, String};
+use soroban_sdk::testutils::{Address as _, Ledger};
+use soroban_sdk::{Address, Env, String};
 
 #[test]
 fn test_contract_initialization_minimal_size() {
     let e = Env::default();
     e.mock_all_auths();
+    e.ledger().with_mut(|l| l.sequence_number = 1);
     let (client, _admin) = setup_contract(&e);
 
-    assert_ne!(client.env.ledger_sequence(), 0);
+    assert_ne!(client.env.ledger().sequence(), 0);
 }
 
 #[test]
@@ -24,7 +26,7 @@ fn test_core_price_submission_functionality() {
 
     submit_test_price(&client, &source, &asset, 1000, 100);
 
-    let price = client.get_price(&asset);
+    let price = client.get_price(&asset, &0u64).unwrap();
     assert_eq!(price.price, 1000);
 }
 
@@ -106,7 +108,7 @@ fn test_dead_code_elimination_verification() {
     client.set_min_sources_required(&1u32);
     submit_test_price(&client, &source, &asset, 5000, 100);
 
-    let price = client.get_price(&asset);
+    let price = client.get_price(&asset, &0u64).unwrap();
     assert_eq!(price.price, 5000);
 }
 
@@ -135,7 +137,7 @@ fn test_dependency_minimization() {
     client.set_min_sources_required(&1u32);
     submit_test_price(&client, &source, &asset, 3000, 150);
 
-    let price = client.get_price(&asset);
+    let price = client.get_price(&asset, &0u64).unwrap();
     assert_eq!(price.price, 3000);
 }
 
@@ -175,7 +177,7 @@ fn test_minimal_memory_footprint() {
 
     submit_test_price(&client, &source, &asset, 2500, 75);
 
-    let price = client.get_price(&asset);
+    let price = client.get_price(&asset, &0u64).unwrap();
     assert_eq!(price.price, 2500);
 }
 
@@ -194,7 +196,7 @@ fn test_optimization_preserves_correctness() {
     submit_test_price(&client, &source1, &asset, 1000, 100);
     submit_test_price_n(&client, &source2, &asset, 2000, 100, 2);
 
-    let price = client.get_price(&asset);
+    let price = client.get_price(&asset, &0u64).unwrap();
     assert!(price.price > 0);
 }
 
@@ -207,12 +209,12 @@ fn test_full_test_suite_passes_post_optimization() {
     for (i, asset) in assets.iter().enumerate() {
         for (j, source) in sources.iter().enumerate() {
             let price = ((i + 1) * (j + 1) * 100) as i128;
-            submit_test_price(&client, source, asset, price, 100 + (i as u64 * 50));
+            submit_test_price(&client, &source, &asset, price, 100 + (i as u64 * 50));
         }
     }
 
     for asset in assets.iter() {
-        let price = client.get_price(asset);
+        let price = client.get_price(&asset, &0u64).unwrap();
         assert!(price.price > 0);
     }
 }

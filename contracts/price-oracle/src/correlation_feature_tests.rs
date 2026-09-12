@@ -25,7 +25,7 @@ fn set_ledger(e: &Env, seq: u32, ts: u64) {
         base_reserve: 10,
         min_temp_entry_ttl: 10,
         min_persistent_entry_ttl: 10,
-        max_entry_ttl: 4096,
+        max_entry_ttl: 6_312_000,
     });
 }
 
@@ -325,6 +325,7 @@ fn test_merkle_invalid_root_rejected() {
 #[test]
 fn test_batch_submit_prices_all_assets_aggregate() {
     let e = Env::default();
+    e.cost_estimate().disable_resource_limits();
     e.mock_all_auths();
     set_ledger(&e, 100, 1_000_000);
 
@@ -370,5 +371,5 @@ fn compute_leaf_hash(e: &Env, leaf: &MerkleLeaf) -> BytesN<32> {
     let mut data = Bytes::new(e);
     data.append(&Bytes::from_slice(e, &leaf.price.to_le_bytes()));
     data.append(&Bytes::from_slice(e, &leaf.timestamp.to_le_bytes()));
-    e.crypto().sha256(&data)
+    e.crypto().sha256(&data).into()
 }

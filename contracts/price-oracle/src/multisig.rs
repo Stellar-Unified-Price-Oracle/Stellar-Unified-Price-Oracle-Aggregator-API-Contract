@@ -382,7 +382,6 @@ pub fn cancel_ms_operation(env: &Env, canceller: Address, op_id: u32) {
 
     remove_op(env, op_id);
 
-    let op_type_num = op_type_to_u32(&op.op_type);
     crate::events::MsOperationCancelledEvent {
         op_id,
         cancelled_by: canceller,

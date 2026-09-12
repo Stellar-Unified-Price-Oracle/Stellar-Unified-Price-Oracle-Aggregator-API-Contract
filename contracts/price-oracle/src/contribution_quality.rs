@@ -88,7 +88,7 @@ pub fn set_scoring_window(env: &Env, window: u32) {
     let admin = get_admin(env);
     admin.require_auth();
 
-    if window < MIN_SCORING_WINDOW || window > MAX_SCORING_WINDOW {
+    if !(MIN_SCORING_WINDOW..=MAX_SCORING_WINDOW).contains(&window) {
         panic_with_error!(env, ErrorCode::InvalidConfiguration);
     }
 
@@ -239,11 +239,7 @@ fn compute_consistency_score(current_accuracy: u32, prior_avg_accuracy: Option<u
     match prior_avg_accuracy {
         None => 80, // neutral starting score
         Some(prior) => {
-            let diff = if current_accuracy > prior {
-                current_accuracy - prior
-            } else {
-                prior - current_accuracy
-            };
+            let diff = current_accuracy.abs_diff(prior);
             // Each 1-point swing away from the historical average costs 2 consistency points.
             let penalty = diff.saturating_mul(2).min(100);
             100 - penalty
@@ -291,7 +287,7 @@ mod tests {
             base_reserve: 10,
             min_temp_entry_ttl: 10,
             min_persistent_entry_ttl: 10,
-            max_entry_ttl: 4096,
+            max_entry_ttl: 6_312_000,
         });
     }
 

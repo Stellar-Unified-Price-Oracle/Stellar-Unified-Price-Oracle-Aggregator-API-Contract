@@ -63,7 +63,7 @@ fn remove_channel(env: &Env, source: &Address) {
 
 fn hash_batch_payload(
     env: &Env,
-    source: &Address,
+    _source: &Address,
     batch: &Vec<crate::types::BatchItem>,
 ) -> BytesN<32> {
     // Build a flat byte buffer: for each item encode nonce(8) || price(16) || timestamp(8)

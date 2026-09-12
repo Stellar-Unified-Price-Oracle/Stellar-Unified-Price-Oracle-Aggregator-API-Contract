@@ -79,6 +79,9 @@ fn test_min_sources_affects_aggregation() {
     let (client, _admin) = setup_contract(&e);
     let source = register_test_source(&e, &client, "Test Source");
     let source2 = register_test_source(&e, &client, "Source 2");
+    // `min_sources_required` may not exceed the registered source count, so a
+    // third (silent) source is registered before raising the requirement.
+    let _source3 = register_test_source(&e, &client, "Source 3");
     let asset = register_test_asset(&e, &client);
 
     set_ledger(&e, 100, 1_000);
@@ -88,7 +91,7 @@ fn test_min_sources_affects_aggregation() {
     client.submit_price(&source, &asset, &1_000_000, &1_000);
     client.submit_price(&source2, &asset, &1_010_000, &1_000);
 
-    let price = client.get_price(&asset);
+    let price = client.get_price(&asset, &0u64);
     assert!(price.is_none());
 }
 

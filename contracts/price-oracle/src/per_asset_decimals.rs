@@ -85,110 +85,126 @@ mod tests {
     #[test]
     fn test_set_and_get_per_asset_decimals() {
         let env = Env::default();
-        let admin = Address::generate(&env);
-        let asset = Address::generate(&env);
+        let __contract_id = env.register(crate::PriceOracleContract, ());
+        env.mock_all_auths();
+        env.as_contract(&__contract_id, || {
+            let admin = Address::generate(&env);
+            let asset = Address::generate(&env);
 
-        // Initialize contract
-        env.ledger().with_mut(|l| {
-            l.timestamp = 1000;
+            // Initialize contract
+            env.ledger().with_mut(|l| {
+                l.timestamp = 1000;
+            });
+
+            crate::admin::initialize(
+                &env,
+                admin.clone(),
+                1,
+                100,
+                18,
+                soroban_sdk::String::from_slice(&env, "Oracle"),
+            );
+
+            // Register asset
+            crate::assets::register_asset(&env, asset.clone());
+
+            // Set per-asset decimals to 8
+            set_asset_decimals(&env, asset.clone(), 8);
+
+            // Verify the decimals are set
+            assert_eq!(get_asset_decimals(&env, &asset), 8);
         });
-
-        crate::admin::initialize(
-            &env,
-            admin.clone(),
-            1,
-            100,
-            18,
-            soroban_sdk::String::from_slice(&env, "Oracle"),
-        );
-
-        // Register asset
-        crate::assets::register_asset(&env, asset.clone());
-
-        // Set per-asset decimals to 8
-        set_asset_decimals(&env, asset.clone(), 8);
-
-        // Verify the decimals are set
-        assert_eq!(get_asset_decimals(&env, &asset), 8);
     }
 
     #[test]
     fn test_fallback_to_contract_decimals() {
         let env = Env::default();
-        let admin = Address::generate(&env);
-        let asset = Address::generate(&env);
+        let __contract_id = env.register(crate::PriceOracleContract, ());
+        env.mock_all_auths();
+        env.as_contract(&__contract_id, || {
+            let admin = Address::generate(&env);
+            let asset = Address::generate(&env);
 
-        env.ledger().with_mut(|l| {
-            l.timestamp = 1000;
+            env.ledger().with_mut(|l| {
+                l.timestamp = 1000;
+            });
+
+            crate::admin::initialize(
+                &env,
+                admin.clone(),
+                1,
+                100,
+                18,
+                soroban_sdk::String::from_slice(&env, "Oracle"),
+            );
+
+            crate::assets::register_asset(&env, asset.clone());
+
+            // Without setting per-asset decimals, should return contract-wide
+            assert_eq!(get_asset_decimals(&env, &asset), 18);
         });
-
-        crate::admin::initialize(
-            &env,
-            admin.clone(),
-            1,
-            100,
-            18,
-            soroban_sdk::String::from_slice(&env, "Oracle"),
-        );
-
-        crate::assets::register_asset(&env, asset.clone());
-
-        // Without setting per-asset decimals, should return contract-wide
-        assert_eq!(get_asset_decimals(&env, &asset), 18);
     }
 
     #[test]
     fn test_clear_asset_decimals() {
         let env = Env::default();
-        let admin = Address::generate(&env);
-        let asset = Address::generate(&env);
+        let __contract_id = env.register(crate::PriceOracleContract, ());
+        env.mock_all_auths();
+        env.as_contract(&__contract_id, || {
+            let admin = Address::generate(&env);
+            let asset = Address::generate(&env);
 
-        env.ledger().with_mut(|l| {
-            l.timestamp = 1000;
+            env.ledger().with_mut(|l| {
+                l.timestamp = 1000;
+            });
+
+            crate::admin::initialize(
+                &env,
+                admin.clone(),
+                1,
+                100,
+                18,
+                soroban_sdk::String::from_slice(&env, "Oracle"),
+            );
+
+            crate::assets::register_asset(&env, asset.clone());
+
+            // Set and then clear
+            set_asset_decimals(&env, asset.clone(), 8);
+            assert_eq!(get_asset_decimals(&env, &asset), 8);
+
+            clear_asset_decimals(&env, asset.clone());
+            assert_eq!(get_asset_decimals(&env, &asset), 18); // Back to contract-wide
         });
-
-        crate::admin::initialize(
-            &env,
-            admin.clone(),
-            1,
-            100,
-            18,
-            soroban_sdk::String::from_slice(&env, "Oracle"),
-        );
-
-        crate::assets::register_asset(&env, asset.clone());
-
-        // Set and then clear
-        set_asset_decimals(&env, asset.clone(), 8);
-        assert_eq!(get_asset_decimals(&env, &asset), 8);
-
-        clear_asset_decimals(&env, asset.clone());
-        assert_eq!(get_asset_decimals(&env, &asset), 18); // Back to contract-wide
     }
 
     #[test]
-    #[should_panic(expected = "InvalidConfiguration")]
+    #[should_panic(expected = "Error(Contract, #10)")]
     fn test_decimals_too_high() {
         let env = Env::default();
-        let admin = Address::generate(&env);
-        let asset = Address::generate(&env);
+        let __contract_id = env.register(crate::PriceOracleContract, ());
+        env.mock_all_auths();
+        env.as_contract(&__contract_id, || {
+            let admin = Address::generate(&env);
+            let asset = Address::generate(&env);
 
-        env.ledger().with_mut(|l| {
-            l.timestamp = 1000;
+            env.ledger().with_mut(|l| {
+                l.timestamp = 1000;
+            });
+
+            crate::admin::initialize(
+                &env,
+                admin.clone(),
+                1,
+                100,
+                18,
+                soroban_sdk::String::from_slice(&env, "Oracle"),
+            );
+
+            crate::assets::register_asset(&env, asset.clone());
+
+            // Try to set decimals > 18
+            set_asset_decimals(&env, asset, 19);
         });
-
-        crate::admin::initialize(
-            &env,
-            admin.clone(),
-            1,
-            100,
-            18,
-            soroban_sdk::String::from_slice(&env, "Oracle"),
-        );
-
-        crate::assets::register_asset(&env, asset.clone());
-
-        // Try to set decimals > 18
-        set_asset_decimals(&env, asset, 19);
     }
 }

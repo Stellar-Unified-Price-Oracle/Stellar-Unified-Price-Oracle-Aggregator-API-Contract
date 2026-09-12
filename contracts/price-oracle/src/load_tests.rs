@@ -83,7 +83,7 @@ fn run_load_test(config: &LoadTestConfig) -> LoadTestResult {
             base_reserve: 10,
             min_temp_entry_ttl: 10,
             min_persistent_entry_ttl: 10,
-            max_entry_ttl: 4096,
+            max_entry_ttl: 6_312_000,
         });
 
         for ai in 0..config.num_assets {
@@ -188,7 +188,7 @@ fn load_test_aggregate_correctness() {
         base_reserve: 10,
         min_temp_entry_ttl: 10,
         min_persistent_entry_ttl: 10,
-        max_entry_ttl: 4096,
+        max_entry_ttl: 6_312_000,
     });
 
     let contract_id = e.register(PriceOracleContract, ());
@@ -258,7 +258,7 @@ fn load_test_history_pruning() {
             base_reserve: 10,
             min_temp_entry_ttl: 10,
             min_persistent_entry_ttl: 10,
-            max_entry_ttl: 4096,
+            max_entry_ttl: 6_312_000,
         });
         client.submit_price(&src, &asset, &(seq as i128 * 100), &(seq as u64 * 1000));
     }

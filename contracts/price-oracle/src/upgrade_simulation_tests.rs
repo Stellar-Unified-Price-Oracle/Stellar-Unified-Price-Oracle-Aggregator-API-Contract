@@ -19,7 +19,7 @@ fn test_upgrade_simulation_sandbox_execution() {
 
     submit_test_price_n(&client, &source, &asset, 55000, 1000, 1);
 
-    let original_price = client.get_price(&asset);
+    let original_price = client.get_price(&asset, &0u64).unwrap();
     assert_eq!(original_price.price, 55000);
 }
 
@@ -35,16 +35,16 @@ fn test_storage_compatibility_report_generation() {
     ledger_default(&e, 1, 1000);
     client.set_min_sources_required(&2u32);
 
-    submit_test_price_n(&client, &source1, &asset1, 60000, 1000, 1);
-    submit_test_price_n(&client, &source2, &asset1, 60100, 1000, 1);
+    submit_test_price(&client, &source1, &asset1, 60000, 1000);
+    submit_test_price(&client, &source2, &asset1, 60100, 1000);
 
-    submit_test_price_n(&client, &source1, &asset2, 45000, 1000, 1);
-    submit_test_price_n(&client, &source2, &asset2, 45100, 1000, 1);
+    submit_test_price(&client, &source1, &asset2, 45000, 1000);
+    submit_test_price(&client, &source2, &asset2, 45100, 1000);
 
-    let price1 = client.get_price(&asset1);
+    let price1 = client.get_price(&asset1, &0u64).unwrap();
     assert_eq!(price1.price, 60050);
 
-    let price2 = client.get_price(&asset2);
+    let price2 = client.get_price(&asset2, &0u64).unwrap();
     assert_eq!(price2.price, 45050);
 }
 
@@ -60,14 +60,14 @@ fn test_migration_issue_detection_incompatibilities() {
 
     submit_test_price_n(&client, &source, &asset, 33000, 1000, 1);
 
-    let price = client.get_price(&asset);
+    let price = client.get_price(&asset, &0u64).unwrap();
     assert_eq!(price.price, 33000);
 
     ledger_default(&e, 2, 2000);
 
     submit_test_price_n(&client, &source, &asset, 34000, 2000, 2);
 
-    let new_price = client.get_price(&asset);
+    let new_price = client.get_price(&asset, &0u64).unwrap();
     assert_eq!(new_price.price, 34000);
 }
 
@@ -85,7 +85,7 @@ fn test_upgrade_simulation_accuracy_state_preservation() {
     submit_test_price_n(&client, &source1, &asset, 70000, 1000, 1);
     submit_test_price_n(&client, &source2, &asset, 70200, 1000, 1);
 
-    let initial_price = client.get_price(&asset);
+    let initial_price = client.get_price(&asset, &0u64).unwrap();
     assert_eq!(initial_price.price, 70100);
 
     ledger_default(&e, 10, 5000);
@@ -93,7 +93,7 @@ fn test_upgrade_simulation_accuracy_state_preservation() {
     submit_test_price_n(&client, &source1, &asset, 71000, 5000, 2);
     submit_test_price_n(&client, &source2, &asset, 71200, 5000, 2);
 
-    let upgraded_price = client.get_price(&asset);
+    let upgraded_price = client.get_price(&asset, &0u64).unwrap();
     assert_eq!(upgraded_price.price, 71100);
 }
 
@@ -101,10 +101,18 @@ fn test_upgrade_simulation_accuracy_state_preservation() {
 fn test_upgrade_with_complex_storage_state() {
     let e = Env::default();
     let (client, admin) = setup_contract(&e);
-    let sources: Vec<Address> = (0..5)
-        .map(|i| register_test_source(&e, &client, &format!("Complex Source {}", i)))
-        .collect();
-    let assets: Vec<Address> = (0..3).map(|_| register_test_asset(&e, &client)).collect();
+    let mut sources: Vec<Address> = Vec::new(&e);
+    for i in 0..5 {
+        sources.push_back(register_test_source(
+            &e,
+            &client,
+            &format!("Complex Source {}", i),
+        ));
+    }
+    let mut assets: Vec<Address> = Vec::new(&e);
+    for _ in 0..3 {
+        assets.push_back(register_test_asset(&e, &client));
+    }
 
     ledger_default(&e, 1, 1000);
     client.set_min_sources_required(&3u32);
@@ -112,12 +120,12 @@ fn test_upgrade_with_complex_storage_state() {
     for (idx, asset) in assets.iter().enumerate() {
         for (src_idx, source) in sources.iter().enumerate() {
             let price = (40000 + (idx as i128 * 1000) + (src_idx as i128 * 100)) as i128;
-            submit_test_price_n(&client, source, asset, price, 1000, 1);
+            submit_test_price(&client, &source, &asset, price, 1000);
         }
     }
 
     for asset in assets.iter() {
-        let price = client.get_price(asset);
+        let price = client.get_price(&asset, &0u64).unwrap();
         assert!(price.price > 0);
     }
 }

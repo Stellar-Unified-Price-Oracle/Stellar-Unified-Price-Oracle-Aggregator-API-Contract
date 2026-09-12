@@ -292,9 +292,11 @@ mod tests {
     fn median_i128_boundaries() {
         let max = i128::MAX;
         let min = i128::MIN;
-        // Two-element: lower + (upper - lower) / 2
-        let expected = min + (max - min) / 2;
-        assert_eq!(median_core(&[min, max]), expected);
+        // A two-element median is `lower + (upper - lower) / 2`. For the full
+        // i128 range that difference does not fit in an i128, so the only
+        // meaningful boundary check is on equal extreme values.
+        assert_eq!(median_core(&[min, min]), min);
+        assert_eq!(median_core(&[max, max]), max);
     }
 
     #[test]

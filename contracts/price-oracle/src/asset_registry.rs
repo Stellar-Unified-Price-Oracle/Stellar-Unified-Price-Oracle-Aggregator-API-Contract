@@ -259,7 +259,6 @@ mod tests {
     use soroban_sdk::Env;
 
     fn setup(env: &Env) -> (Address, Address) {
-        env.mock_all_auths();
         let admin = Address::generate(env);
         let asset = Address::generate(env);
         crate::admin::initialize(
@@ -277,23 +276,27 @@ mod tests {
     #[test]
     fn test_register_and_resolve_mapping() {
         let env = Env::default();
-        let (_, asset) = setup(&env);
+        let __contract_id = env.register(crate::PriceOracleContract, ());
+        env.mock_all_auths();
+        env.as_contract(&__contract_id, || {
+            let (_, asset) = setup(&env);
 
-        let chain = String::from_str(&env, "ethereum");
-        let foreign_address = BytesN::from_array(&env, &[7u8; 32]);
+            let chain = String::from_str(&env, "ethereum");
+            let foreign_address = BytesN::from_array(&env, &[7u8; 32]);
 
-        register_foreign_asset_mapping(
-            &env,
-            asset.clone(),
-            chain.clone(),
-            foreign_address.clone(),
-            6,
-        );
+            register_foreign_asset_mapping(
+                &env,
+                asset.clone(),
+                chain.clone(),
+                foreign_address.clone(),
+                6,
+            );
 
-        let mapping = resolve_enabled_mapping(&env, &chain, &foreign_address);
-        assert_eq!(mapping.stellar_asset, asset);
-        assert_eq!(mapping.decimals, 6);
-        assert!(mapping.enabled);
+            let mapping = resolve_enabled_mapping(&env, &chain, &foreign_address);
+            assert_eq!(mapping.stellar_asset, asset);
+            assert_eq!(mapping.decimals, 6);
+            assert!(mapping.enabled);
+        });
     }
 
     #[test]
@@ -317,16 +320,20 @@ mod tests {
     #[test]
     fn test_disable_mapping_updates_flag() {
         let env = Env::default();
-        let (_, asset) = setup(&env);
+        let __contract_id = env.register(crate::PriceOracleContract, ());
+        env.mock_all_auths();
+        env.as_contract(&__contract_id, || {
+            let (_, asset) = setup(&env);
 
-        let chain = String::from_str(&env, "polygon");
-        let foreign_address = BytesN::from_array(&env, &[2u8; 32]);
-        register_foreign_asset_mapping(&env, asset, chain.clone(), foreign_address.clone(), 18);
+            let chain = String::from_str(&env, "polygon");
+            let foreign_address = BytesN::from_array(&env, &[2u8; 32]);
+            register_foreign_asset_mapping(&env, asset, chain.clone(), foreign_address.clone(), 18);
 
-        update_foreign_asset_mapping(&env, chain.clone(), foreign_address.clone(), 18, false);
+            update_foreign_asset_mapping(&env, chain.clone(), foreign_address.clone(), 18, false);
 
-        let mapping = get_foreign_asset_mapping(&env, chain, foreign_address).unwrap();
-        assert!(!mapping.enabled);
+            let mapping = get_foreign_asset_mapping(&env, chain, foreign_address).unwrap();
+            assert!(!mapping.enabled);
+        });
     }
 
     #[test]
@@ -346,49 +353,59 @@ mod tests {
     #[test]
     fn test_remove_mapping() {
         let env = Env::default();
-        let (_, asset) = setup(&env);
+        let __contract_id = env.register(crate::PriceOracleContract, ());
+        env.mock_all_auths();
+        env.as_contract(&__contract_id, || {
+            let (_, asset) = setup(&env);
 
-        let chain = String::from_str(&env, "avalanche");
-        let foreign_address = BytesN::from_array(&env, &[3u8; 32]);
-        register_foreign_asset_mapping(
-            &env,
-            asset.clone(),
-            chain.clone(),
-            foreign_address.clone(),
-            18,
-        );
-        assert!(get_foreign_asset_mapping(&env, chain.clone(), foreign_address.clone()).is_some());
+            let chain = String::from_str(&env, "avalanche");
+            let foreign_address = BytesN::from_array(&env, &[3u8; 32]);
+            register_foreign_asset_mapping(
+                &env,
+                asset.clone(),
+                chain.clone(),
+                foreign_address.clone(),
+                18,
+            );
+            assert!(
+                get_foreign_asset_mapping(&env, chain.clone(), foreign_address.clone()).is_some()
+            );
 
-        remove_foreign_asset_mapping(&env, chain.clone(), foreign_address.clone());
-        assert!(get_foreign_asset_mapping(&env, chain, foreign_address).is_none());
+            remove_foreign_asset_mapping(&env, chain.clone(), foreign_address.clone());
+            assert!(get_foreign_asset_mapping(&env, chain, foreign_address).is_none());
 
-        let remaining = get_foreign_mappings_for_asset(&env, asset);
-        assert_eq!(remaining.len(), 0);
+            let remaining = get_foreign_mappings_for_asset(&env, asset);
+            assert_eq!(remaining.len(), 0);
+        });
     }
 
     #[test]
     fn test_multiple_chains_for_one_asset() {
         let env = Env::default();
-        let (_, asset) = setup(&env);
+        let __contract_id = env.register(crate::PriceOracleContract, ());
+        env.mock_all_auths();
+        env.as_contract(&__contract_id, || {
+            let (_, asset) = setup(&env);
 
-        let eth = String::from_str(&env, "ethereum");
-        let poly = String::from_str(&env, "polygon");
-        register_foreign_asset_mapping(
-            &env,
-            asset.clone(),
-            eth,
-            BytesN::from_array(&env, &[4u8; 32]),
-            6,
-        );
-        register_foreign_asset_mapping(
-            &env,
-            asset.clone(),
-            poly,
-            BytesN::from_array(&env, &[5u8; 32]),
-            18,
-        );
+            let eth = String::from_str(&env, "ethereum");
+            let poly = String::from_str(&env, "polygon");
+            register_foreign_asset_mapping(
+                &env,
+                asset.clone(),
+                eth,
+                BytesN::from_array(&env, &[4u8; 32]),
+                6,
+            );
+            register_foreign_asset_mapping(
+                &env,
+                asset.clone(),
+                poly,
+                BytesN::from_array(&env, &[5u8; 32]),
+                18,
+            );
 
-        let mappings = get_foreign_mappings_for_asset(&env, asset);
-        assert_eq!(mappings.len(), 2);
+            let mappings = get_foreign_mappings_for_asset(&env, asset);
+            assert_eq!(mappings.len(), 2);
+        });
     }
 }

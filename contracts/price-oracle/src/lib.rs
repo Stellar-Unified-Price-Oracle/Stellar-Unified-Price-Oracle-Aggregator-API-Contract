@@ -10,12 +10,17 @@
 // macro. Migrating all 24 publish call-sites is a larger refactor; allow the
 // deprecation (including `String::from_slice`) until that migration lands.
 #![allow(deprecated)]
+// Soroban entrypoints are ABI surface: their parameter lists are fixed by the
+// SEP-40 interface and by the `#[contractimpl]`/`#[contractclient]`-generated
+// client, so clippy's argument-count heuristic cannot be acted on without
+// breaking every caller.
+#![allow(clippy::too_many_arguments)]
 
 // Link `std` for the native test build only. Several generated test files rely on
 // `format!`/`vec!`/`to_string()` and `std::panic::catch_unwind`, which are not
 // available in the default `no_std` test harness. The contract WASM build is
-// unaffected: this item is gated out when compiling for wasm32v1-none.
-#[cfg(all(test, not(target_arch = "wasm32v1-none")))]
+// unaffected: this item is gated out for every wasm target.
+#[cfg(all(test, not(target_family = "wasm")))]
 #[macro_use]
 extern crate std;
 
@@ -154,6 +159,9 @@ mod cross_chain_verify;
 // from disk).
 mod cross_chain_relay;
 
+// Cross-contract governance delegation (narrow, allow-listed governor powers).
+mod external_governance;
+
 #[cfg(test)]
 mod circuit_breaker_tests;
 
@@ -256,29 +264,30 @@ mod wasm_binary_size_tests;
 pub use types::{
     AdminOpLimit, AdminOperationType, AggregatePrice, AggregationMethod, AggregationRound,
     AlertSubscription, AmmPool, AmmWeightConfig, Asset, AssetDecimalConfig, AssetMetadata,
-    AssetMetadataUpdate, AssetPricingConfig, AssetType, AuditEntry, BatchItem, BatchOperation,
-    BatchSimulationResult, BftAggregationMethod, BridgeOracleConfig, BridgedPrice, Challenge,
-    CompactionMetadata, ConfigSnapshot, ConsumerAccessMode, ConsumerInfo, ConsumerTier,
-    ContractMetadata, CorrelationBand, CorrelationPair, CrossChainPriceEntry,
-    CrossChainPricePayload, CrossChainRelayConfig, CrossReferenceResult, DataKey,
-    DecentralizationReport, DemeritConfig, DeviationReport, DexPrice, DisqualificationStatus,
-    EcosystemMetadata, EmergencyPause, ErrorCode, ExportedEntry, ExportedHistorySnapshot,
-    ExternalDataProof, FeeMarketSubmission, FeedMetadata, FinalityStatus, FinalizedPrice,
-    ForeignAssetMapping, FrozenPrice, GasRecord, Groth16Proof, Groth16VerifyingKey,
-    GuardianRecovery, HealthReport, MigrationState, MigrationStatus, MultiSigOperation,
-    NotificationPreference, Operation, OperationKind, OperationPriority, OperationSimulationResult,
-    OperationStatus, OperationTemplate, OperationType, OptimisticProposal,
-    OptimisticProposalStatus, OracleSources, PendingBatch, PendingFeeSubmissions,
-    PendingFinalityEntry, PendingOperation, PriceBounds, PriceCommit, PriceData, PriceEntry,
-    PriceEventPayload, PriceHistoryEntry, PriceOverrideEntry, ReferenceOracleEntry,
-    RelayedSubmission, RelayerAssetStat, RelayerDashboard, RelayerFailureReason, RelayerInfo, Role,
-    SimulationWarning, SoroswapPool, SourceDemeritState, SourceDidLink, SourceGeoMetadata,
-    SourceGovernance, SourceHealthStatus, SourceProposal, SourceRelayerDelegation,
-    SourceRotationSchedule, SourceStakeRecord, SourceVerification, StateAnalysis, StateChannel,
-    StateDiff, StateDiffEntry, StateDump, StellarHeader, StorageBudget, StorageTtlEntry,
-    SubscriptionExpiry, SubscriptionPayment, SubscriptionPlan, SubscriptionPlans, TemplateStep,
-    TotalStorageBudget, TwapMethod, VersionedAggregatePrice, WormholeGuardianSet,
-    WormholePricePayload, WormholeVaa, ZkPriceAttestation,
+    AssetMetadataUpdate, AssetPricingConfig, AssetProofRequirement, AssetType, AuditEntry,
+    BatchItem, BatchOperation, BatchSimulationResult, BftAggregationMethod, BridgeOracleConfig,
+    BridgedPrice, CallbackRegistration, Challenge, CompactionMetadata, ConfigSnapshot,
+    ConsumerAccessMode, ConsumerInfo, ConsumerTier, ContractMetadata, ContribQualityRecord,
+    CorrelationBand, CorrelationPair, CrossChainPriceEntry, CrossChainPricePayload,
+    CrossChainRelayConfig, CrossReferenceResult, DataKey, DecentralizationReport, DemeritConfig,
+    DeviationReport, DexPrice, DisqualificationStatus, EcosystemMetadata, EmergencyPause,
+    ErrorCode, ExportedEntry, ExportedHistorySnapshot, ExternalDataProof, FeeMarketSubmission,
+    FeedMetadata, FinalityStatus, FinalizedPrice, ForeignAssetMapping, FrozenPrice, GasRecord,
+    Groth16Proof, Groth16VerifyingKey, GuardianRecovery, HealthReport, MigrationState,
+    MigrationStatus, MultiSigOperation, NotificationPreference, Operation, OperationKind,
+    OperationPriority, OperationSimulationResult, OperationStatus, OperationTemplate,
+    OperationType, OptimisticProposal, OptimisticProposalStatus, OracleSources, PendingBatch,
+    PendingFeeSubmissions, PendingFinalityEntry, PendingOperation, PriceBounds, PriceCommit,
+    PriceData, PriceEntry, PriceEventPayload, PriceHistoryEntry, PriceOverrideEntry, PriceProof,
+    ReferenceOracleEntry, RelayedSubmission, RelayerAssetStat, RelayerDashboard,
+    RelayerFailureReason, RelayerInfo, Role, SimulationWarning, SoroswapPool, SourceDemeritState,
+    SourceDidLink, SourceGeoMetadata, SourceGovernance, SourceHealthStatus, SourceProposal,
+    SourceRelayerDelegation, SourceRotationSchedule, SourceStakeRecord, SourceVerification,
+    StateAnalysis, StateChannel, StateDiff, StateDiffEntry, StateDump, StellarHeader,
+    StorageBatchRequest, StorageBatchResult, StorageBudget, StorageTtlEntry, SubscriptionExpiry,
+    SubscriptionPayment, SubscriptionPlan, SubscriptionPlans, TemplateStep, TotalStorageBudget,
+    TwapMethod, VersionedAggregatePrice, WormholeGuardianSet, WormholePricePayload, WormholeVaa,
+    ZkPriceAttestation,
 };
 
 use soroban_sdk::{
@@ -295,6 +304,38 @@ use crate::storage::{enter_reentrancy_guard, exit_reentrancy_guard, read_registe
 /// governance operations are additionally gated behind a configurable timelock.
 #[contract]
 pub struct PriceOracleContract;
+
+/// Shared body of [`PriceOracleContract::submit_price`] and
+/// [`PriceOracleContract::submit_price_with_nonce`]: the two entrypoints differ
+/// only in how the replay nonce is selected (`None` = assigned automatically).
+fn submit_price_inner(
+    env: &Env,
+    source: Address,
+    asset: Address,
+    price: i128,
+    timestamp: u64,
+    nonce: Option<u64>,
+) {
+    reentrancy::enter(env);
+    // Measure budget before and after to record last submit_price cost.
+    let before_cpu = crate::gas_metering::cpu_usage(env);
+    let before_mem = crate::gas_metering::mem_usage(env);
+    match nonce {
+        Some(nonce) => prices::submit_price(env, source, asset, price, timestamp, nonce),
+        None => prices::submit_price_auto(env, source, asset, price, timestamp),
+    }
+    let after_cpu = crate::gas_metering::cpu_usage(env);
+    let after_mem = crate::gas_metering::mem_usage(env);
+    let cpu_delta = after_cpu.saturating_sub(before_cpu);
+    let mem_delta = after_mem.saturating_sub(before_mem);
+    crate::gas_metering::write_last_gas(
+        env,
+        String::from_str(env, "submit_price"),
+        cpu_delta,
+        mem_delta,
+    );
+    reentrancy::exit(env);
+}
 
 #[contractimpl]
 impl PriceOracleContract {
@@ -1877,7 +1918,24 @@ impl PriceOracleContract {
     /// * [`ErrorCode::InvalidPrice`] — if `price` is ≤ 0.
     /// * [`ErrorCode::PriceBelowMinimum`] — if `price` is below the asset's minimum price.
     /// * [`ErrorCode::InvalidTimestamp`] — if `timestamp` is too far in the future.
-    pub fn submit_price(
+    pub fn submit_price(env: Env, source: Address, asset: Address, price: i128, timestamp: u64) {
+        submit_price_inner(&env, source, asset, price, timestamp, None);
+    }
+
+    /// Identical to [`submit_price`](Self::submit_price), but the caller supplies
+    /// the replay nonce explicitly instead of having it assigned automatically.
+    ///
+    /// Use this when the caller tracks nonces itself (for example to make
+    /// retries idempotent); the nonce must be strictly greater than the last
+    /// nonce accepted for `source`.
+    ///
+    /// # Errors
+    ///
+    /// In addition to the errors documented on
+    /// [`submit_price`](Self::submit_price):
+    /// * [`ErrorCode::InvalidNonce`] — if `nonce` is not greater than the last
+    ///   accepted nonce for `source`.
+    pub fn submit_price_with_nonce(
         env: Env,
         source: Address,
         asset: Address,
@@ -1885,22 +1943,7 @@ impl PriceOracleContract {
         timestamp: u64,
         nonce: u64,
     ) {
-        reentrancy::enter(&env);
-        // Measure budget before and after to record last submit_price cost.
-        let before_cpu = crate::gas_metering::cpu_usage(&env);
-        let before_mem = crate::gas_metering::mem_usage(&env);
-        prices::submit_price(&env, source, asset, price, timestamp, nonce);
-        let after_cpu = crate::gas_metering::cpu_usage(&env);
-        let after_mem = crate::gas_metering::mem_usage(&env);
-        let cpu_delta = after_cpu.saturating_sub(before_cpu);
-        let mem_delta = after_mem.saturating_sub(before_mem);
-        crate::gas_metering::write_last_gas(
-            &env,
-            String::from_str(&env, "submit_price"),
-            cpu_delta,
-            mem_delta,
-        );
-        reentrancy::exit(&env);
+        submit_price_inner(&env, source, asset, price, timestamp, Some(nonce));
     }
 
     pub fn submit_price_with_volume(
@@ -5301,6 +5344,278 @@ impl PriceOracleContract {
         message: Bytes,
     ) {
         layerzero::lz_receive(&env, endpoint, src_eid, sender, nonce, guid, message);
+    }
+
+    // =====================================================================
+    // Introspection & registry listings
+    // =====================================================================
+
+    /// Returns the current administrator address.
+    pub fn get_admin(env: Env) -> Address {
+        crate::storage::get_admin(&env)
+    }
+
+    /// Returns the minimum number of sources required to publish an aggregate.
+    pub fn get_min_sources(env: Env) -> u32 {
+        admin::get_min_sources_required(&env)
+    }
+
+    /// Updates the maximum number of price-history entries retained per asset.
+    ///
+    /// Admin only.
+    pub fn set_max_history(env: Env, new_max: u32) {
+        admin::set_max_history_length(&env, new_max);
+    }
+
+    /// Returns every registered oracle source, in registration order.
+    pub fn list_sources(env: Env) -> Vec<Address> {
+        storage::read_oracle_sources(&env).sources
+    }
+
+    /// Returns every registered asset, in registration order.
+    pub fn list_assets(env: Env) -> Vec<Address> {
+        read_registered_assets(&env)
+    }
+
+    /// Returns a page of historical price entries for `asset`, starting at
+    /// `cursor` (pass `0` for the beginning) and returning at most `limit`
+    /// entries in ascending ledger order.
+    ///
+    /// # Errors
+    ///
+    /// * [`ErrorCode::AssetNotRegistered`] — `asset` is not registered.
+    /// * [`ErrorCode::InvalidPageSize`] — `limit` is `0` or exceeds the maximum page size.
+    pub fn get_price_history(
+        env: Env,
+        asset: Address,
+        cursor: u32,
+        limit: u32,
+    ) -> Vec<PriceHistoryEntry> {
+        let (entries, _next_cursor) =
+            history::get_historical_prices_paginated(&env, asset, cursor, limit);
+        entries
+    }
+
+    /// Returns whether `source` is currently live for `asset` — on schedule and
+    /// within the configured heartbeat interval.
+    pub fn check_source_liveness(env: Env, source: Address, asset: Address) -> bool {
+        sources::check_source_liveness(&env, source, asset)
+    }
+
+    /// Returns the most recent subscription payment recorded for `consumer`.
+    pub fn get_subscription_payment(env: Env, consumer: Address) -> Option<SubscriptionPayment> {
+        subscription::get_subscription_payment(&env, consumer)
+    }
+
+    // =====================================================================
+    // #295 — Batch storage reads
+    // =====================================================================
+
+    /// Reads several storage keys in a single call, which is significantly
+    /// cheaper than N individual getters when N > 1.
+    pub fn get_storage_batch(
+        env: Env,
+        requests: Vec<StorageBatchRequest>,
+    ) -> Vec<StorageBatchResult> {
+        batch_storage::get_storage_batch(&env, requests)
+    }
+
+    // =====================================================================
+    // #296 — Contribution quality scoring
+    // =====================================================================
+
+    /// Returns the contribution-quality record for a `(source, asset)` pair.
+    ///
+    /// Returns `None` when no rounds have been scored for the pair yet.
+    pub fn get_contribution_quality(
+        env: Env,
+        source: Address,
+        asset: Address,
+    ) -> Option<ContribQualityRecord> {
+        contribution_quality::get_contribution_quality(&env, source, asset)
+    }
+
+    /// Sets the scoring window (number of historical rounds in the moving
+    /// average).
+    ///
+    /// # Errors
+    ///
+    /// * [`ErrorCode::NotAuthorized`] — caller is not the admin.
+    /// * [`ErrorCode::InvalidConfiguration`] — window is outside the allowed range.
+    pub fn set_scoring_window(env: Env, window: u32) {
+        contribution_quality::set_scoring_window(&env, window);
+    }
+
+    /// Returns the configured contribution-quality scoring window.
+    pub fn get_scoring_window(env: Env) -> u32 {
+        contribution_quality::get_scoring_window(&env)
+    }
+
+    // =====================================================================
+    // #297 — Price update callbacks
+    // =====================================================================
+
+    /// Registers `consumer`'s callback contract for price updates on `asset`.
+    ///
+    /// # Errors
+    ///
+    /// * [`ErrorCode::AssetNotRegistered`] — `asset` is not registered.
+    /// * [`ErrorCode::TooManyCallbacks`] — the per-asset callback limit has been
+    ///   reached and the consumer is not already registered.
+    pub fn register_price_callback(
+        env: Env,
+        consumer: Address,
+        asset: Address,
+        callback_contract: Address,
+        method: Symbol,
+    ) {
+        price_callback::register_price_callback(&env, consumer, asset, callback_contract, method);
+    }
+
+    /// Removes `consumer`'s callback registration for `asset`.
+    pub fn unregister_price_callback(env: Env, consumer: Address, asset: Address) {
+        price_callback::unregister_price_callback(&env, consumer, asset);
+    }
+
+    /// Lists all active callback registrations for `asset`.
+    pub fn get_price_callbacks(env: Env, asset: Address) -> Vec<CallbackRegistration> {
+        price_callback::get_price_callbacks(&env, asset)
+    }
+
+    // =====================================================================
+    // #298 — External price proofs
+    // =====================================================================
+
+    /// Submits a price backed by an external (CEX/DEX) proof.
+    ///
+    /// The `source` must authorize this call; the proof must satisfy the asset's
+    /// configured [`AssetProofRequirement`].
+    pub fn submit_price_with_external_proof(
+        env: Env,
+        source: Address,
+        asset: Address,
+        price: i128,
+        timestamp: u64,
+        proof: PriceProof,
+    ) {
+        price_proof::submit_price_with_external_proof(&env, source, asset, price, timestamp, proof);
+    }
+
+    /// Sets the external-proof requirement for `asset`.
+    ///
+    /// Admin only.
+    pub fn set_asset_proof_requirement(
+        env: Env,
+        asset: Address,
+        requirement: AssetProofRequirement,
+    ) {
+        price_proof::set_asset_proof_requirement(&env, asset, requirement);
+    }
+
+    /// Returns the external-proof requirement configured for `asset`.
+    pub fn get_asset_proof_requirement(env: Env, asset: Address) -> AssetProofRequirement {
+        price_proof::get_asset_proof_requirement(&env, asset)
+    }
+
+    /// Returns the most recent proof stored for a `(asset, source)` pair.
+    pub fn get_submission_proof(env: Env, asset: Address, source: Address) -> Option<PriceProof> {
+        price_proof::get_submission_proof(&env, asset, source)
+    }
+
+    // =====================================================================
+    // Dependency-aware operation scheduling
+    // =====================================================================
+
+    /// Registers an operation that may only run once every id in `depends_on`
+    /// has completed.
+    pub fn create_operation(env: Env, op_id: String, depends_on: Vec<String>) {
+        operations::create_operation(&env, op_id, depends_on);
+    }
+
+    /// Executes a dependency-scheduled operation once all of its dependencies
+    /// have executed.
+    ///
+    /// Named distinctly from the timelock's `execute_operation`, which is keyed
+    /// by a numeric operation id.
+    ///
+    /// # Errors
+    ///
+    /// * [`ErrorCode::OperationNotFound`] — no operation named `op_id` exists.
+    /// * [`ErrorCode::DependencyNotMet`] — a dependency has not executed yet.
+    /// * [`ErrorCode::InvalidOperationState`] — the operation is not pending.
+    pub fn execute_dependent_operation(env: Env, op_id: String) {
+        operations::execute_operation(&env, op_id);
+    }
+
+    /// Cancels a dependency-scheduled operation, cascading to its dependents.
+    pub fn cancel_dependent_operation(env: Env, op_id: String) {
+        operations::cancel_operation(&env, op_id);
+    }
+
+    /// Returns the ids of the operations that `op_id` depends on.
+    pub fn get_operation_dependencies(env: Env, op_id: String) -> Vec<String> {
+        operations::get_operation_dependencies(&env, op_id)
+    }
+
+    /// Returns the current status of the operation registered as `op_id`.
+    pub fn get_operation_status(env: Env, op_id: String) -> OperationStatus {
+        operations::get_operation_status(&env, op_id)
+    }
+
+    // =====================================================================
+    // TTL batching
+    // =====================================================================
+
+    /// Extends the TTL of up to `num_entries` history entries for `asset`.
+    ///
+    /// Returns the number of entries whose TTL was extended.
+    pub fn extend_asset_ttl(env: Env, asset: Address, num_entries: u32) -> u32 {
+        ttl_batching::extend_asset_ttl(&env, asset, num_entries)
+    }
+
+    // =====================================================================
+    // Cross-contract governance delegation
+    // =====================================================================
+
+    /// Delegates governance to `governor`.
+    ///
+    /// Admin only. Registering a governor grants it no power on its own: each
+    /// operation must additionally be allow-listed with
+    /// [`allow_governor_op`](Self::allow_governor_op).
+    pub fn set_external_governor(env: Env, governor: Address) {
+        external_governance::set_external_governor(&env, governor);
+    }
+
+    /// Returns the currently delegated governor, or the admin when no delegation
+    /// is active.
+    pub fn get_external_governor(env: Env) -> Address {
+        external_governance::get_external_governor(&env)
+    }
+
+    /// Revokes the current governance delegation.
+    ///
+    /// Admin only.
+    pub fn clear_external_governor(env: Env) {
+        external_governance::clear_external_governor(&env);
+    }
+
+    /// Allow-lists a governance operation for the external governor.
+    ///
+    /// Admin only.
+    pub fn allow_governor_op(env: Env, operation: String) {
+        external_governance::allow_governor_op(&env, operation);
+    }
+
+    /// Removes a governance operation from the governor's allow-list.
+    ///
+    /// Admin only.
+    pub fn disallow_governor_op(env: Env, operation: String) {
+        external_governance::disallow_governor_op(&env, operation);
+    }
+
+    /// Returns whether the external governor may perform `operation`.
+    pub fn is_governor_op_allowed(env: Env, operation: String) -> bool {
+        external_governance::is_governor_op_allowed(&env, operation)
     }
 }
 

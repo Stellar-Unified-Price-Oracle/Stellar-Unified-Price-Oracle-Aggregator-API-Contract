@@ -54,7 +54,7 @@ pub fn set_notification_preference(env: &Env, event_type: u32, channel: String, 
             .persistent()
             .get(&types_key)
             .unwrap_or(Vec::new(env));
-        if !types.contains(&event_type) {
+        if !types.contains(event_type) {
             types.push_back(event_type);
             env.storage().persistent().set(&types_key, &types);
         }

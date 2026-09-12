@@ -367,34 +367,40 @@ mod tests {
     #[test]
     fn test_guardian_set_registration_and_quorum_default() {
         let env = Env::default();
+        let __contract_id = env.register(crate::PriceOracleContract, ());
         env.mock_all_auths();
-        init(&env);
-        let pk = guardian_pubkey(&env, &make_guardian(1));
+        env.as_contract(&__contract_id, || {
+            init(&env);
+            let pk = guardian_pubkey(&env, &make_guardian(1));
 
-        let mut guardians: Vec<BytesN<32>> = Vec::new(&env);
-        guardians.push_back(pk.clone());
+            let mut guardians: Vec<BytesN<32>> = Vec::new(&env);
+            guardians.push_back(pk.clone());
 
-        set_guardian_set(&env, guardians.clone(), 1);
-        let set = get_guardian_set(&env).unwrap();
-        assert_eq!(set.guardians.len(), 1);
-        assert_eq!(set.set_index, 0);
-        assert_eq!(get_guardian_quorum(&env), 1);
+            set_guardian_set(&env, guardians.clone(), 1);
+            let set = get_guardian_set(&env).unwrap();
+            assert_eq!(set.guardians.len(), 1);
+            assert_eq!(set.set_index, 0);
+            assert_eq!(get_guardian_quorum(&env), 1);
 
-        // Rotating bumps the index.
-        set_guardian_set(&env, guardians, 1);
-        assert_eq!(get_guardian_set(&env).unwrap().set_index, 1);
+            // Rotating bumps the index.
+            set_guardian_set(&env, guardians, 1);
+            assert_eq!(get_guardian_set(&env).unwrap().set_index, 1);
+        });
     }
 
     #[test]
     fn test_chain_mapping_round_trip() {
         let env = Env::default();
+        let __contract_id = env.register(crate::PriceOracleContract, ());
         env.mock_all_auths();
-        init(&env);
-        let ethereum_marker = Address::generate(&env);
+        env.as_contract(&__contract_id, || {
+            init(&env);
+            let ethereum_marker = Address::generate(&env);
 
-        assert!(get_chain_mapping(&env, 2).is_none());
-        set_chain_mapping(&env, 2, ethereum_marker.clone());
-        assert_eq!(get_chain_mapping(&env, 2), Some(ethereum_marker));
+            assert!(get_chain_mapping(&env, 2).is_none());
+            set_chain_mapping(&env, 2, ethereum_marker.clone());
+            assert_eq!(get_chain_mapping(&env, 2), Some(ethereum_marker));
+        });
     }
 
     /// End-to-end: a VAA co-signed by 2-of-3 registered guardians (meeting a
@@ -402,49 +408,55 @@ mod tests {
     #[test]
     fn test_verify_vaa_quorum_with_real_signatures() {
         let env = Env::default();
+        let __contract_id = env.register(crate::PriceOracleContract, ());
         env.mock_all_auths();
-        init(&env);
+        env.as_contract(&__contract_id, || {
+            init(&env);
 
-        let g1 = make_guardian(1);
-        let g2 = make_guardian(2);
-        let g3 = make_guardian(3);
-        let mut guardians: Vec<BytesN<32>> = Vec::new(&env);
-        guardians.push_back(guardian_pubkey(&env, &g1));
-        guardians.push_back(guardian_pubkey(&env, &g2));
-        guardians.push_back(guardian_pubkey(&env, &g3));
-        set_guardian_set(&env, guardians, 2);
+            let g1 = make_guardian(1);
+            let g2 = make_guardian(2);
+            let g3 = make_guardian(3);
+            let mut guardians: Vec<BytesN<32>> = Vec::new(&env);
+            guardians.push_back(guardian_pubkey(&env, &g1));
+            guardians.push_back(guardian_pubkey(&env, &g2));
+            guardians.push_back(guardian_pubkey(&env, &g3));
+            set_guardian_set(&env, guardians, 2);
 
-        let mut vaa = draft_vaa(&env, 2, 1, 100_000_000_000_000_000_000);
-        let sig1 = sign_body(&env, &g1, &vaa);
-        let sig3 = sign_body(&env, &g3, &vaa);
-        vaa.signatures.push_back(sig1);
-        vaa.signatures.push_back(sig3);
-        vaa.guardian_indices.push_back(0);
-        vaa.guardian_indices.push_back(2);
+            let mut vaa = draft_vaa(&env, 2, 1, 100_000_000_000_000_000_000);
+            let sig1 = sign_body(&env, &g1, &vaa);
+            let sig3 = sign_body(&env, &g3, &vaa);
+            vaa.signatures.push_back(sig1);
+            vaa.signatures.push_back(sig3);
+            vaa.guardian_indices.push_back(0);
+            vaa.guardian_indices.push_back(2);
 
-        assert!(verify_vaa_quorum(&env, &vaa));
+            assert!(verify_vaa_quorum(&env, &vaa));
+        });
     }
 
     /// A single valid signature is not enough when quorum is 2.
     #[test]
     fn test_verify_vaa_quorum_not_met() {
         let env = Env::default();
+        let __contract_id = env.register(crate::PriceOracleContract, ());
         env.mock_all_auths();
-        init(&env);
+        env.as_contract(&__contract_id, || {
+            init(&env);
 
-        let g1 = make_guardian(1);
-        let g2 = make_guardian(2);
-        let mut guardians: Vec<BytesN<32>> = Vec::new(&env);
-        guardians.push_back(guardian_pubkey(&env, &g1));
-        guardians.push_back(guardian_pubkey(&env, &g2));
-        set_guardian_set(&env, guardians, 2);
+            let g1 = make_guardian(1);
+            let g2 = make_guardian(2);
+            let mut guardians: Vec<BytesN<32>> = Vec::new(&env);
+            guardians.push_back(guardian_pubkey(&env, &g1));
+            guardians.push_back(guardian_pubkey(&env, &g2));
+            set_guardian_set(&env, guardians, 2);
 
-        let mut vaa = draft_vaa(&env, 2, 1, 100);
-        let sig1 = sign_body(&env, &g1, &vaa);
-        vaa.signatures.push_back(sig1);
-        vaa.guardian_indices.push_back(0);
+            let mut vaa = draft_vaa(&env, 2, 1, 100);
+            let sig1 = sign_body(&env, &g1, &vaa);
+            vaa.signatures.push_back(sig1);
+            vaa.guardian_indices.push_back(0);
 
-        assert!(!verify_vaa_quorum(&env, &vaa));
+            assert!(!verify_vaa_quorum(&env, &vaa));
+        });
     }
 
     /// A signature that does not match the claimed guardian index is rejected
@@ -488,39 +500,42 @@ mod tests {
     #[test]
     fn test_submit_price_via_wormhole_end_to_end() {
         let env = Env::default();
+        let __contract_id = env.register(crate::PriceOracleContract, ());
         env.mock_all_auths();
-        let admin = init(&env);
+        env.as_contract(&__contract_id, || {
+            let admin = init(&env);
 
-        let asset = Address::generate(&env);
-        crate::assets::register_asset(&env, asset.clone());
+            let asset = Address::generate(&env);
+            crate::assets::register_asset(&env, asset.clone());
 
-        let g1 = make_guardian(1);
-        let g2 = make_guardian(2);
-        let mut guardians: Vec<BytesN<32>> = Vec::new(&env);
-        guardians.push_back(guardian_pubkey(&env, &g1));
-        guardians.push_back(guardian_pubkey(&env, &g2));
-        set_guardian_set(&env, guardians, 2);
+            let g1 = make_guardian(1);
+            let g2 = make_guardian(2);
+            let mut guardians: Vec<BytesN<32>> = Vec::new(&env);
+            guardians.push_back(guardian_pubkey(&env, &g1));
+            guardians.push_back(guardian_pubkey(&env, &g2));
+            set_guardian_set(&env, guardians, 2);
 
-        let ethereum_marker = Address::generate(&env);
-        set_chain_mapping(&env, 2, ethereum_marker.clone());
-        let _ = admin;
+            let ethereum_marker = Address::generate(&env);
+            set_chain_mapping(&env, 2, ethereum_marker.clone());
+            let _ = admin;
 
-        let price = 3_500_000_000_000_000_000i128; // 3.5 * 1e18
-        let mut vaa = draft_vaa(&env, 2, 1, price);
-        let sig1 = sign_body(&env, &g1, &vaa);
-        let sig2 = sign_body(&env, &g2, &vaa);
-        vaa.signatures.push_back(sig1);
-        vaa.signatures.push_back(sig2);
-        vaa.guardian_indices.push_back(0);
-        vaa.guardian_indices.push_back(1);
+            let price = 3_500_000_000_000_000_000i128; // 3.5 * 1e18
+            let mut vaa = draft_vaa(&env, 2, 1, price);
+            let sig1 = sign_body(&env, &g1, &vaa);
+            let sig2 = sign_body(&env, &g2, &vaa);
+            vaa.signatures.push_back(sig1);
+            vaa.signatures.push_back(sig2);
+            vaa.guardian_indices.push_back(0);
+            vaa.guardian_indices.push_back(1);
 
-        submit_price_via_wormhole(&env, asset.clone(), vaa);
+            submit_price_via_wormhole(&env, asset.clone(), vaa);
 
-        let stored =
-            crate::cross_chain_verify::get_cross_chain_price(&env, &asset, &ethereum_marker)
-                .expect("price should be stored");
-        assert_eq!(stored.price, price);
-        assert_eq!(stored.decimals, 18);
+            let stored =
+                crate::cross_chain_verify::get_cross_chain_price(&env, &asset, &ethereum_marker)
+                    .expect("price should be stored");
+            assert_eq!(stored.price, price);
+            assert_eq!(stored.decimals, 18);
+        });
     }
 
     /// The same VAA (same emitter + sequence) cannot be relayed twice.

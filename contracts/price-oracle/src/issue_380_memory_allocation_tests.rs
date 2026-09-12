@@ -4,7 +4,7 @@
 
 use soroban_sdk::{
     testutils::{Address as _, Ledger, LedgerInfo},
-    Env, Vec,
+    Address, Env, Vec,
 };
 
 use crate::test_helpers::{register_test_asset, register_test_source, setup_contract};
@@ -31,6 +31,7 @@ fn test_price_submission_without_excess_allocation() {
     let e = Env::default();
     e.mock_all_auths();
     let (client, _admin) = setup_contract(&e);
+    client.set_min_sources_required(&1u32);
     let source = register_test_source(&e, &client, "Source 1");
     let asset = register_test_asset(&e, &client);
 
@@ -38,7 +39,7 @@ fn test_price_submission_without_excess_allocation() {
 
     client.submit_price(&source, &asset, &1_500_000, &500);
 
-    let price = client.get_price(&asset);
+    let price = client.get_price(&asset, &0u64);
     assert!(price.is_some());
 }
 
@@ -47,6 +48,7 @@ fn test_aggregation_with_optimized_sorting() {
     let e = Env::default();
     e.mock_all_auths();
     let (client, _admin) = setup_contract(&e);
+    client.set_min_sources_required(&1u32);
     let source1 = register_test_source(&e, &client, "Source 1");
     let source2 = register_test_source(&e, &client, "Source 2");
     let source3 = register_test_source(&e, &client, "Source 3");
@@ -60,7 +62,7 @@ fn test_aggregation_with_optimized_sorting() {
 
     client.trigger_aggregation(&asset);
 
-    let price = client.get_price(&asset);
+    let price = client.get_price(&asset, &0u64);
     assert!(price.is_some());
 }
 
@@ -69,6 +71,7 @@ fn test_median_calculation_with_vec_reuse() {
     let e = Env::default();
     e.mock_all_auths();
     let (client, _admin) = setup_contract(&e);
+    client.set_min_sources_required(&1u32);
     let source1 = register_test_source(&e, &client, "Source 1");
     let source2 = register_test_source(&e, &client, "Source 2");
     let source3 = register_test_source(&e, &client, "Source 3");
@@ -86,7 +89,7 @@ fn test_median_calculation_with_vec_reuse() {
 
     client.trigger_aggregation(&asset);
 
-    let price = client.get_price(&asset);
+    let price = client.get_price(&asset, &0u64);
     assert!(price.is_some());
 }
 
@@ -95,6 +98,7 @@ fn test_history_collection_efficient_allocation() {
     let e = Env::default();
     e.mock_all_auths();
     let (client, _admin) = setup_contract(&e);
+    client.set_min_sources_required(&1u32);
     let source1 = register_test_source(&e, &client, "Source 1");
     let source2 = register_test_source(&e, &client, "Source 2");
     let source3 = register_test_source(&e, &client, "Source 3");
@@ -108,7 +112,7 @@ fn test_history_collection_efficient_allocation() {
 
     client.trigger_aggregation(&asset);
 
-    let history = client.get_price_history(&asset, &10u32);
+    let history = client.get_price_history(&asset, &0u32, &10u32);
     assert!(history.len() > 0);
 }
 
@@ -117,20 +121,22 @@ fn test_loop_allocation_optimization() {
     let e = Env::default();
     e.mock_all_auths();
     let (client, _admin) = setup_contract(&e);
-    let sources: Vec<_> = (0..5)
-        .map(|i| register_test_source(&e, &client, &format!("Source {}", i)))
-        .collect();
+    client.set_min_sources_required(&1u32);
+    let mut sources: Vec<Address> = Vec::new(&e);
+    for i in 0..5 {
+        sources.push_back(register_test_source(&e, &client, &format!("Source {}", i)));
+    }
     let asset = register_test_asset(&e, &client);
 
     set_ledger(&e, 100, 1_000);
 
-    for source in &sources {
-        client.submit_price(source, &asset, &1_000_000, &500);
+    for source in sources.iter() {
+        client.submit_price(&source, &asset, &1_000_000, &500);
     }
 
     client.trigger_aggregation(&asset);
 
-    let price = client.get_price(&asset);
+    let price = client.get_price(&asset, &0u64);
     assert!(price.is_some());
 }
 
@@ -139,6 +145,7 @@ fn test_temporary_allocation_reuse_in_aggregation() {
     let e = Env::default();
     e.mock_all_auths();
     let (client, _admin) = setup_contract(&e);
+    client.set_min_sources_required(&1u32);
     let source1 = register_test_source(&e, &client, "Source 1");
     let source2 = register_test_source(&e, &client, "Source 2");
     let source3 = register_test_source(&e, &client, "Source 3");
@@ -152,7 +159,7 @@ fn test_temporary_allocation_reuse_in_aggregation() {
 
     client.trigger_aggregation(&asset);
 
-    let price = client.get_price(&asset);
+    let price = client.get_price(&asset, &0u64);
     assert!(price.is_some());
 }
 
@@ -161,6 +168,7 @@ fn test_no_excessive_allocations_on_repeated_queries() {
     let e = Env::default();
     e.mock_all_auths();
     let (client, _admin) = setup_contract(&e);
+    client.set_min_sources_required(&1u32);
     let source = register_test_source(&e, &client, "Source 1");
     let asset = register_test_asset(&e, &client);
 
@@ -170,7 +178,7 @@ fn test_no_excessive_allocations_on_repeated_queries() {
 
     // Query multiple times to verify no excessive allocations
     for _ in 0..10 {
-        let price = client.get_price(&asset);
+        let price = client.get_price(&asset, &0u64);
         assert!(price.is_some());
     }
 }

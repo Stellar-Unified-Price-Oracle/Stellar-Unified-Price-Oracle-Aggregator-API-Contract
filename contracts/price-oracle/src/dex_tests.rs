@@ -1,5 +1,6 @@
 #![cfg(test)]
 
+use soroban_sdk::testutils::Address as _;
 use soroban_sdk::{Address, Env, String};
 
 use crate::test_helpers::*;
@@ -14,6 +15,8 @@ fn test_register_and_read_dex_pool() {
 
     let asset_a = Address::generate(&e);
     let asset_b = Address::generate(&e);
+    client.register_asset(&asset_a);
+    client.register_asset(&asset_b);
 
     client.dex_register_pool(&asset_a, &asset_b, &1000i128, &2000i128);
 

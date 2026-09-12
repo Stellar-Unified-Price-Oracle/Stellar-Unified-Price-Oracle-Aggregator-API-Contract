@@ -3,6 +3,7 @@ name = "price-oracle-fuzz"
 version = "0.0.1"
 edition = "2021"
 publish = false
+license = "MIT"
 
 [package.metadata]
 cargo-fuzz = true
@@ -24,6 +25,10 @@ doc = false
 [dependencies]
 # libfuzzer-sys provides the `fuzz_target!` macro and the AFL/libFuzzer harness.
 libfuzzer-sys = { version = "0.4.7", features = [] }
+# The differential targets build `soroban_sdk::Vec` values and drive them through
+# the SDK-side aggregation wrappers, so the SDK has to be a direct dependency.
+# `testutils` gives us a host `Env` with real (non-contract) storage/alloc.
+soroban-sdk = { version = "26", features = ["testutils"] }
 # Pull in the pure core functions from the contract crate.
 price-oracle = { path = "../contracts/price-oracle", features = ["fuzz"] }
 

@@ -1,6 +1,6 @@
 #![cfg(test)]
 
-use ed25519_dalek::{SigningKey, VerifyingKey};
+use ed25519_dalek::{Signer, SigningKey, VerifyingKey};
 use soroban_sdk::{testutils::Address as _, Address, Bytes, BytesN, Env, String};
 
 use crate::{PriceOracleContract, PriceOracleContractClient};
@@ -106,9 +106,9 @@ fn test_add_relayer_stores_approved_at_ledger() {
     assert_eq!(info.approved_at_ledger, current_ledger);
 }
 
-// RelayerAlreadyExists = 17
+// RelayerAlreadyExists = 51
 #[test]
-#[should_panic(expected = "Error(Contract, #17)")]
+#[should_panic(expected = "Error(Contract, #51)")]
 fn test_add_relayer_already_exists() {
     let e = Env::default();
     let (client, _) = setup(&e);
@@ -145,9 +145,9 @@ fn test_remove_relayer_success() {
     assert!(!client.is_relayer(&relayer));
 }
 
-// RelayerNotAuthorized = 16
+// RelayerNotAuthorized = 50
 #[test]
-#[should_panic(expected = "Error(Contract, #16)")]
+#[should_panic(expected = "Error(Contract, #50)")]
 fn test_remove_relayer_not_registered() {
     let e = Env::default();
     let (client, _) = setup(&e);
@@ -250,6 +250,9 @@ fn test_challenge_unauthorized_relayed_submission() {
     let challenger = Address::generate(&e);
 
     client.add_relayer(&relayer, &String::from_str(&e, "Unauthorized Relayer"));
+    let token = crate::test_helpers::deploy_token(&e);
+    client.set_stake_token_contract(&token);
+    crate::test_helpers::mint_token(&e, &token, &relayer, 1_000);
     client.set_relayer_bond_amount(&1_000i128);
     client.deposit_relayer_bond(&relayer);
     client.remove_relayer(&relayer);
@@ -335,7 +338,7 @@ fn test_relayer_can_submit_on_behalf_of_any_registered_source() {
 
 // RelayerNotAuthorized = 16
 #[test]
-#[should_panic(expected = "Error(Contract, #16)")]
+#[should_panic(expected = "Error(Contract, #50)")]
 fn test_submit_price_relayed_unapproved_relayer() {
     let e = Env::default();
     e.mock_all_auths();
@@ -454,7 +457,7 @@ fn test_submit_price_relayed_when_paused() {
 
 // RelayerNotAuthorized = 16
 #[test]
-#[should_panic(expected = "Error(Contract, #16)")]
+#[should_panic(expected = "Error(Contract, #50)")]
 fn test_submit_price_relayed_after_removal() {
     let e = Env::default();
     e.mock_all_auths();

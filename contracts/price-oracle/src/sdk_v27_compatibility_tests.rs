@@ -1,15 +1,17 @@
 #![cfg(test)]
 
 use crate::test_helpers::*;
-use soroban_sdk::{testutils::Address as _, Address, Env, String, Vec};
+use soroban_sdk::testutils::{Address as _, Ledger};
+use soroban_sdk::{Address, Env, String, Vec};
 
 #[test]
 fn test_sdk_v27_contract_initialization() {
     let e = Env::default();
     e.mock_all_auths();
+    e.ledger().with_mut(|l| l.sequence_number = 1);
     let (client, _admin) = setup_contract(&e);
 
-    assert_ne!(client.env.ledger_sequence(), 0);
+    assert_ne!(client.env.ledger().sequence(), 0);
 }
 
 #[test]
@@ -24,7 +26,7 @@ fn test_sdk_v27_price_submission() {
 
     submit_test_price(&client, &source, &asset, 1000, 100);
 
-    let price = client.get_price(&asset);
+    let price = client.get_price(&asset, &0u64).unwrap();
     assert_eq!(price.price, 1000);
 }
 
@@ -76,7 +78,7 @@ fn test_sdk_v27_ledger_state_persistence() {
     client.set_min_sources_required(&1u32);
     submit_test_price(&client, &source, &asset, 5000, 200);
 
-    let price = client.get_price(&asset);
+    let price = client.get_price(&asset, &0u64).unwrap();
     assert_eq!(price.price, 5000);
     assert_eq!(price.timestamp, 200);
 }
@@ -90,12 +92,12 @@ fn test_sdk_v27_multiple_assets_concurrent_prices() {
     for (i, asset) in assets.iter().enumerate() {
         for (j, source) in sources.iter().enumerate() {
             let price = ((i + 1) * (j + 1) * 100) as i128;
-            submit_test_price(&client, source, asset, price, 300);
+            submit_test_price(&client, &source, &asset, price, 300);
         }
     }
 
-    for (i, asset) in assets.iter().enumerate() {
-        let price_data = client.get_price(asset);
+    for asset in assets.iter() {
+        let price_data = client.get_price(&asset, &0u64).unwrap();
         assert!(price_data.price > 0);
     }
 }
@@ -144,6 +146,6 @@ fn test_sdk_v27_timestamp_handling() {
 
     submit_test_price(&client, &source, &asset, 2000, 1000000);
 
-    let price = client.get_price(&asset);
+    let price = client.get_price(&asset, &0u64).unwrap();
     assert_eq!(price.timestamp, 1000000);
 }

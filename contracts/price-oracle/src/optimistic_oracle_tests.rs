@@ -1,5 +1,7 @@
 #![cfg(test)]
 
+use soroban_sdk::testutils::Address as _;
+use soroban_sdk::xdr::ToXdr;
 use soroban_sdk::Env;
 
 use crate::test_helpers::{ledger_default, register_test_asset, setup_contract};
@@ -12,8 +14,10 @@ fn test_optimistic_proposal_finalizes_after_dispute_window() {
     let (client, _admin) = setup_contract(&env);
     client.set_min_sources_required(&1u32);
     let asset = register_test_asset(&env, &client);
+    let proposer = soroban_sdk::Address::generate(&env);
 
-    let proposal_id = client.propose_price(&asset, &123i128, &1_000u64, &10i128);
+    let proposal_id =
+        client.propose_price(&proposer, &asset, &123i128, &1_000u64, &100_000_000i128);
     assert_eq!(proposal_id, 1u32);
 
     let pending = client.get_proposal(&proposal_id).unwrap();
@@ -39,8 +43,11 @@ fn test_dispute_and_resolve_proposal() {
     client.set_min_sources_required(&1u32);
     let asset = register_test_asset(&env, &client);
 
-    let proposal_id = client.propose_price(&asset, &500i128, &1_000u64, &10i128);
-    client.dispute_proposal(&proposal_id);
+    let proposer = soroban_sdk::Address::generate(&env);
+    let disputer = soroban_sdk::Address::generate(&env);
+    let proposal_id =
+        client.propose_price(&proposer, &asset, &500i128, &1_000u64, &100_000_000i128);
+    client.dispute_proposal(&disputer, &proposal_id);
 
     let disputed = client.get_proposal(&proposal_id).unwrap();
     assert!(disputed.disputed);
@@ -60,24 +67,33 @@ fn test_resolve_via_external_data() {
     client.set_min_sources_required(&1u32);
     let asset = register_test_asset(&env, &client);
 
-    let proposal_id = client.propose_price(&asset, &123i128, &1_000u64, &10i128);
-    client.dispute_proposal(&proposal_id);
+    let proposer = soroban_sdk::Address::generate(&env);
+    let disputer = soroban_sdk::Address::generate(&env);
+    let proposal_id =
+        client.propose_price(&proposer, &asset, &123i128, &1_000u64, &100_000_000i128);
+    client.dispute_proposal(&disputer, &proposal_id);
 
     let source = soroban_sdk::Address::generate(&env);
+    // The proof source must be a registered oracle source.
+    client.add_source(&source, &soroban_sdk::String::from_str(&env, "External"));
     let external_price = 456i128;
     let timestamp = 1_000u64;
     let mut preimage = soroban_sdk::Bytes::new(&env);
-    preimage.append(&source.to_xdr(&env));
+    preimage.append(&source.clone().to_xdr(&env));
     let price_bytes = external_price.to_le_bytes();
     for b in price_bytes.iter() {
-        preimage.push_back(b);
+        preimage.push_back(*b);
     }
     let ts_bytes = timestamp.to_le_bytes();
     for b in ts_bytes.iter() {
-        preimage.push_back(b);
+        preimage.push_back(*b);
     }
     let data_hash: soroban_sdk::BytesN<32> = env.crypto().sha256(&preimage).into();
-    let signature = soroban_sdk::BytesN::<64>::from_slice(&env, &[0u8; 64]);
+    // The contract rejects an all-zero signature, so use a non-zero placeholder:
+    // this test exercises the preimage/`data_hash` path, not Ed25519 verification.
+    let mut sig = [0u8; 64];
+    sig[0] = 1;
+    let signature = soroban_sdk::BytesN::<64>::from_array(&env, &sig);
 
     let proof = crate::ExternalDataProof {
         source: source.clone(),
@@ -104,9 +120,11 @@ fn test_get_active_proposals() {
     client.set_min_sources_required(&1u32);
     let asset = register_test_asset(&env, &client);
 
-    let _p1 = client.propose_price(&asset, &100i128, &1_000u64, &10i128);
-    let _p2 = client.propose_price(&asset, &200i128, &1_000u64, &10i128);
-    client.dispute_proposal(&2u32);
+    let proposer = soroban_sdk::Address::generate(&env);
+    let disputer = soroban_sdk::Address::generate(&env);
+    let _p1 = client.propose_price(&proposer, &asset, &100i128, &1_000u64, &100_000_000i128);
+    let _p2 = client.propose_price(&proposer, &asset, &200i128, &1_000u64, &100_000_000i128);
+    client.dispute_proposal(&disputer, &2u32);
 
     let active = client.get_active_proposals();
     assert_eq!(active.len(), 2);

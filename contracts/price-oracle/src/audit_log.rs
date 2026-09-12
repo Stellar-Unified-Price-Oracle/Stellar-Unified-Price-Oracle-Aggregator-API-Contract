@@ -6,7 +6,7 @@
 
 use soroban_sdk::{panic_with_error, symbol_short, Address, Bytes, Env, Symbol, Vec};
 
-use crate::events::{emit_admin_action, AdminAuditEntryAppendedEvent};
+use crate::events::AdminAuditEntryAppendedEvent;
 use crate::storage::{get_admin, LEDGER_BUMP, LEDGER_THRESHOLD};
 use crate::types::{AuditEntry, DataKey, ErrorCode};
 

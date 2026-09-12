@@ -112,7 +112,7 @@ fn write_price_snapshot(
             &DataKey::PriceHistory(asset.clone(), current_ledger),
             &history_entry,
         );
-        if ledger_list.len() == 0
+        if ledger_list.is_empty()
             || ledger_list.get_unchecked(ledger_list.len() - 1) != current_ledger
         {
             ledger_list.push_back(current_ledger);

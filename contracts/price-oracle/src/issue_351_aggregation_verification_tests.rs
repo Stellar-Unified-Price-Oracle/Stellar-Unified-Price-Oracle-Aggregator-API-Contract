@@ -40,7 +40,7 @@ fn test_median_of_single_price_returns_that_price() {
 
     client.submit_price(&source, &asset, &1_000_000, &1_000);
 
-    let price = client.get_price(&asset);
+    let price = client.get_price(&asset, &0u64);
     assert!(price.is_some());
     let agg_price = price.unwrap();
     assert_eq!(agg_price.price, 1_000_000);
@@ -64,7 +64,7 @@ fn test_median_of_odd_prices_returns_middle_value() {
     client.submit_price(&source2, &asset, &2_000_000, &1_000);
     client.submit_price(&source3, &asset, &3_000_000, &1_000);
 
-    let price = client.get_price(&asset);
+    let price = client.get_price(&asset, &0u64);
     assert!(price.is_some());
     let agg_price = price.unwrap();
     assert_eq!(agg_price.price, 2_000_000);
@@ -90,7 +90,7 @@ fn test_median_of_even_prices_returns_average_of_middle_two() {
     client.submit_price(&source3, &asset, &3_000_000, &1_000);
     client.submit_price(&source4, &asset, &4_000_000, &1_000);
 
-    let price = client.get_price(&asset);
+    let price = client.get_price(&asset, &0u64);
     assert!(price.is_some());
     let agg_price = price.unwrap();
     assert_eq!(agg_price.price, 2_500_000);
@@ -118,7 +118,7 @@ fn test_median_with_outliers_ignores_extremes() {
     client.submit_price(&source4, &asset, &2_200_000, &1_000);
     client.submit_price(&source5, &asset, &100_000_000, &1_000);
 
-    let price = client.get_price(&asset);
+    let price = client.get_price(&asset, &0u64);
     assert!(price.is_some());
     let agg_price = price.unwrap();
     assert_eq!(agg_price.price, 2_100_000);
@@ -144,7 +144,7 @@ fn test_no_overflow_with_large_price_values() {
     client.submit_price(&source2, &asset, &large_price, &1_000);
     client.submit_price(&source3, &asset, &large_price, &1_000);
 
-    let price = client.get_price(&asset);
+    let price = client.get_price(&asset, &0u64);
     assert!(price.is_some());
     let agg_price = price.unwrap();
     assert_eq!(agg_price.price, large_price);
@@ -168,7 +168,7 @@ fn test_negative_prices_handled_correctly() {
     client.submit_price(&source2, &asset, &0, &1_000);
     client.submit_price(&source3, &asset, &1_000_000, &1_000);
 
-    let price = client.get_price(&asset);
+    let price = client.get_price(&asset, &0u64);
     assert!(price.is_some());
     let agg_price = price.unwrap();
     assert_eq!(agg_price.price, 0);
@@ -240,7 +240,7 @@ fn test_median_parity_verification() {
         client.submit_price(src, &asset, price, &1_000);
     }
 
-    let agg_price = client.get_price(&asset).unwrap();
+    let agg_price = client.get_price(&asset, &0u64).unwrap();
     assert_eq!(agg_price.price, 3_000_000);
 }
 
@@ -263,6 +263,6 @@ fn test_price_timestamp_consistency_in_aggregation() {
     client.submit_price(&source2, &asset, &2_000_000, &ts);
     client.submit_price(&source3, &asset, &3_000_000, &ts);
 
-    let agg_price = client.get_price(&asset).unwrap();
+    let agg_price = client.get_price(&asset, &0u64).unwrap();
     assert_eq!(agg_price.timestamp, ts);
 }

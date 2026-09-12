@@ -588,6 +588,7 @@ fn test_upgrade() {
     }
 
     let e = Env::default();
+    e.cost_estimate().disable_resource_limits();
     let (client, _) = setup_contract(&e);
 
     let new_wasm_hash = load_wasm_hash(&e);
@@ -604,6 +605,7 @@ fn test_upgrade_unauthorized() {
     }
 
     let e = Env::default();
+    e.cost_estimate().disable_resource_limits();
     let (client, _) = setup_contract(&e);
 
     let new_wasm_hash = load_wasm_hash(&e);
@@ -661,6 +663,7 @@ fn test_upgrade_wasm_without_expected_interface_handled() {
 #[test]
 fn test_upgrade_from_non_admin_rejected() {
     let e = Env::default();
+    e.cost_estimate().disable_resource_limits();
     let (client, _) = setup_contract(&e);
 
     let new_wasm_hash = load_wasm_hash(&e);
@@ -827,7 +830,7 @@ fn test_price_source_not_affected_by_other_assets() {
 }
 
 #[test]
-#[should_panic(expected = "Error(Contract, #12)")]
+#[should_panic(expected = "Error(Contract, #131)")]
 fn test_operation_dependency_execution() {
     let e = Env::default();
     let client = create_contract(&e);
@@ -842,7 +845,7 @@ fn test_operation_dependency_execution() {
     client.create_operation(&op_b, &deps);
 
     // executing B before A should fail with DependencyNotMet (#12)
-    client.execute_operation(&op_b);
+    client.execute_dependent_operation(&op_b);
 }
 
 #[test]
@@ -859,8 +862,8 @@ fn test_operation_execute_after_dependency() {
     client.create_operation(&op_a, &Vec::new(&e));
     client.create_operation(&op_b, &deps);
 
-    client.execute_operation(&op_a);
-    client.execute_operation(&op_b);
+    client.execute_dependent_operation(&op_a);
+    client.execute_dependent_operation(&op_b);
 
     // statuses: 1 == Executed
     assert_eq!(
@@ -887,7 +890,7 @@ fn test_auto_cancel_dependents() {
     client.create_operation(&op_a, &Vec::new(&e));
     client.create_operation(&op_b, &deps);
 
-    client.cancel_operation(&op_a);
+    client.cancel_dependent_operation(&op_a);
 
     assert_eq!(
         client.get_operation_status(&op_a),
@@ -1117,7 +1120,7 @@ fn test_submit_price_current_timestamp_accepted() {
     let (client, _admin, source, asset) = setup_basic(&e);
 
     // Timestamp equal to ledger time — accepted
-    client.submit_price(&source, &asset, &100i128, &1000u64, &1u64);
+    client.submit_price_with_nonce(&source, &asset, &100i128, &1000u64, &1u64);
 }
 
 #[test]
@@ -1127,7 +1130,7 @@ fn test_submit_price_past_timestamp_accepted() {
     let (client, _admin, source, asset) = setup_basic(&e);
 
     // Timestamp in the past — accepted
-    client.submit_price(&source, &asset, &100i128, &500u64, &1u64);
+    client.submit_price_with_nonce(&source, &asset, &100i128, &500u64, &1u64);
 }
 
 #[test]
@@ -1137,7 +1140,7 @@ fn test_submit_price_slightly_future_timestamp_accepted() {
     let (client, _admin, source, asset) = setup_basic(&e);
 
     // Timestamp within threshold (default 300s) — accepted
-    client.submit_price(&source, &asset, &100i128, &1299u64, &1u64);
+    client.submit_price_with_nonce(&source, &asset, &100i128, &1299u64, &1u64);
 }
 
 #[test]
@@ -1148,7 +1151,7 @@ fn test_submit_price_far_future_timestamp_rejected() {
     let (client, _admin, source, asset) = setup_basic(&e);
 
     // Timestamp more than 5 minutes (300s) in the future — rejected
-    client.submit_price(&source, &asset, &100i128, &1301u64, &1u64);
+    client.submit_price_with_nonce(&source, &asset, &100i128, &1301u64, &1u64);
 }
 
 #[test]
@@ -1174,7 +1177,7 @@ fn test_timestamp_threshold_configurable() {
     client.set_timestamp_threshold(&600u64);
 
     // Now 1599 should be accepted (within 600s)
-    client.submit_price(&source, &asset, &100i128, &1599u64, &1u64);
+    client.submit_price_with_nonce(&source, &asset, &100i128, &1599u64, &1u64);
 }
 
 #[test]
@@ -1187,7 +1190,7 @@ fn test_timestamp_threshold_custom_rejects_beyond() {
     client.set_timestamp_threshold(&60u64);
 
     // 1061 is 61s in future — beyond custom threshold of 60s
-    client.submit_price(&source, &asset, &100i128, &1061u64, &1u64);
+    client.submit_price_with_nonce(&source, &asset, &100i128, &1061u64, &1u64);
 }
 
 #[test]
@@ -1195,6 +1198,9 @@ fn test_submit_price_returns_early_when_sources_insufficient() {
     let e = Env::default();
     ledger_default(&e, 1, 1000);
     let (client, _admin, source, asset) = setup_basic(&e);
+    // `min_sources_required` may not exceed the number of registered sources,
+    // so register a second (silent) source before raising the requirement.
+    let _source2 = register_test_source(&e, &client, "Silent");
 
     client.set_min_sources_required(&2u32);
     client.set_min_submission_interval(&1u32);
@@ -1204,11 +1210,14 @@ fn test_submit_price_returns_early_when_sources_insufficient() {
     ledger_default(&e, 10, 1000);
     client.submit_price(&source, &asset, &200i128, &1000u64);
 
+    // Events are only retained for the most recent invocation, so snapshot
+    // them immediately after the submission (before the read calls).
+    let raw_events = e.events().all();
+    let events = raw_events.events();
+
     let stored = client.get_source_price(&asset, &source);
     assert_eq!(stored.price, 200i128);
     assert!(client.get_price(&asset, &0u64).is_none());
-
-    let events = e.events().all().events();
     assert_eq!(
         events.len(),
         2,
@@ -1316,7 +1325,7 @@ fn test_removed_source_cannot_submit_prices() {
 
     // Removed source cannot submit
     assert!(client
-        .try_submit_price(&source, &asset, &200i128, &1000u64, &2u64)
+        .try_submit_price_with_nonce(&source, &asset, &200i128, &1000u64, &2u64)
         .is_err());
 }
 
@@ -2555,9 +2564,10 @@ fn test_source_heartbeat_liveness_bond() {
     let source = register_test_source(&e, &client, "Source1");
     let asset = register_test_asset(&e, &client);
 
-    let token = Address::generate(&e);
+    let token = deploy_token(&e);
     client.set_stake_token_contract(&token);
     assert_eq!(client.get_stake_token_contract().unwrap(), token);
+    mint_token(&e, &token, &source, 1000);
 
     // Initial config check
     assert_eq!(client.get_source_bond(), 0i128);

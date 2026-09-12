@@ -90,7 +90,7 @@ pub fn submit_price_with_external_proof(
     // Emit proof-submitted event.
     env.events().publish(
         (symbol_short!("proof_sub"), asset.clone(), source.clone()),
-        (price, proof.proof_type.clone()),
+        (price, proof.proof_type),
     );
 
     // Derive an auto-incrementing nonce for the proof submission path using the
@@ -260,7 +260,7 @@ mod tests {
             base_reserve: 10,
             min_temp_entry_ttl: 10,
             min_persistent_entry_ttl: 10,
-            max_entry_ttl: 4096,
+            max_entry_ttl: 6_312_000,
         });
     }
 

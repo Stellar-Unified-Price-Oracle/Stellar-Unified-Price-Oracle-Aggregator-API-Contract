@@ -52,7 +52,7 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "Error(Contract, #16)")]
+    #[should_panic(expected = "Error(Contract, #25)")]
     fn test_guard_reentrant_panics() {
         let env = Env::default();
         env.mock_all_auths();

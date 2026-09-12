@@ -18,7 +18,7 @@ fn ledger_at(e: &Env, seq: u32, ts: u64) {
         base_reserve: 10,
         min_temp_entry_ttl: 10,
         min_persistent_entry_ttl: 10,
-        max_entry_ttl: 4096,
+        max_entry_ttl: 6_312_000,
     });
 }
 

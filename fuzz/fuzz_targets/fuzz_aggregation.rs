@@ -1,7 +1,7 @@
 //! # Fuzz target: `fuzz_aggregation`  (#189)
 //!
 //! Coverage-guided fuzzer that differentially tests every aggregation
-//! function in `core.rs` (pure slice) against the corresponding
+//! function in `core_pricing.rs` (pure slice) against the corresponding
 //! `storage.rs` function (Soroban-SDK `Vec<i128>`).
 //!
 //! ## What is fuzzed
@@ -38,7 +38,7 @@
 #![no_main]
 
 use libfuzzer_sys::fuzz_target;
-use price_oracle::core::{
+use price_oracle::core_pricing::{
     mean_core, median_core, trimmed_mean_core, weighted_median_core,
 };
 use soroban_sdk::Env;

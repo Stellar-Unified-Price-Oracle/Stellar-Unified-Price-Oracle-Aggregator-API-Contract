@@ -44,7 +44,7 @@ fn test_aggregation_writes_aggregate_price() {
 
     client.trigger_aggregation(&asset);
 
-    let price = client.get_price(&asset);
+    let price = client.get_price(&asset, &0u64);
     assert!(price.is_some());
 }
 
@@ -66,7 +66,7 @@ fn test_aggregation_updates_history() {
 
     client.trigger_aggregation(&asset);
 
-    let history = client.get_price_history(&asset, &10u32);
+    let history = client.get_price_history(&asset, &0u32, &10u32);
     assert!(history.len() > 0);
 }
 
@@ -89,7 +89,7 @@ fn test_aggregation_batches_multiple_writes() {
     // Trigger aggregation which should batch: aggregate, history, EMA, circuit-breaker state
     client.trigger_aggregation(&asset);
 
-    let price = client.get_price(&asset);
+    let price = client.get_price(&asset, &0u64);
     assert!(price.is_some());
 }
 
@@ -111,7 +111,7 @@ fn test_sequential_aggregations_maintain_state() {
     client.submit_price(&source3, &asset, &1_050_000, &500);
     client.trigger_aggregation(&asset);
 
-    let price1 = client.get_price(&asset).unwrap().price;
+    let price1 = client.get_price(&asset, &0u64).unwrap().price;
 
     // Second aggregation
     set_ledger(&e, 200, 2_000);
@@ -120,7 +120,7 @@ fn test_sequential_aggregations_maintain_state() {
     client.submit_price(&source3, &asset, &1_150_000, &500);
     client.trigger_aggregation(&asset);
 
-    let price2 = client.get_price(&asset).unwrap().price;
+    let price2 = client.get_price(&asset, &0u64).unwrap().price;
 
     assert_ne!(price1, price2);
 }
@@ -143,7 +143,7 @@ fn test_circuit_breaker_state_persisted_on_aggregation() {
 
     client.trigger_aggregation(&asset);
 
-    let price = client.get_price(&asset);
+    let price = client.get_price(&asset, &0u64);
     assert!(price.is_some());
 }
 
@@ -166,9 +166,9 @@ fn test_atomicity_on_aggregation_writes() {
     client.trigger_aggregation(&asset);
 
     // Verify all writes completed successfully
-    let price = client.get_price(&asset);
+    let price = client.get_price(&asset, &0u64);
     assert!(price.is_some());
 
-    let history = client.get_price_history(&asset, &5u32);
+    let history = client.get_price_history(&asset, &0u32, &5u32);
     assert!(history.len() > 0);
 }

@@ -611,8 +611,8 @@ fn p_minus_two() -> U256 {
 fn bytes32_to_i128(b: &BytesN<32>) -> i128 {
     let arr = b.to_array();
     let mut val: i128 = 0;
-    for i in 16..32usize {
-        val = (val << 8) | (arr[i] as i128);
+    for byte in arr.iter().skip(16) {
+        val = (val << 8) | (*byte as i128);
     }
     val
 }
@@ -621,8 +621,8 @@ fn bytes32_to_i128(b: &BytesN<32>) -> i128 {
 fn bytes32_to_u64(b: &BytesN<32>) -> u64 {
     let arr = b.to_array();
     let mut val: u64 = 0;
-    for i in 24..32usize {
-        val = (val << 8) | (arr[i] as u64);
+    for byte in arr.iter().skip(24) {
+        val = (val << 8) | (*byte as u64);
     }
     val
 }

@@ -120,8 +120,7 @@ pub fn resolve_challenge(env: &Env, challenge_id: u32, is_valid: bool) {
 
     // Calculate reward if valid
     if is_valid {
-        // Simple reward: 0.1% of challenged price, scaled by decimals
-        let decimals = crate::admin::get_decimals(env);
+        // Simple reward: 0.1% of the challenged price, in the asset's own scale.
         let base_reward = challenge.expected_price / 1000; // 0.1%
         challenge.reward_amount = if base_reward > 0 {
             base_reward

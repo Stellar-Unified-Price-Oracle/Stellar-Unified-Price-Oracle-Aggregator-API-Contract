@@ -1,6 +1,10 @@
 #[cfg(test)]
 mod tests {
     use super::super::*;
+    // Pure logic tests: shadow the SDK collections pulled in by the glob import
+    // above with `std` equivalents so `format!`/`vec!`/`to_string()` line up.
+    use std::string::{String, ToString};
+    use std::vec::Vec;
 
     #[derive(Clone, Debug)]
     struct TreasuryAccount {
@@ -94,9 +98,9 @@ mod tests {
 
     #[test]
     fn test_linear_vesting_calculation() {
-        let start_time = 0;
-        let vesting_period = 365 * 24 * 3600;
-        let total_amount = 10000;
+        let start_time: i64 = 0;
+        let vesting_period: i64 = 365 * 24 * 3600;
+        let total_amount: i64 = 10000;
 
         let current_time = start_time + (vesting_period / 2);
 

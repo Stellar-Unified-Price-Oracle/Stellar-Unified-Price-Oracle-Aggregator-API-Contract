@@ -1,6 +1,6 @@
 //! # Fuzz target: `fuzz_quickselect`  (#189 / #190)
 //!
-//! Coverage-guided fuzzer that verifies `quickselect_core` from `core.rs`
+//! Coverage-guided fuzzer that verifies `quickselect_core` from `core_pricing.rs`
 //! against a fully-sorted reference for every generated (array, k) pair.
 //!
 //! ## Invariants checked
@@ -19,7 +19,7 @@
 #![no_main]
 
 use libfuzzer_sys::fuzz_target;
-use price_oracle::core::quickselect_core;
+use price_oracle::core_pricing::quickselect_core;
 
 fuzz_target!(|data: &[u8]| {
     // Minimum: 8 bytes for at least one i64 + 1 byte for k.

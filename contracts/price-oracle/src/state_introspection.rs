@@ -47,7 +47,7 @@ pub fn build_state_analysis(env: &Env) -> StateAnalysis {
         min_sources_required: read_u32(env, &DataKey::CfgMinSources, 1),
         max_history_length: read_u32(env, &DataKey::CfgMaxHistory, 100),
         registered_assets,
-        registered_sources: sources.len() as u32,
+        registered_sources: sources.len(),
         aggregate_count: 0,
         history_depth_avg: 0,
     }

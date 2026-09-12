@@ -771,6 +771,14 @@ pub enum DataKey {
     // -------------------------------------------------------------------------
     /// Compaction threshold in basis points (u32).
     CfgCompactionThresholdBps,
+
+    // -------------------------------------------------------------------------
+    // Cross-contract governance delegation
+    // -------------------------------------------------------------------------
+    /// Address of the external governor the admin has delegated to.
+    ExternalGovernor,
+    /// Allow-list flag for a governance operation name (bool).
+    GovernorAllowedOp(String),
 }
 
 /// A price submission from a single oracle source for a specific asset.

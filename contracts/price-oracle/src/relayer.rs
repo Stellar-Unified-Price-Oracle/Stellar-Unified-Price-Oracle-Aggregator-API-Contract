@@ -572,17 +572,12 @@ pub fn challenge_relayed_submission(
         .storage()
         .persistent()
         .get(&DataKey::Submission(asset.clone(), source.clone()));
-    match current_submission {
-        Some(existing) => {
-            if existing.price != price || existing.timestamp != timestamp {
-                // Challenge still proves unauthorized behavior even if price data differs,
-                // but caller must provide a valid proof object to certify the mismatch.
-            }
-        }
-        None => {}
-    }
+    // A challenge still proves unauthorized behavior even if the relayed price
+    // data differs from what is on-chain: the caller certifies the mismatch via
+    // the proof object checked below, so none of these are used for the decision.
+    let _ = (current_submission, price, timestamp);
 
-    if proof_data.len() == 0 {
+    if proof_data.is_empty() {
         panic_with_error!(env, ErrorCode::InvalidProof);
     }
 

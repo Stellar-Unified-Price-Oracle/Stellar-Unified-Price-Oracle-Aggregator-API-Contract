@@ -1,7 +1,10 @@
 #[cfg(test)]
-use soroban_sdk::Vec;
 mod tests {
     use super::super::*;
+    // Pure logic tests: shadow the SDK collections pulled in by the glob import
+    // above with `std` equivalents so `format!`/`vec!`/`to_string()` line up.
+    use std::string::{String, ToString};
+    use std::vec::Vec;
 
     #[derive(Clone, Debug, PartialEq)]
     enum OperationStatus {
@@ -237,10 +240,7 @@ mod tests {
         let governance_ops: Vec<_> = op_types
             .iter()
             .filter(|op_type| {
-                matches!(
-                    *op_type,
-                    "parameter_change" | "upgrade" | "source_add" | "source_remove"
-                )
+                ["parameter_change", "upgrade", "source_add", "source_remove"].contains(op_type)
             })
             .collect();
 

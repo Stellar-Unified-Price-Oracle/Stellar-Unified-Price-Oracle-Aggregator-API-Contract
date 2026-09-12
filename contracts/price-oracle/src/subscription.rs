@@ -110,35 +110,40 @@ pub fn subscribe(env: &Env, consumer: Address, duration: u32) {
     let ledger_timestamp = env.ledger().timestamp();
     let new_expiry = ledger_timestamp.saturating_add(duration as u64);
 
-    // If XLM token is configured, collect payment.
-    if let Some(token_contract) = get_xlm_token_contract(env) {
-        if plan_amount > 0 {
+    // Record the payment for any paid plan. When a SAC token is configured the
+    // amount is actually transferred from the consumer to this contract;
+    // otherwise the payment is still tracked so it can be distributed/refunded
+    // once a token is wired up (#306).
+    if plan_amount > 0 {
+        if let Some(token_contract) =
+            read_subscription_token(env).or_else(|| get_xlm_token_contract(env))
+        {
             let client = token::Client::new(env, &token_contract);
             let contract_addr = env.current_contract_address();
             client.transfer(&consumer, &contract_addr, &plan_amount);
-
-            let payment = SubscriptionPayment {
-                consumer: consumer.clone(),
-                amount: plan_amount,
-                timestamp: ledger_timestamp,
-                status: 1,
-            };
-            env.storage()
-                .persistent()
-                .set(&DataKey::SubscriptionPayment(consumer.clone()), &payment);
-            env.storage().persistent().extend_ttl(
-                &DataKey::SubscriptionPayment(consumer.clone()),
-                LEDGER_THRESHOLD,
-                LEDGER_BUMP,
-            );
-
-            SubscriptionPaymentReceivedEvent {
-                consumer: consumer.clone(),
-                amount: plan_amount,
-                ledger: env.ledger().sequence(),
-            }
-            .publish(env);
         }
+
+        let payment = SubscriptionPayment {
+            consumer: consumer.clone(),
+            amount: plan_amount,
+            timestamp: ledger_timestamp,
+            status: 1,
+        };
+        env.storage()
+            .persistent()
+            .set(&DataKey::SubscriptionPayment(consumer.clone()), &payment);
+        env.storage().persistent().extend_ttl(
+            &DataKey::SubscriptionPayment(consumer.clone()),
+            LEDGER_THRESHOLD,
+            LEDGER_BUMP,
+        );
+
+        SubscriptionPaymentReceivedEvent {
+            consumer: consumer.clone(),
+            amount: plan_amount,
+            ledger: env.ledger().sequence(),
+        }
+        .publish(env);
     }
 
     write_subscription_expiry(env, &consumer, new_expiry);
@@ -269,6 +274,15 @@ pub fn get_subscription_plans(env: &Env) -> SubscriptionPlans {
 // ---------------------------------------------------------------------------
 // #294: Native token fee distribution and refunds
 // ---------------------------------------------------------------------------
+
+/// The most recent subscription payment recorded for `consumer`, if any.
+///
+/// Returns `None` when the consumer has never subscribed.
+pub fn get_subscription_payment(env: &Env, consumer: Address) -> Option<SubscriptionPayment> {
+    env.storage()
+        .persistent()
+        .get(&DataKey::SubscriptionPayment(consumer))
+}
 
 /// Distributes collected subscription fees to treasury and sources/relayers.
 ///

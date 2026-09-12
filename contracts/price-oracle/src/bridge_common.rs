@@ -30,8 +30,8 @@ pub const PRICE_PAYLOAD_LEN: u32 = 32 + 16 + 4 + 8 + 8;
 
 fn read_array<const N: usize>(bytes: &Bytes, offset: u32) -> [u8; N] {
     let mut arr = [0u8; N];
-    for i in 0..N {
-        arr[i] = bytes.get_unchecked(offset + i as u32);
+    for (i, slot) in arr.iter_mut().enumerate() {
+        *slot = bytes.get_unchecked(offset + i as u32);
     }
     arr
 }

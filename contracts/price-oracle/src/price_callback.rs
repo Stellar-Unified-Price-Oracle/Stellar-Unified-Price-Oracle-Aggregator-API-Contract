@@ -259,10 +259,10 @@ fn try_invoke_callback(
     // we use `try_call`.  Use the raw host `try_call` via the env.
     //
     // `env.try_invoke_contract` is available in soroban-sdk ≥ 0.10 / sdk v26.
-    match env.try_invoke_contract::<soroban_sdk::Val, soroban_sdk::Error>(contract, method, args) {
-        Ok(Ok(_)) => true,
-        _ => false,
-    }
+    matches!(
+        env.try_invoke_contract::<soroban_sdk::Val, soroban_sdk::Error>(contract, method, args),
+        Ok(Ok(_))
+    )
 }
 
 // ---------------------------------------------------------------------------
@@ -289,7 +289,7 @@ mod tests {
             base_reserve: 10,
             min_temp_entry_ttl: 10,
             min_persistent_entry_ttl: 10,
-            max_entry_ttl: 4096,
+            max_entry_ttl: 6_312_000,
         });
     }
 
@@ -379,7 +379,7 @@ mod tests {
 
     // ── #297 Test 5: exceeding MAX_CALLBACKS_PER_ASSET panics ────────────────
     #[test]
-    #[should_panic(expected = "Error(Contract, #22)")]
+    #[should_panic(expected = "Error(Contract, #114)")]
     fn test_too_many_callbacks_panics() {
         let e = Env::default();
         ledger_at(&e, 100, 1_000_000);
@@ -396,7 +396,7 @@ mod tests {
 
     // ── #297 Test 6: unregister non-existent callback panics ─────────────────
     #[test]
-    #[should_panic(expected = "Error(Contract, #23)")]
+    #[should_panic(expected = "Error(Contract, #115)")]
     fn test_unregister_nonexistent_panics() {
         let e = Env::default();
         ledger_at(&e, 100, 1_000_000);
@@ -457,7 +457,7 @@ mod tests {
         );
 
         // Price submission should complete without panic
-        client.submit_price(&source, &asset, &9_999i128, &1_000_000u64, &1u64);
+        client.submit_price_with_nonce(&source, &asset, &9_999i128, &1_000_000u64, &1u64);
         let price = client.get_price(&asset, &0u64);
         assert!(price.is_some());
         assert_eq!(price.unwrap().price, 9_999i128);

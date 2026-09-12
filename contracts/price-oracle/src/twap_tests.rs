@@ -20,7 +20,7 @@ fn test_get_twap_arithmetic_and_geometric() {
 
     submit_test_price(&client, &source, &asset, 100, 1_000);
 
-    let first_twap = client.get_twap(asset.clone(), &1u32, &TwapMethod::Arithmetic);
+    let first_twap = client.get_twap(&asset, &1u32, &TwapMethod::Arithmetic);
     assert!(first_twap.is_some());
     let first_data = first_twap.unwrap();
     assert_eq!(first_data.price, 100);
@@ -31,14 +31,14 @@ fn test_get_twap_arithmetic_and_geometric() {
     submit_test_price(&client, &source, &asset, 400, 1_001);
 
     let arithmetic = client
-        .get_twap(asset.clone(), &2u32, &TwapMethod::Arithmetic)
+        .get_twap(&asset, &2u32, &TwapMethod::Arithmetic)
         .unwrap();
     assert_eq!(arithmetic.price, 250);
     assert_eq!(arithmetic.timestamp, 1_001);
     assert_eq!(arithmetic.last_updated, 11);
 
     let geometric = client
-        .get_twap(asset.clone(), &2u32, &TwapMethod::Geometric)
+        .get_twap(&asset, &2u32, &TwapMethod::Geometric)
         .unwrap();
     assert_eq!(geometric.price, 200);
     assert_eq!(geometric.timestamp, 1_001);

@@ -36,6 +36,16 @@ pub const DEFAULT_MAX_EVENTS_PER_CALL: u32 = 20;
 /// Default maximum aggregation sources; 0 means no limit (issue #93).
 pub const DEFAULT_MAX_AGGREGATION_SOURCES: u32 = 0;
 
+/// Upper bounds enforced on configuration setters so a compromised or buggy
+/// admin cannot push the contract into an unusable state.
+pub const MAX_MIN_SOURCES: u32 = 100_000;
+pub const MAX_MAX_HISTORY: u32 = 1_000_000;
+pub const MAX_RESOLUTION: u32 = 1_000_000;
+/// One day, in seconds — the timestamp window may not exceed the reporting period.
+pub const MAX_TIMESTAMP_THRESHOLD: u64 = 86_400;
+/// One year, in seconds — heartbeat liveness intervals beyond this are meaningless.
+pub const MAX_HEARTBEAT_INTERVAL: u64 = 31_536_000;
+
 pub fn initialize(
     env: &Env,
     admin: Address,
@@ -174,7 +184,7 @@ pub fn get_admin_address(env: &Env) -> Address {
 pub fn set_min_sources_required(env: &Env, new_min: u32) {
     let admin = get_admin(env);
     admin.require_auth();
-    if new_min == 0 {
+    if new_min == 0 || new_min > MAX_MIN_SOURCES {
         panic_with_error!(env, ErrorCode::InvalidConfiguration);
     }
     let oracle_sources = read_oracle_sources(env);
@@ -206,7 +216,7 @@ pub fn get_min_sources_required(env: &Env) -> u32 {
 pub fn set_max_history_length(env: &Env, new_max: u32) {
     let admin = get_admin(env);
     admin.require_auth();
-    if new_max == 0 {
+    if new_max == 0 || new_max > MAX_MAX_HISTORY {
         panic_with_error!(env, ErrorCode::InvalidConfiguration);
     }
     crate::config_history::snapshot_before_change(env, &admin);
@@ -233,6 +243,9 @@ pub fn get_max_history_length(env: &Env) -> u32 {
 pub fn set_resolution(env: &Env, new_resolution: u32) {
     let admin = get_admin(env);
     admin.require_auth();
+    if new_resolution > MAX_RESOLUTION {
+        panic_with_error!(env, ErrorCode::InvalidConfiguration);
+    }
     crate::config_history::snapshot_before_change(env, &admin);
     env.storage()
         .persistent()
@@ -365,6 +378,9 @@ pub fn set_aggregation_method(env: &Env, method: u32) {
 pub fn set_timestamp_threshold(env: &Env, threshold: u64) {
     let admin = get_admin(env);
     admin.require_auth();
+    if threshold == 0 || threshold > MAX_TIMESTAMP_THRESHOLD {
+        panic_with_error!(env, ErrorCode::InvalidConfiguration);
+    }
     crate::config_history::snapshot_before_change(env, &admin);
     env.storage()
         .persistent()
@@ -438,7 +454,7 @@ pub fn get_circuit_breaker_threshold(env: &Env) -> u32 {
 pub fn set_heartbeat_interval(env: &Env, interval: u64) {
     let admin = get_admin(env);
     admin.require_auth();
-    if interval == 0 {
+    if interval == 0 || interval > MAX_HEARTBEAT_INTERVAL {
         panic_with_error!(env, ErrorCode::InvalidConfiguration);
     }
     crate::config_history::snapshot_before_change(env, &admin);

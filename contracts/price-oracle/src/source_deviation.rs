@@ -59,7 +59,7 @@ pub fn effective_deviation_tolerance(env: &Env, source: &Address) -> u32 {
 
 /// Returns a deviation report for a source over the given number of recent rounds.
 pub fn get_source_deviation_report(
-    env: &Env,
+    _env: &Env,
     _source: Address,
     _asset: Address,
     num_rounds: u32,

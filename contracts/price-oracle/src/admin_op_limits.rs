@@ -129,101 +129,114 @@ pub fn validate_admin_op_allowed(env: &Env, op_type: u32) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use soroban_sdk::testutils::Address as _;
     use soroban_sdk::testutils::Ledger;
     use soroban_sdk::{Address, Env};
 
     #[test]
     fn test_admin_op_limits_track_daily_count() {
         let env = Env::default();
-        let admin = Address::generate(&env);
+        let __contract_id = env.register(crate::PriceOracleContract, ());
+        env.mock_all_auths();
+        env.as_contract(&__contract_id, || {
+            let admin = Address::generate(&env);
 
-        env.ledger().with_mut(|l| {
-            l.timestamp = 1000; // Some day
+            env.ledger().with_mut(|l| {
+                l.timestamp = 1000; // Some day
+            });
+
+            crate::admin::initialize(
+                &env,
+                admin.clone(),
+                1,
+                100,
+                18,
+                soroban_sdk::String::from_slice(&env, "Oracle"),
+            );
+
+            // Initially count should be 0
+            assert_eq!(get_admin_op_daily_count(&env, 0), 0);
+
+            // Increment a few times
+            increment_admin_op_counter(&env, 0);
+            assert_eq!(get_admin_op_daily_count(&env, 0), 1);
+
+            increment_admin_op_counter(&env, 0);
+            assert_eq!(get_admin_op_daily_count(&env, 0), 2);
+
+            // Different operation type should have separate count
+            increment_admin_op_counter(&env, 1);
+            assert_eq!(get_admin_op_daily_count(&env, 1), 1);
         });
-
-        crate::admin::initialize(
-            &env,
-            admin.clone(),
-            1,
-            100,
-            18,
-            soroban_sdk::String::from_slice(&env, "Oracle"),
-        );
-
-        // Initially count should be 0
-        assert_eq!(get_admin_op_daily_count(&env, 0), 0);
-
-        // Increment a few times
-        increment_admin_op_counter(&env, 0);
-        assert_eq!(get_admin_op_daily_count(&env, 0), 1);
-
-        increment_admin_op_counter(&env, 0);
-        assert_eq!(get_admin_op_daily_count(&env, 0), 2);
-
-        // Different operation type should have separate count
-        increment_admin_op_counter(&env, 1);
-        assert_eq!(get_admin_op_daily_count(&env, 1), 1);
     }
 
     #[test]
     fn test_check_admin_op_limit() {
         let env = Env::default();
-        let admin = Address::generate(&env);
+        let __contract_id = env.register(crate::PriceOracleContract, ());
+        env.mock_all_auths();
+        env.as_contract(&__contract_id, || {
+            let admin = Address::generate(&env);
 
-        env.ledger().with_mut(|l| {
-            l.timestamp = 1000;
+            env.ledger().with_mut(|l| {
+                l.timestamp = 1000;
+            });
+
+            crate::admin::initialize(
+                &env,
+                admin.clone(),
+                1,
+                100,
+                18,
+                soroban_sdk::String::from_slice(&env, "Oracle"),
+            );
+
+            // Set a low limit
+            set_admin_op_daily_limit(&env, 0, 2);
+
+            // Should be able to do operations up to the limit
+            assert!(check_admin_op_limit(&env, 0));
+            increment_admin_op_counter(&env, 0);
+
+            assert!(check_admin_op_limit(&env, 0));
+            increment_admin_op_counter(&env, 0);
+
+            // Now we've hit the limit
+            assert!(!check_admin_op_limit(&env, 0));
         });
-
-        crate::admin::initialize(
-            &env,
-            admin.clone(),
-            1,
-            100,
-            18,
-            soroban_sdk::String::from_slice(&env, "Oracle"),
-        );
-
-        // Set a low limit
-        set_admin_op_daily_limit(&env, 0, 2);
-
-        // Should be able to do operations up to the limit
-        assert!(check_admin_op_limit(&env, 0));
-        increment_admin_op_counter(&env, 0);
-
-        assert!(check_admin_op_limit(&env, 0));
-        increment_admin_op_counter(&env, 0);
-
-        // Now we've hit the limit
-        assert!(!check_admin_op_limit(&env, 0));
     }
 
     #[test]
     fn test_validate_admin_op_allowed_panics() {
         let env = Env::default();
-        let admin = Address::generate(&env);
+        let __contract_id = env.register(crate::PriceOracleContract, ());
+        env.mock_all_auths();
+        env.as_contract(&__contract_id, || {
+            let admin = Address::generate(&env);
 
-        env.ledger().with_mut(|l| {
-            l.timestamp = 1000;
+            env.ledger().with_mut(|l| {
+                l.timestamp = 1000;
+            });
+
+            crate::admin::initialize(
+                &env,
+                admin.clone(),
+                1,
+                100,
+                18,
+                soroban_sdk::String::from_slice(&env, "Oracle"),
+            );
+
+            // Set limit to 1
+            set_admin_op_daily_limit(&env, 0, 1);
+
+            // First call should succeed
+            validate_admin_op_allowed(&env, 0);
+            increment_admin_op_counter(&env, 0);
+
+            // Second call should panic
+            // (In actual test framework, we'd use #[should_panic])
         });
-
-        crate::admin::initialize(
-            &env,
-            admin.clone(),
-            1,
-            100,
-            18,
-            soroban_sdk::String::from_slice(&env, "Oracle"),
-        );
-
-        // Set limit to 1
-        set_admin_op_daily_limit(&env, 0, 1);
-
-        // First call should succeed
-        validate_admin_op_allowed(&env, 0);
-        increment_admin_op_counter(&env, 0);
-
-        // Second call should panic
-        // (In actual test framework, we'd use #[should_panic])
     }
 
     #[test]

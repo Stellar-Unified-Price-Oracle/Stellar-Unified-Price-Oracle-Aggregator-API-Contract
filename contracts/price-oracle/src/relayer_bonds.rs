@@ -93,7 +93,7 @@ pub fn deposit_relayer_bond(env: &Env, relayer: Address) {
         .unwrap_or_else(|| panic_with_error!(env, ErrorCode::StakeTokenNotConfigured));
 
     let client = soroban_sdk::token::Client::new(env, &token_contract);
-    client.transfer(&relayer, &env.current_contract_address(), &deposit_amount);
+    client.transfer(&relayer, env.current_contract_address(), &deposit_amount);
 
     let key = DataKey::RelayerBond(relayer.clone());
     env.storage().persistent().set(&key, &required);

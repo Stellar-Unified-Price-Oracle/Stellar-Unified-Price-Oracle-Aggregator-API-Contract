@@ -3,6 +3,7 @@ name = "price-oracle"
 version = "0.1.0"
 edition = "2021"
 publish = false
+license = "MIT"
 
 [lib]
 crate-type = ["cdylib", "rlib"]
@@ -11,6 +12,9 @@ doctest = false
 [features]
 # Expose pure core module for fuzzing (disables WASM-only restrictions).
 fuzz = []
+# Enables the host-only helper paths in `gas_metering.rs` that need the
+# soroban-sdk budget API. Test builds get them via `cfg(test)` as well.
+testutils = []
 
 [dependencies]
 soroban-sdk = { version = "26" }

@@ -1,5 +1,6 @@
 #![cfg(test)]
 
+use soroban_sdk::testutils::Address as _;
 use soroban_sdk::{Address, Env, String, Vec};
 
 use crate::test_helpers::*;
@@ -51,7 +52,7 @@ mod did_tests {
 
         client.did_register(&did, &String::from_str(&e, "{}"));
         client.add_source(&source, &String::from_str(&e, "Source A"));
-        client.did_link_source(&source, &did, true);
+        client.did_link_source(&source, &did, &true);
 
         let link = client.did_get_source_link(&source);
         assert!(link.is_some());
@@ -127,7 +128,7 @@ mod ecosystem_metadata_tests {
 
         let asset = Address::generate(&e);
         let metadata = EcosystemMetadata {
-            contract_id: client.address(),
+            contract_id: client.address.clone(),
             name: String::from_str(&e, "Test Oracle"),
             description: String::from_str(&e, "Test description"),
             version: String::from_str(&e, "1.0.0"),
@@ -135,7 +136,7 @@ mod ecosystem_metadata_tests {
             registered_at: 1234567890,
         };
 
-        client.metadata_register(metadata.clone());
+        client.metadata_register(&metadata);
         let fetched = client.metadata_get();
         assert!(fetched.is_some());
         assert_eq!(fetched.unwrap().name, String::from_str(&e, "Test Oracle"));
@@ -167,10 +168,10 @@ mod event_streaming_tests {
             67890,
             String::from_str(&e, "contract_id"),
             String::from_str(&e, "price_updated"),
-            soroban_sdk::Bytes::new(&e),
+            String::from_str(&e, ""),
         );
         assert_eq!(envelope.ledger, 12345);
-        assert_eq!(envelope.topic, "price_updated");
+        assert_eq!(envelope.topic, String::from_str(&e, "price_updated"));
     }
 
     #[test]

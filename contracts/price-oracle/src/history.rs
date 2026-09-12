@@ -391,7 +391,7 @@ pub fn compact_history(env: &Env, asset: Address) -> CompactionMetadata {
     if last_idx > 0 {
         let last_ledger = ledger_list.get_unchecked(last_idx);
         // Avoid duplicating if original_count == 2 and last == first.
-        if retained.len() == 0 || retained.get_unchecked(retained.len() - 1) != last_ledger {
+        if retained.is_empty() || retained.get_unchecked(retained.len() - 1) != last_ledger {
             retained.push_back(last_ledger);
         }
     }

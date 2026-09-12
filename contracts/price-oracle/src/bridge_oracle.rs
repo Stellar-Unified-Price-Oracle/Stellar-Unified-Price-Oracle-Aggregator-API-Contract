@@ -103,7 +103,7 @@ pub fn submit_bridged_price(
 
 /// Normalizes a raw bridge price into the oracle's decimal scale.
 pub fn normalize_bridged_price(
-    env: &Env,
+    _env: &Env,
     raw_price: i128,
     target_decimals: u32,
     config: &BridgeOracleConfig,

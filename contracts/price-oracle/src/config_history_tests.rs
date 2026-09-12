@@ -197,6 +197,7 @@ fn test_canonical_threshold_and_deviation_roundtrip() {
 #[test]
 fn test_config_history_prunes_beyond_100() {
     let e = Env::default();
+    e.cost_estimate().disable_resource_limits();
     e.mock_all_auths();
     let (client, _) = setup_contract(&e);
 
@@ -211,7 +212,7 @@ fn test_config_history_prunes_beyond_100() {
 }
 
 #[test]
-#[should_panic(expected = "Error(Contract, #103)")]
+#[should_panic(expected = "Error(Contract, #132)")]
 fn test_rollback_unknown_version_panics() {
     let e = Env::default();
     e.mock_all_auths();
@@ -221,9 +222,10 @@ fn test_rollback_unknown_version_panics() {
 }
 
 #[test]
-#[should_panic(expected = "Error(Contract, #103)")]
+#[should_panic(expected = "Error(Contract, #132)")]
 fn test_rollback_pruned_version_panics() {
     let e = Env::default();
+    e.cost_estimate().disable_resource_limits();
     e.mock_all_auths();
     let (client, _) = setup_contract(&e);
 

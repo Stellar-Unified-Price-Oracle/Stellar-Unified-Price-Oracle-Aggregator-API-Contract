@@ -243,17 +243,20 @@ mod tests {
     #[test]
     fn test_default_thresholds_classification() {
         let env = Env::default();
+        let __contract_id = env.register(crate::PriceOracleContract, ());
         env.mock_all_auths();
-        init(&env);
+        env.as_contract(&__contract_id, || {
+            init(&env);
 
-        let t = get_severity_thresholds(&env);
-        assert_eq!(classify(50, &t), AlertSeverity::Info);
-        assert_eq!(classify(DEFAULT_WARNING_BPS, &t), AlertSeverity::Warning);
-        assert_eq!(classify(DEFAULT_CRITICAL_BPS, &t), AlertSeverity::Critical);
-        assert_eq!(
-            classify(DEFAULT_EMERGENCY_BPS, &t),
-            AlertSeverity::Emergency
-        );
+            let t = get_severity_thresholds(&env);
+            assert_eq!(classify(50, &t), AlertSeverity::Info);
+            assert_eq!(classify(DEFAULT_WARNING_BPS, &t), AlertSeverity::Warning);
+            assert_eq!(classify(DEFAULT_CRITICAL_BPS, &t), AlertSeverity::Critical);
+            assert_eq!(
+                classify(DEFAULT_EMERGENCY_BPS, &t),
+                AlertSeverity::Emergency
+            );
+        });
     }
 
     #[test]
@@ -267,36 +270,42 @@ mod tests {
     #[test]
     fn test_evaluate_and_route_records_last_severity() {
         let env = Env::default();
+        let __contract_id = env.register(crate::PriceOracleContract, ());
         env.mock_all_auths();
-        init(&env);
-        let asset = Address::generate(&env);
+        env.as_contract(&__contract_id, || {
+            init(&env);
+            let asset = Address::generate(&env);
 
-        assert!(get_last_alert_severity(&env, asset.clone()).is_none());
+            assert!(get_last_alert_severity(&env, asset.clone()).is_none());
 
-        let (severity, channel) = evaluate_and_route(&env, &asset, DEFAULT_CRITICAL_BPS + 1);
-        assert_eq!(severity, AlertSeverity::Critical);
-        assert_eq!(channel, AlertChannel::Page);
-        assert_eq!(
-            get_last_alert_severity(&env, asset.clone()),
-            Some(AlertSeverity::Critical)
-        );
+            let (severity, channel) = evaluate_and_route(&env, &asset, DEFAULT_CRITICAL_BPS + 1);
+            assert_eq!(severity, AlertSeverity::Critical);
+            assert_eq!(channel, AlertChannel::Page);
+            assert_eq!(
+                get_last_alert_severity(&env, asset.clone()),
+                Some(AlertSeverity::Critical)
+            );
+        });
     }
 
     #[test]
     fn test_asset_override_takes_priority_over_global() {
         let env = Env::default();
+        let __contract_id = env.register(crate::PriceOracleContract, ());
         env.mock_all_auths();
-        init(&env);
-        let asset = Address::generate(&env);
+        env.as_contract(&__contract_id, || {
+            init(&env);
+            let asset = Address::generate(&env);
 
-        set_severity_thresholds(&env, 300, 1_000, 2_500);
-        set_asset_severity_thresholds(&env, asset.clone(), 50, 100, 200);
+            set_severity_thresholds(&env, 300, 1_000, 2_500);
+            set_asset_severity_thresholds(&env, asset.clone(), 50, 100, 200);
 
-        let effective = get_asset_severity_thresholds(&env, asset.clone());
-        assert_eq!(effective.warning_bps, 50);
+            let effective = get_asset_severity_thresholds(&env, asset.clone());
+            assert_eq!(effective.warning_bps, 50);
 
-        let (severity, _) = evaluate_and_route(&env, &asset, 150);
-        assert_eq!(severity, AlertSeverity::Critical);
+            let (severity, _) = evaluate_and_route(&env, &asset, 150);
+            assert_eq!(severity, AlertSeverity::Critical);
+        });
     }
 
     #[test]

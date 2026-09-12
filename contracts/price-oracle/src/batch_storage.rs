@@ -19,7 +19,7 @@
 //! `get_storage_batch` performs all reads inside one invocation, amortising
 //! that overhead across the whole batch.
 
-use soroban_sdk::{Env, String, Vec};
+use soroban_sdk::{Env, String, TryFromVal, Val, Vec};
 
 use crate::types::{DataKey, StorageBatchRequest, StorageBatchResult, StorageTier};
 
@@ -83,7 +83,7 @@ fn read_persistent(env: &Env, req: &StorageBatchRequest) -> StorageBatchResult {
 
     StorageBatchResult {
         key: key.clone(),
-        tier: req.tier.clone(),
+        tier: req.tier,
         exists,
         value_json,
     }
@@ -101,7 +101,7 @@ fn read_temporary(env: &Env, req: &StorageBatchRequest) -> StorageBatchResult {
 
     StorageBatchResult {
         key: key.clone(),
-        tier: req.tier.clone(),
+        tier: req.tier,
         exists,
         value_json,
     }
@@ -119,7 +119,7 @@ fn read_instance(env: &Env, req: &StorageBatchRequest) -> StorageBatchResult {
 
     StorageBatchResult {
         key: key.clone(),
-        tier: req.tier.clone(),
+        tier: req.tier,
         exists,
         value_json,
     }
@@ -129,57 +129,42 @@ fn read_instance(env: &Env, req: &StorageBatchRequest) -> StorageBatchResult {
 /// We use `u32` as a generic probe; unknown / composite types fall back to a
 /// generic "present" marker so the caller at least knows the key exists.
 fn serialise_key_value_persistent(env: &Env, key: &DataKey) -> String {
-    // Try reading as bool first (covers flags like PauseFlag, SrcActive, etc.)
-    if let Some(v) = env.storage().persistent().get::<DataKey, bool>(key) {
-        return if v {
-            String::from_str(env, "true")
-        } else {
-            String::from_str(env, "false")
-        };
-    }
-    // Try reading as u32 (covers counters and config values)
-    if let Some(v) = env.storage().persistent().get::<DataKey, u32>(key) {
-        return format_u32(env, v);
-    }
-    // Try reading as i128 (covers prices, balances)
-    if let Some(v) = env.storage().persistent().get::<DataKey, i128>(key) {
-        return format_i128(env, v);
-    }
-    // Fallback: key exists but value type is complex
-    String::from_str(env, "<present>")
+    serialise_raw_val(env, env.storage().persistent().get::<DataKey, Val>(key))
 }
 
 fn serialise_key_value_temporary(env: &Env, key: &DataKey) -> String {
-    if let Some(v) = env.storage().temporary().get::<DataKey, bool>(key) {
-        return if v {
-            String::from_str(env, "true")
-        } else {
-            String::from_str(env, "false")
-        };
-    }
-    if let Some(v) = env.storage().temporary().get::<DataKey, u32>(key) {
-        return format_u32(env, v);
-    }
-    if let Some(v) = env.storage().temporary().get::<DataKey, i128>(key) {
-        return format_i128(env, v);
-    }
-    String::from_str(env, "<present>")
+    serialise_raw_val(env, env.storage().temporary().get::<DataKey, Val>(key))
 }
 
 fn serialise_key_value_instance(env: &Env, key: &DataKey) -> String {
-    if let Some(v) = env.storage().instance().get::<DataKey, bool>(key) {
+    serialise_raw_val(env, env.storage().instance().get::<DataKey, Val>(key))
+}
+
+/// Describe a raw stored value.
+///
+/// Reads the value as an untyped [`Val`] first (which can never fail to
+/// convert) and then probes the concrete types we know how to render. This
+/// avoids the `ConversionError` panic that `get::<_, bool>()` & co. raise when
+/// the stored value has a different type.
+fn serialise_raw_val(env: &Env, val: Option<Val>) -> String {
+    let Some(val) = val else {
+        return String::from_str(env, "<present>");
+    };
+
+    if let Ok(v) = bool::try_from_val(env, &val) {
         return if v {
             String::from_str(env, "true")
         } else {
             String::from_str(env, "false")
         };
     }
-    if let Some(v) = env.storage().instance().get::<DataKey, u32>(key) {
+    if let Ok(v) = u32::try_from_val(env, &val) {
         return format_u32(env, v);
     }
-    if let Some(v) = env.storage().instance().get::<DataKey, i128>(key) {
+    if let Ok(v) = i128::try_from_val(env, &val) {
         return format_i128(env, v);
     }
+    // Fallback: key exists but value type is complex
     String::from_str(env, "<present>")
 }
 
@@ -214,7 +199,7 @@ fn format_i128(env: &Env, v: i128) -> String {
     let negative = v < 0;
     let mut abs: u128 = if negative {
         // i128::MIN cannot be negated directly; handle by wrapping
-        (v as i128).unsigned_abs()
+        v.unsigned_abs()
     } else {
         v as u128
     };
@@ -272,7 +257,7 @@ mod tests {
             base_reserve: 10,
             min_temp_entry_ttl: 10,
             min_persistent_entry_ttl: 10,
-            max_entry_ttl: 4096,
+            max_entry_ttl: 6_312_000,
         });
     }
 

@@ -68,7 +68,7 @@ pub fn set_source_schedule(
         admin: admin.clone(),
         rotation_interval,
         overlap_period,
-        num_sources: sources.len() as u32,
+        num_sources: sources.len(),
     }
     .publish(env);
 }
@@ -142,7 +142,7 @@ pub fn attempt_rotation(env: &Env, asset: &Address) -> bool {
         SourcesRotatedEvent {
             asset: asset.clone(),
             rotated_at_ledger: current_ledger,
-            new_active_count: standby.len() as u32,
+            new_active_count: standby.len(),
             next_rotation_ledger: sched.next_rotation_ledger,
         }
         .publish(env);

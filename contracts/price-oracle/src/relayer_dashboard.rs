@@ -27,11 +27,7 @@ pub fn record_relayer_submission_stats(
     ledger_timestamp: u64,
 ) {
     // Latency: absolute distance between the observation timestamp and ledger close.
-    let latency = if ledger_timestamp >= observation_timestamp {
-        ledger_timestamp - observation_timestamp
-    } else {
-        observation_timestamp - ledger_timestamp
-    };
+    let latency = ledger_timestamp.abs_diff(observation_timestamp);
 
     let latency_key = DataKey::RelayerLatencySum(relayer.clone());
     let latency_sum: u64 = env.storage().persistent().get(&latency_key).unwrap_or(0u64);
@@ -281,7 +277,7 @@ fn collect_per_asset_stats(env: &Env, relayer: &Address) -> Vec<RelayerAssetStat
             failed_submissions: crate::relayer_bonds::get_relayer_failure_count(
                 env,
                 relayer.clone(),
-            ) as u32,
+            ),
             success_rate_bps,
             avg_latency_seconds,
         });
@@ -326,11 +322,11 @@ fn compute_latency_percentiles(env: &Env, relayer: &Address) -> Map<u32, u64> {
         let idx = if pct >= 100 {
             sorted.len().saturating_sub(1)
         } else {
-            let scaled = (sorted.len() as u32 * pct).saturating_div(100);
-            (scaled.saturating_sub(1)).min(sorted.len().saturating_sub(1)) as u32
+            let scaled = (sorted.len() * pct).saturating_div(100);
+            (scaled.saturating_sub(1)).min(sorted.len().saturating_sub(1))
         };
-        let value = if sorted.len() > idx as u32 {
-            sorted.get_unchecked(idx as u32)
+        let value = if sorted.len() > idx {
+            sorted.get_unchecked(idx)
         } else {
             0
         };

@@ -188,7 +188,6 @@ fn select_pivot(prices: &mut soroban_sdk::Vec<i128>, left: u32, right: u32) -> u
         store += 1;
         i += 5;
     }
-    let mid = left + ((store - left - 1) / 2);
     median_of_five(prices, left, store - 1)
 }
 
@@ -314,6 +313,34 @@ pub fn compute_trimmed_mean(prices: &soroban_sdk::Vec<i128>, trim_percent: u32) 
     }
 
     compute_mean(&trimmed)
+}
+
+/// SDK-`Vec` counterpart of [`crate::core_pricing::weighted_median_core`].
+///
+/// The differential tests (`diff_tests.rs`) and the `fuzz_aggregation` harness
+/// assert that this function and the pure core agree for every input, so the
+/// arguments are copied into fixed-size buffers (the contract build has no
+/// allocator) and the core is used as the single source of truth. Both sides
+/// cap the number of considered entries at 128.
+pub fn compute_weighted_median(
+    prices: &soroban_sdk::Vec<i128>,
+    weights: &soroban_sdk::Vec<i128>,
+) -> i128 {
+    const MAX_ENTRIES: usize = 128;
+
+    let price_len = (prices.len() as usize).min(MAX_ENTRIES);
+    let weight_len = (weights.len() as usize).min(MAX_ENTRIES);
+
+    let mut price_buf = [0i128; MAX_ENTRIES];
+    let mut weight_buf = [0i128; MAX_ENTRIES];
+    for (i, slot) in price_buf[..price_len].iter_mut().enumerate() {
+        *slot = prices.get_unchecked(i as u32);
+    }
+    for (i, slot) in weight_buf[..weight_len].iter_mut().enumerate() {
+        *slot = weights.get_unchecked(i as u32);
+    }
+
+    crate::core_pricing::weighted_median_core(&price_buf[..price_len], &weight_buf[..weight_len])
 }
 
 pub fn compute_vwap(prices: &soroban_sdk::Vec<i128>, volumes: &soroban_sdk::Vec<i128>) -> i128 {

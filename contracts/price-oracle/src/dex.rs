@@ -65,21 +65,14 @@ pub fn register_dex_pool(
 pub fn get_dex_price(env: &Env, asset: Address) -> Option<DexPrice> {
     // Find registered DEX pool containing `asset`. In practice this is configured
     // off-chain; here we scan the limited set of known pairs for demonstration.
-    let registered_pairs: Vec<(Address, Address)> = env
-        .storage()
-        .persistent()
-        .get(&DataKey::RegisteredAssets)
-        .map(|assets: Vec<Address>| {
-            let mut pairs = Vec::new(env);
-            for i in 0..assets.len() {
-                let a = assets.get_unchecked(i);
-                if a != asset {
-                    pairs.push_back((asset.clone(), a.clone()));
-                }
-            }
-            pairs
-        })
-        .unwrap_or_else(|| Vec::new(env));
+    let assets = crate::storage::read_registered_assets(env);
+    let mut registered_pairs: Vec<(Address, Address)> = Vec::new(env);
+    for i in 0..assets.len() {
+        let a = assets.get_unchecked(i);
+        if a != asset {
+            registered_pairs.push_back((asset.clone(), a.clone()));
+        }
+    }
 
     for pair in registered_pairs.iter() {
         if let Some((rx, ry)) = read_dex_pool(env, &pair.0, &pair.1) {

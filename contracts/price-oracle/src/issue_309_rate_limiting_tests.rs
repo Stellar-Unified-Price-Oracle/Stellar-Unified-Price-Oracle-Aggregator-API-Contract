@@ -87,7 +87,7 @@ fn test_timestamp_threshold_affects_price_validity() {
     client.set_timestamp_threshold(&60u64);
 
     // Price should be valid when timestamp matches ledger time
-    let price = client.get_price(&asset);
+    let price = client.get_price(&asset, &0u64);
     // Expected behavior: no price yet, but threshold is configured
     assert_eq!(client.get_timestamp_threshold(), 60u64);
 }

@@ -152,7 +152,7 @@ pub fn revoke_role(env: &Env, delegatee: Address, role: Role) {
     ));
 
     // Remove from role holders list
-    let mut holders: Vec<Address> = env
+    let holders: Vec<Address> = env
         .storage()
         .persistent()
         .get(&DataKey::RoleHolders(role_discriminant))

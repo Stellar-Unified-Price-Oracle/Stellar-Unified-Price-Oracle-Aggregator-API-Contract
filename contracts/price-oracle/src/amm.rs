@@ -102,7 +102,7 @@ fn compute_deviation_bps(a: u128, b: u128) -> u32 {
     if b == 0 {
         return u32::MAX;
     }
-    let diff = if a > b { a - b } else { b - a };
+    let diff = a.abs_diff(b);
     // Scale to BPS (multiply before divide to preserve precision)
     let bps = (diff.saturating_mul(10_000)) / b;
     if bps > u32::MAX as u128 {

@@ -17,8 +17,8 @@ use crate::storage::{
 };
 use crate::types::{
     DataKey, DecentralizationReport, DemeritConfig, DisqualificationStatus, ErrorCode,
-    OracleSources, SourceDemeritState, SourceGeoMetadata, SourceGovernance, SourceProposal,
-    SourceVerification,
+    OracleSources, PriceEntry, SourceDemeritState, SourceGeoMetadata, SourceGovernance,
+    SourceProposal, SourceVerification,
 };
 
 const MAX_SOURCE_NAME_LENGTH: u32 = 64;
@@ -1240,7 +1240,7 @@ pub fn set_source_governance(env: &Env, approvers: Vec<Address>, threshold: u32)
         panic_with_error!(env, ErrorCode::InvalidGovernanceConfig);
     }
 
-    if threshold == 0 && approvers.len() > 0 {
+    if threshold == 0 && !approvers.is_empty() {
         panic_with_error!(env, ErrorCode::InvalidGovernanceConfig);
     }
 
@@ -1420,7 +1420,11 @@ pub fn set_source_geo(env: &Env, source: Address, metadata: SourceGeoMetadata) {
     .publish(env);
 }
 
-fn calculate_hhi(env: &Env, counts: soroban_sdk::Map<soroban_sdk::String, u32>, total: u32) -> u32 {
+fn calculate_hhi(
+    _env: &Env,
+    counts: soroban_sdk::Map<soroban_sdk::String, u32>,
+    total: u32,
+) -> u32 {
     if total == 0 {
         return 0;
     }
@@ -1543,7 +1547,7 @@ pub fn deposit_source_bond(env: &Env, source: Address) {
     });
 
     let client = soroban_sdk::token::Client::new(env, &token_contract);
-    client.transfer(&source, &env.current_contract_address(), &deposit_amount);
+    client.transfer(&source, env.current_contract_address(), &deposit_amount);
 
     let key = DataKey::SourceBond(source.clone());
     env.storage().persistent().set(&key, &required);
@@ -1579,5 +1583,41 @@ pub fn forfeit_source_bond_internal(env: &Env, source: Address) {
             amount: deposited,
         }
         .publish(env);
+    }
+}
+
+/// Explicit liveness check for a `(source, asset)` pair.
+///
+/// A source counts as live only when **both** of these hold:
+///
+/// 1. It is on schedule — if a submission schedule is registered for the pair,
+///    the gap since the last submission must not exceed
+///    `interval × deadline_multiplier` (see [`crate::scheduling`]).
+/// 2. It is not stale — the price observation recorded for the pair must be
+///    within the configured heartbeat interval of the current ledger time. A
+///    pair with no recorded submission is treated as live, since there is
+///    nothing to be late for yet.
+///
+/// # Returns
+///
+/// `true` when the source is live for `asset`, `false` when it is behind
+/// schedule or has gone quiet for longer than the heartbeat interval.
+pub fn check_source_liveness(env: &Env, source: Address, asset: Address) -> bool {
+    if !crate::scheduling::check_liveness(env, source.clone(), asset.clone()) {
+        return false;
+    }
+
+    let last_timestamp = env
+        .storage()
+        .persistent()
+        .get::<DataKey, PriceEntry>(&DataKey::Submission(asset.clone(), source.clone()))
+        .map(|entry| entry.timestamp);
+
+    match last_timestamp {
+        Some(timestamp) => {
+            let interval = crate::admin::get_heartbeat_interval(env);
+            env.ledger().timestamp() <= timestamp.saturating_add(interval)
+        }
+        None => true,
     }
 }

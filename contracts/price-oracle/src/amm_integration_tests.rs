@@ -1,5 +1,6 @@
 #![cfg(test)]
 
+use soroban_sdk::testutils::Address as _;
 use soroban_sdk::{Address, Env, String};
 
 use crate::test_helpers::*;
@@ -20,7 +21,7 @@ fn test_soroswap_pool_lifecycle() {
     assert!(pool.is_some());
     assert_eq!(pool.unwrap().fee_bps, 30u32);
 
-    client.soroswap_set_pool_status(&asset_a, &asset_b, false);
+    client.soroswap_set_pool_status(&asset_a, &asset_b, &false);
     let disabled = client.soroswap_get_pool(&asset_a, &asset_b);
     assert!(disabled.is_some());
     assert!(!disabled.unwrap().enabled);
@@ -41,12 +42,13 @@ fn test_amm_weight_config() {
     );
 
     let asset = Address::generate(&e);
-    client.amm_set_weight(&asset, &500u32, true);
+    client.amm_set_weight(&asset, &500u32, &true);
 
     let cfg = client.amm_get_weight(&asset);
     assert!(cfg.is_some());
-    assert_eq!(cfg.unwrap().weight_bps, 500u32);
-    assert!(cfg.unwrap().enabled);
+    let cfg = cfg.unwrap();
+    assert_eq!(cfg.weight_bps, 500u32);
+    assert!(cfg.enabled);
 }
 
 #[test]

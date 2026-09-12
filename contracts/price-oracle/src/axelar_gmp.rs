@@ -201,7 +201,6 @@ mod tests {
     use soroban_sdk::testutils::{Address as _, Ledger};
 
     fn setup(env: &Env) -> (Address, Address, Address) {
-        env.mock_all_auths();
         let admin = Address::generate(env);
         let asset = Address::generate(env);
         crate::admin::initialize(
@@ -246,43 +245,48 @@ mod tests {
     #[test]
     fn test_execute_axelar_message_updates_price() {
         let env = Env::default();
-        let (_, asset, gateway) = setup(&env);
-        let bridge_source = Address::generate(&env);
-        let chain = String::from_str(&env, "ethereum");
-        let foreign_address = BytesN::from_array(&env, &[11u8; 32]);
-        wire_axelar(
-            &env,
-            &asset,
-            &gateway,
-            &bridge_source,
-            &chain,
-            &foreign_address,
-        );
+        env.cost_estimate().disable_resource_limits();
+        let __contract_id = env.register(crate::PriceOracleContract, ());
+        env.mock_all_auths();
+        env.as_contract(&__contract_id, || {
+            let (_, asset, gateway) = setup(&env);
+            let bridge_source = Address::generate(&env);
+            let chain = String::from_str(&env, "ethereum");
+            let foreign_address = BytesN::from_array(&env, &[11u8; 32]);
+            wire_axelar(
+                &env,
+                &asset,
+                &gateway,
+                &bridge_source,
+                &chain,
+                &foreign_address,
+            );
 
-        let payload = CrossChainPricePayload {
-            foreign_asset: foreign_address,
-            price: 1_000_000_000_000_000_000i128,
-            decimals: 18,
-            timestamp: env.ledger().timestamp(),
-            nonce: 1,
-        };
-        let encoded = encode_price_payload(&env, &payload);
+            let payload = CrossChainPricePayload {
+                foreign_asset: foreign_address,
+                price: 1_000_000_000_000_000_000i128,
+                decimals: 18,
+                timestamp: env.ledger().timestamp(),
+                nonce: 1,
+            };
+            let encoded = encode_price_payload(&env, &payload);
 
-        execute_axelar_message(
-            &env,
-            gateway,
-            BytesN::from_array(&env, &[1u8; 32]),
-            chain,
-            String::from_str(&env, "0xSourceContract"),
-            encoded,
-        );
+            execute_axelar_message(
+                &env,
+                gateway,
+                BytesN::from_array(&env, &[1u8; 32]),
+                chain,
+                String::from_str(&env, "0xSourceContract"),
+                encoded,
+            );
 
-        let entry: crate::types::PriceEntry = env
-            .storage()
-            .persistent()
-            .get(&DataKey::Submission(asset, bridge_source))
-            .unwrap();
-        assert_eq!(entry.price, 1_000_000_000_000_000_000i128);
+            let entry: crate::types::PriceEntry = env
+                .storage()
+                .persistent()
+                .get(&DataKey::Submission(asset, bridge_source))
+                .unwrap();
+            assert_eq!(entry.price, 1_000_000_000_000_000_000i128);
+        });
     }
 
     #[test]

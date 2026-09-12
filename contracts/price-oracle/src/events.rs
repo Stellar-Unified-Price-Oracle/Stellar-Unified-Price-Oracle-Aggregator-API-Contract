@@ -7,6 +7,9 @@ use soroban_sdk::{contractevent, Address, Bytes, BytesN, String, Symbol};
 /// optional arbitrary `data` bytes (may be empty).
 #[allow(deprecated)]
 pub fn emit_admin_action(env: &soroban_sdk::Env, action: Symbol, admin: Address, data: Bytes) {
+    // Record the action in the tamper-evident audit log (#239) before emitting
+    // the observable event, so the on-chain trail always matches the events.
+    crate::audit_log::append_audit_entry(env, action.clone(), admin.clone(), data.clone());
     env.events().publish((action, admin), (data,));
 }
 

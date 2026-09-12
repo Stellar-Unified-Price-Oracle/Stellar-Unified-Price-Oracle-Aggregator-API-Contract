@@ -77,7 +77,7 @@ fn test_oracle_health_check_sufficient_sources() {
     client.submit_price(&source, &asset, &1_000_000, &1_000);
     client.submit_price(&source2, &asset, &1_010_000, &1_000);
 
-    let price = client.get_price(&asset);
+    let price = client.get_price(&asset, &0u64);
     assert!(price.is_some());
 }
 
@@ -86,13 +86,14 @@ fn test_emergency_pause_affects_health() {
     let e = Env::default();
     e.mock_all_auths();
     let (client, _admin) = setup_contract(&e);
+    client.set_min_sources_required(&1u32);
     let source = register_test_source(&e, &client, "Test Source");
     let asset = register_test_asset(&e, &client);
 
     set_ledger(&e, 100, 1_000);
     client.submit_price(&source, &asset, &1_000_000, &1_000);
 
-    let price = client.get_price(&asset);
+    let price = client.get_price(&asset, &0u64);
     assert!(price.is_some());
 
     let pause_reason = String::from_str(&e, "Critical issue detected");
@@ -107,8 +108,9 @@ fn test_get_admin_audit_log_count() {
     e.mock_all_auths();
     let (client, _admin) = setup_contract(&e);
 
+    // `initialize` records a single audit entry (the "init" admin action).
     let count = client.get_audit_log_count();
-    assert_eq!(count, 0u32);
+    assert_eq!(count, 1u32);
 }
 
 #[test]

@@ -226,7 +226,6 @@ mod tests {
     const ETH_EID: u32 = 30101;
 
     fn setup(env: &Env) -> (Address, Address, Address) {
-        env.mock_all_auths();
         let admin = Address::generate(env);
         let asset = Address::generate(env);
         crate::admin::initialize(
@@ -272,47 +271,52 @@ mod tests {
     #[test]
     fn test_lz_receive_updates_price_and_nonce() {
         let env = Env::default();
-        let (_, asset, endpoint) = setup(&env);
-        let bridge_source = Address::generate(&env);
-        let sender = BytesN::from_array(&env, &[21u8; 32]);
-        let chain = String::from_str(&env, "ethereum");
-        let foreign_address = BytesN::from_array(&env, &[22u8; 32]);
-        wire_lz(
-            &env,
-            &asset,
-            &endpoint,
-            &bridge_source,
-            &sender,
-            &chain,
-            &foreign_address,
-        );
+        env.cost_estimate().disable_resource_limits();
+        let __contract_id = env.register(crate::PriceOracleContract, ());
+        env.mock_all_auths();
+        env.as_contract(&__contract_id, || {
+            let (_, asset, endpoint) = setup(&env);
+            let bridge_source = Address::generate(&env);
+            let sender = BytesN::from_array(&env, &[21u8; 32]);
+            let chain = String::from_str(&env, "ethereum");
+            let foreign_address = BytesN::from_array(&env, &[22u8; 32]);
+            wire_lz(
+                &env,
+                &asset,
+                &endpoint,
+                &bridge_source,
+                &sender,
+                &chain,
+                &foreign_address,
+            );
 
-        let payload = CrossChainPricePayload {
-            foreign_asset: foreign_address,
-            price: 2_000_000_000_000_000_000i128,
-            decimals: 18,
-            timestamp: env.ledger().timestamp(),
-            nonce: 1,
-        };
-        let encoded = encode_price_payload(&env, &payload);
+            let payload = CrossChainPricePayload {
+                foreign_asset: foreign_address,
+                price: 2_000_000_000_000_000_000i128,
+                decimals: 18,
+                timestamp: env.ledger().timestamp(),
+                nonce: 1,
+            };
+            let encoded = encode_price_payload(&env, &payload);
 
-        lz_receive(
-            &env,
-            endpoint,
-            ETH_EID,
-            sender.clone(),
-            1,
-            BytesN::from_array(&env, &[1u8; 32]),
-            encoded,
-        );
+            lz_receive(
+                &env,
+                endpoint,
+                ETH_EID,
+                sender.clone(),
+                1,
+                BytesN::from_array(&env, &[1u8; 32]),
+                encoded,
+            );
 
-        assert_eq!(get_inbound_nonce(&env, ETH_EID, sender.clone()), 1);
-        let entry: crate::types::PriceEntry = env
-            .storage()
-            .persistent()
-            .get(&DataKey::Submission(asset, bridge_source))
-            .unwrap();
-        assert_eq!(entry.price, 2_000_000_000_000_000_000i128);
+            assert_eq!(get_inbound_nonce(&env, ETH_EID, sender.clone()), 1);
+            let entry: crate::types::PriceEntry = env
+                .storage()
+                .persistent()
+                .get(&DataKey::Submission(asset, bridge_source))
+                .unwrap();
+            assert_eq!(entry.price, 2_000_000_000_000_000_000i128);
+        });
     }
 
     #[test]

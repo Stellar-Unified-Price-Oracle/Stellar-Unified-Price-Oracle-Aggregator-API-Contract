@@ -101,142 +101,162 @@ pub fn clear_current_round(env: &Env) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use soroban_sdk::testutils::Ledger;
+    use soroban_sdk::testutils::{Address as _, Ledger};
     use soroban_sdk::{Address, Env};
 
     #[test]
     fn test_start_and_get_aggregation_round() {
         let env = Env::default();
-        let admin = Address::generate(&env);
+        let __contract_id = env.register(crate::PriceOracleContract, ());
+        env.mock_all_auths();
+        env.as_contract(&__contract_id, || {
+            let admin = Address::generate(&env);
 
-        env.ledger().with_mut(|l| {
-            l.timestamp = 1000;
-            l.sequence_number = 100;
+            env.ledger().with_mut(|l| {
+                l.timestamp = 1000;
+                l.sequence_number = 100;
+            });
+
+            crate::admin::initialize(
+                &env,
+                admin.clone(),
+                1,
+                100,
+                18,
+                soroban_sdk::String::from_slice(&env, "Oracle"),
+            );
+
+            // Initially no round
+            assert!(get_current_round(&env).is_none());
+
+            // Start a round
+            start_aggregation_round(&env, 100, 200);
+
+            // Verify the round was created
+            let round = get_current_round(&env).unwrap();
+            assert_eq!(round.round_id, 100); // Set to current ledger
+            assert_eq!(round.start_ledger, 100);
+            assert_eq!(round.end_ledger, 200);
         });
-
-        crate::admin::initialize(
-            &env,
-            admin.clone(),
-            1,
-            100,
-            18,
-            soroban_sdk::String::from_slice(&env, "Oracle"),
-        );
-
-        // Initially no round
-        assert!(get_current_round(&env).is_none());
-
-        // Start a round
-        start_aggregation_round(&env, 100, 200);
-
-        // Verify the round was created
-        let round = get_current_round(&env).unwrap();
-        assert_eq!(round.round_id, 100); // Set to current ledger
-        assert_eq!(round.start_ledger, 100);
-        assert_eq!(round.end_ledger, 200);
     }
 
     #[test]
     fn test_is_submission_within_deadline() {
         let env = Env::default();
-        let admin = Address::generate(&env);
+        let __contract_id = env.register(crate::PriceOracleContract, ());
+        env.mock_all_auths();
+        env.as_contract(&__contract_id, || {
+            let admin = Address::generate(&env);
 
-        env.ledger().with_mut(|l| {
-            l.timestamp = 1000;
-            l.sequence_number = 100;
+            env.ledger().with_mut(|l| {
+                l.timestamp = 1000;
+                l.sequence_number = 100;
+            });
+
+            crate::admin::initialize(
+                &env,
+                admin.clone(),
+                1,
+                100,
+                18,
+                soroban_sdk::String::from_slice(&env, "Oracle"),
+            );
+
+            start_aggregation_round(&env, 100, 200);
+
+            // Within window
+            assert!(is_submission_within_deadline(&env, 100));
+            assert!(is_submission_within_deadline(&env, 150));
+            assert!(is_submission_within_deadline(&env, 200));
+
+            // Outside window
+            assert!(!is_submission_within_deadline(&env, 99));
+            assert!(!is_submission_within_deadline(&env, 201));
         });
-
-        crate::admin::initialize(
-            &env,
-            admin.clone(),
-            1,
-            100,
-            18,
-            soroban_sdk::String::from_slice(&env, "Oracle"),
-        );
-
-        start_aggregation_round(&env, 100, 200);
-
-        // Within window
-        assert!(is_submission_within_deadline(&env, 100));
-        assert!(is_submission_within_deadline(&env, 150));
-        assert!(is_submission_within_deadline(&env, 200));
-
-        // Outside window
-        assert!(!is_submission_within_deadline(&env, 99));
-        assert!(!is_submission_within_deadline(&env, 201));
     }
 
     #[test]
     fn test_no_round_accepts_all() {
         let env = Env::default();
-        let admin = Address::generate(&env);
+        let __contract_id = env.register(crate::PriceOracleContract, ());
+        env.mock_all_auths();
+        env.as_contract(&__contract_id, || {
+            let admin = Address::generate(&env);
 
-        env.ledger().with_mut(|l| {
-            l.timestamp = 1000;
+            env.ledger().with_mut(|l| {
+                l.timestamp = 1000;
+            });
+
+            crate::admin::initialize(
+                &env,
+                admin.clone(),
+                1,
+                100,
+                18,
+                soroban_sdk::String::from_slice(&env, "Oracle"),
+            );
+
+            // No round configured - all submissions should be accepted
+            assert!(is_submission_within_deadline(&env, 0));
+            assert!(is_submission_within_deadline(&env, 1000));
+            assert!(is_submission_within_deadline(&env, u32::MAX));
         });
-
-        crate::admin::initialize(
-            &env,
-            admin.clone(),
-            1,
-            100,
-            18,
-            soroban_sdk::String::from_slice(&env, "Oracle"),
-        );
-
-        // No round configured - all submissions should be accepted
-        assert!(is_submission_within_deadline(&env, 0));
-        assert!(is_submission_within_deadline(&env, 1000));
-        assert!(is_submission_within_deadline(&env, u32::MAX));
     }
 
     #[test]
     fn test_clear_current_round() {
         let env = Env::default();
-        let admin = Address::generate(&env);
+        let __contract_id = env.register(crate::PriceOracleContract, ());
+        env.mock_all_auths();
+        env.as_contract(&__contract_id, || {
+            let admin = Address::generate(&env);
 
-        env.ledger().with_mut(|l| {
-            l.timestamp = 1000;
-            l.sequence_number = 100;
+            env.ledger().with_mut(|l| {
+                l.timestamp = 1000;
+                l.sequence_number = 100;
+            });
+
+            crate::admin::initialize(
+                &env,
+                admin.clone(),
+                1,
+                100,
+                18,
+                soroban_sdk::String::from_slice(&env, "Oracle"),
+            );
+
+            start_aggregation_round(&env, 100, 200);
+            assert!(get_current_round(&env).is_some());
+
+            clear_current_round(&env);
+            assert!(get_current_round(&env).is_none());
         });
-
-        crate::admin::initialize(
-            &env,
-            admin.clone(),
-            1,
-            100,
-            18,
-            soroban_sdk::String::from_slice(&env, "Oracle"),
-        );
-
-        start_aggregation_round(&env, 100, 200);
-        assert!(get_current_round(&env).is_some());
-
-        clear_current_round(&env);
-        assert!(get_current_round(&env).is_none());
     }
 
     #[test]
     fn test_invalid_round_window() {
         let env = Env::default();
-        let admin = Address::generate(&env);
+        let __contract_id = env.register(crate::PriceOracleContract, ());
+        env.mock_all_auths();
+        env.as_contract(&__contract_id, || {
+            let admin = Address::generate(&env);
 
-        env.ledger().with_mut(|l| {
-            l.timestamp = 1000;
-            l.sequence_number = 100;
+            env.ledger().with_mut(|l| {
+                l.timestamp = 1000;
+                l.sequence_number = 100;
+            });
+
+            crate::admin::initialize(
+                &env,
+                admin.clone(),
+                1,
+                100,
+                18,
+                soroban_sdk::String::from_slice(&env, "Oracle"),
+            );
+
+            // Try to create a round with invalid window (end <= start)
+            // This should panic, but in test framework we'd use #[should_panic]
         });
-
-        crate::admin::initialize(
-            &env,
-            admin.clone(),
-            1,
-            100,
-            18,
-            soroban_sdk::String::from_slice(&env, "Oracle"),
-        );
-
-        // Try to create a round with invalid window (end <= start)
-        // This should panic, but in test framework we'd use #[should_panic]
     }
 }

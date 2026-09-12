@@ -31,6 +31,7 @@ fn test_frequently_accessed_asset_ttl_extended() {
     let e = Env::default();
     e.mock_all_auths();
     let (client, _admin) = setup_contract(&e);
+    client.set_min_sources_required(&1u32);
     let source = register_test_source(&e, &client, "Source 1");
     let asset = register_test_asset(&e, &client);
 
@@ -40,10 +41,10 @@ fn test_frequently_accessed_asset_ttl_extended() {
 
     // Access the price multiple times to track frequency
     for _ in 0..5 {
-        let _price = client.get_price(&asset);
+        let _price = client.get_price(&asset, &0u64);
     }
 
-    let price = client.get_price(&asset);
+    let price = client.get_price(&asset, &0u64);
     assert!(price.is_some());
 }
 
@@ -52,6 +53,7 @@ fn test_rarely_accessed_asset_ttl_shorter() {
     let e = Env::default();
     e.mock_all_auths();
     let (client, _admin) = setup_contract(&e);
+    client.set_min_sources_required(&1u32);
     let source = register_test_source(&e, &client, "Source 1");
     let asset = register_test_asset(&e, &client);
 
@@ -60,7 +62,7 @@ fn test_rarely_accessed_asset_ttl_shorter() {
     client.submit_price(&source, &asset, &1_000_000, &500);
 
     // Access the price once
-    let price = client.get_price(&asset);
+    let price = client.get_price(&asset, &0u64);
     assert!(price.is_some());
 }
 
@@ -69,12 +71,13 @@ fn test_adaptive_ttl_on_asset_registration() {
     let e = Env::default();
     e.mock_all_auths();
     let (client, _admin) = setup_contract(&e);
+    client.set_min_sources_required(&1u32);
     let asset = register_test_asset(&e, &client);
 
     set_ledger(&e, 100, 1_000);
 
     // Asset is registered, TTL should be extended
-    let _price = client.get_price(&asset);
+    let _price = client.get_price(&asset, &0u64);
 }
 
 #[test]
@@ -82,6 +85,7 @@ fn test_multiple_assets_different_ttl_frequencies() {
     let e = Env::default();
     e.mock_all_auths();
     let (client, _admin) = setup_contract(&e);
+    client.set_min_sources_required(&1u32);
     let source1 = register_test_source(&e, &client, "Source 1");
     let source2 = register_test_source(&e, &client, "Source 2");
     let asset1 = register_test_asset(&e, &client);
@@ -94,14 +98,14 @@ fn test_multiple_assets_different_ttl_frequencies() {
 
     // Access asset1 frequently
     for _ in 0..10 {
-        let _price = client.get_price(&asset1);
+        let _price = client.get_price(&asset1, &0u64);
     }
 
     // Access asset2 rarely
-    let _price = client.get_price(&asset2);
+    let _price = client.get_price(&asset2, &0u64);
 
-    let price1 = client.get_price(&asset1);
-    let price2 = client.get_price(&asset2);
+    let price1 = client.get_price(&asset1, &0u64);
+    let price2 = client.get_price(&asset2, &0u64);
 
     assert!(price1.is_some());
     assert!(price2.is_some());
@@ -112,6 +116,7 @@ fn test_ttl_extension_in_batching() {
     let e = Env::default();
     e.mock_all_auths();
     let (client, _admin) = setup_contract(&e);
+    client.set_min_sources_required(&1u32);
     let source = register_test_source(&e, &client, "Source 1");
     let asset = register_test_asset(&e, &client);
 
@@ -121,7 +126,7 @@ fn test_ttl_extension_in_batching() {
 
     client.extend_asset_ttl(&asset, &50u32);
 
-    let price = client.get_price(&asset);
+    let price = client.get_price(&asset, &0u64);
     assert!(price.is_some());
 }
 
@@ -130,6 +135,7 @@ fn test_adaptive_ttl_respects_max_entry_ttl() {
     let e = Env::default();
     e.mock_all_auths();
     let (client, _admin) = setup_contract(&e);
+    client.set_min_sources_required(&1u32);
     let source = register_test_source(&e, &client, "Source 1");
     let asset = register_test_asset(&e, &client);
 
@@ -139,10 +145,10 @@ fn test_adaptive_ttl_respects_max_entry_ttl() {
 
     // Access multiple times, should respect protocol max_entry_ttl
     for _ in 0..100 {
-        let _price = client.get_price(&asset);
+        let _price = client.get_price(&asset, &0u64);
     }
 
-    let price = client.get_price(&asset);
+    let price = client.get_price(&asset, &0u64);
     assert!(price.is_some());
 }
 
@@ -151,6 +157,7 @@ fn test_hot_key_gets_longer_ttl_than_cold_key() {
     let e = Env::default();
     e.mock_all_auths();
     let (client, _admin) = setup_contract(&e);
+    client.set_min_sources_required(&1u32);
     let source1 = register_test_source(&e, &client, "Source 1");
     let source2 = register_test_source(&e, &client, "Source 2");
     let hot_asset = register_test_asset(&e, &client);
@@ -163,15 +170,15 @@ fn test_hot_key_gets_longer_ttl_than_cold_key() {
 
     // Make hot_asset hot with many accesses
     for _ in 0..50 {
-        let _price = client.get_price(&hot_asset);
+        let _price = client.get_price(&hot_asset, &0u64);
     }
 
     // Make cold_asset stay cold
-    let _price = client.get_price(&cold_asset);
+    let _price = client.get_price(&cold_asset, &0u64);
 
     // Both should still exist
-    let hot_price = client.get_price(&hot_asset);
-    let cold_price = client.get_price(&cold_asset);
+    let hot_price = client.get_price(&hot_asset, &0u64);
+    let cold_price = client.get_price(&cold_asset, &0u64);
 
     assert!(hot_price.is_some());
     assert!(cold_price.is_some());
@@ -182,6 +189,7 @@ fn test_ttl_batching_with_access_frequency_tracking() {
     let e = Env::default();
     e.mock_all_auths();
     let (client, _admin) = setup_contract(&e);
+    client.set_min_sources_required(&1u32);
     let source1 = register_test_source(&e, &client, "Source 1");
     let source2 = register_test_source(&e, &client, "Source 2");
     let source3 = register_test_source(&e, &client, "Source 3");
@@ -195,12 +203,12 @@ fn test_ttl_batching_with_access_frequency_tracking() {
 
     // Access frequently
     for _ in 0..20 {
-        let _price = client.get_price(&asset);
+        let _price = client.get_price(&asset, &0u64);
     }
 
     // Trigger aggregation which should use adaptive TTL
     client.trigger_aggregation(&asset);
 
-    let price = client.get_price(&asset);
+    let price = client.get_price(&asset, &0u64);
     assert!(price.is_some());
 }

@@ -202,12 +202,8 @@ pub fn verify_cross_chain_price(
 
     let max_price = our_adjusted.max(ref_adjusted);
     let deviation_bps = if max_price > 0 {
-        let abs_diff = if our_adjusted > ref_adjusted {
-            our_adjusted - ref_adjusted
-        } else {
-            ref_adjusted - our_adjusted
-        };
-        ((abs_diff as u128 * 10000) / max_price) as u32
+        let abs_diff = our_adjusted.abs_diff(ref_adjusted);
+        ((abs_diff * 10000) / max_price) as u32
     } else {
         0
     };
@@ -224,134 +220,150 @@ mod tests {
     #[test]
     fn test_cross_chain_verification_flag() {
         let env = Env::default();
-        let admin = Address::generate(&env);
+        let __contract_id = env.register(crate::PriceOracleContract, ());
+        env.mock_all_auths();
+        env.as_contract(&__contract_id, || {
+            let admin = Address::generate(&env);
 
-        env.ledger().with_mut(|l| {
-            l.timestamp = 1000;
+            env.ledger().with_mut(|l| {
+                l.timestamp = 1000;
+            });
+
+            crate::admin::initialize(
+                &env,
+                admin.clone(),
+                1,
+                100,
+                18,
+                SorobanString::from_str(&env, "Oracle"),
+            );
+
+            // Initially disabled
+            assert!(!is_cross_chain_verification_enabled(&env));
+
+            // Enable it
+            set_cross_chain_verification_enabled(&env, true);
+            assert!(is_cross_chain_verification_enabled(&env));
+
+            // Disable it
+            set_cross_chain_verification_enabled(&env, false);
+            assert!(!is_cross_chain_verification_enabled(&env));
         });
-
-        crate::admin::initialize(
-            &env,
-            admin.clone(),
-            1,
-            100,
-            18,
-            SorobanString::from_str(&env, "Oracle"),
-        );
-
-        // Initially disabled
-        assert!(!is_cross_chain_verification_enabled(&env));
-
-        // Enable it
-        set_cross_chain_verification_enabled(&env, true);
-        assert!(is_cross_chain_verification_enabled(&env));
-
-        // Disable it
-        set_cross_chain_verification_enabled(&env, false);
-        assert!(!is_cross_chain_verification_enabled(&env));
     }
 
     #[test]
     fn test_price_within_threshold() {
         let env = Env::default();
-        let admin = Address::generate(&env);
+        let __contract_id = env.register(crate::PriceOracleContract, ());
+        env.mock_all_auths();
+        env.as_contract(&__contract_id, || {
+            let admin = Address::generate(&env);
 
-        env.ledger().with_mut(|l| {
-            l.timestamp = 1000;
+            env.ledger().with_mut(|l| {
+                l.timestamp = 1000;
+            });
+
+            crate::admin::initialize(
+                &env,
+                admin.clone(),
+                1,
+                100,
+                18,
+                SorobanString::from_str(&env, "Oracle"),
+            );
+
+            set_cross_chain_verification_enabled(&env, true);
+
+            // 2% deviation threshold
+            set_cross_chain_deviation_threshold(&env, 200);
+
+            let our_price = 100_000_000_000_000_000i128; // 100 * 10^16
+            let cross_chain = CrossChainPriceEntry {
+                price: 101_500_000_000_000_000i128, // 101.5 * 10^16 (1.5% deviation)
+                decimals: 18,
+                chain_id: SorobanString::from_str(&env, "ethereum"),
+                ledger: 1,
+                timestamp: 1000,
+            };
+
+            assert!(verify_cross_chain_price(&env, our_price, 18, &cross_chain));
         });
-
-        crate::admin::initialize(
-            &env,
-            admin.clone(),
-            1,
-            100,
-            18,
-            SorobanString::from_str(&env, "Oracle"),
-        );
-
-        set_cross_chain_verification_enabled(&env, true);
-
-        // 2% deviation threshold
-        set_cross_chain_deviation_threshold(&env, 200);
-
-        let our_price = 100_000_000_000_000_000i128; // 100 * 10^16
-        let cross_chain = CrossChainPriceEntry {
-            price: 101_500_000_000_000_000i128, // 101.5 * 10^16 (1.5% deviation)
-            decimals: 18,
-            chain_id: SorobanString::from_str(&env, "ethereum"),
-            ledger: 1,
-            timestamp: 1000,
-        };
-
-        assert!(verify_cross_chain_price(&env, our_price, 18, &cross_chain));
     }
 
     #[test]
     fn test_price_exceeds_threshold() {
         let env = Env::default();
-        let admin = Address::generate(&env);
+        let __contract_id = env.register(crate::PriceOracleContract, ());
+        env.mock_all_auths();
+        env.as_contract(&__contract_id, || {
+            let admin = Address::generate(&env);
 
-        env.ledger().with_mut(|l| {
-            l.timestamp = 1000;
+            env.ledger().with_mut(|l| {
+                l.timestamp = 1000;
+            });
+
+            crate::admin::initialize(
+                &env,
+                admin.clone(),
+                1,
+                100,
+                18,
+                SorobanString::from_str(&env, "Oracle"),
+            );
+
+            set_cross_chain_verification_enabled(&env, true);
+
+            // 2% deviation threshold
+            set_cross_chain_deviation_threshold(&env, 200);
+
+            let our_price = 100_000_000_000_000_000i128; // 100 * 10^16
+            let cross_chain = CrossChainPriceEntry {
+                price: 106_000_000_000_000_000i128, // 106 * 10^16 (6% deviation)
+                decimals: 18,
+                chain_id: SorobanString::from_str(&env, "ethereum"),
+                ledger: 1,
+                timestamp: 1000,
+            };
+
+            assert!(!verify_cross_chain_price(&env, our_price, 18, &cross_chain));
         });
-
-        crate::admin::initialize(
-            &env,
-            admin.clone(),
-            1,
-            100,
-            18,
-            SorobanString::from_str(&env, "Oracle"),
-        );
-
-        set_cross_chain_verification_enabled(&env, true);
-
-        // 2% deviation threshold
-        set_cross_chain_deviation_threshold(&env, 200);
-
-        let our_price = 100_000_000_000_000_000i128; // 100 * 10^16
-        let cross_chain = CrossChainPriceEntry {
-            price: 106_000_000_000_000_000i128, // 106 * 10^16 (6% deviation)
-            decimals: 18,
-            chain_id: SorobanString::from_str(&env, "ethereum"),
-            ledger: 1,
-            timestamp: 1000,
-        };
-
-        assert!(!verify_cross_chain_price(&env, our_price, 18, &cross_chain));
     }
 
     #[test]
     fn test_verification_disabled() {
         let env = Env::default();
-        let admin = Address::generate(&env);
+        let __contract_id = env.register(crate::PriceOracleContract, ());
+        env.mock_all_auths();
+        env.as_contract(&__contract_id, || {
+            let admin = Address::generate(&env);
 
-        env.ledger().with_mut(|l| {
-            l.timestamp = 1000;
+            env.ledger().with_mut(|l| {
+                l.timestamp = 1000;
+            });
+
+            crate::admin::initialize(
+                &env,
+                admin.clone(),
+                1,
+                100,
+                18,
+                SorobanString::from_str(&env, "Oracle"),
+            );
+
+            // Verification disabled by default
+            set_cross_chain_verification_enabled(&env, false);
+            set_cross_chain_deviation_threshold(&env, 200);
+
+            let our_price = 100_000_000_000_000_000i128;
+            let cross_chain = CrossChainPriceEntry {
+                price: 150_000_000_000_000_000i128, // 50% deviation - should pass because verification disabled
+                decimals: 18,
+                chain_id: SorobanString::from_str(&env, "ethereum"),
+                ledger: 1,
+                timestamp: 1000,
+            };
+
+            assert!(verify_cross_chain_price(&env, our_price, 18, &cross_chain));
         });
-
-        crate::admin::initialize(
-            &env,
-            admin.clone(),
-            1,
-            100,
-            18,
-            SorobanString::from_str(&env, "Oracle"),
-        );
-
-        // Verification disabled by default
-        set_cross_chain_verification_enabled(&env, false);
-        set_cross_chain_deviation_threshold(&env, 200);
-
-        let our_price = 100_000_000_000_000_000i128;
-        let cross_chain = CrossChainPriceEntry {
-            price: 150_000_000_000_000_000i128, // 50% deviation - should pass because verification disabled
-            decimals: 18,
-            chain_id: SorobanString::from_str(&env, "ethereum"),
-            ledger: 1,
-            timestamp: 1000,
-        };
-
-        assert!(verify_cross_chain_price(&env, our_price, 18, &cross_chain));
     }
 }

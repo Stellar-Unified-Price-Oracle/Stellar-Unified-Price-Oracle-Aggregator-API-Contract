@@ -41,7 +41,7 @@ fn test_version_increments_on_price_change() {
         base_reserve: 10,
         min_temp_entry_ttl: 10,
         min_persistent_entry_ttl: 10,
-        max_entry_ttl: 4096,
+        max_entry_ttl: 6_312_000,
     });
     client.submit_price(&source, &asset, &1_000_000i128, &1100u64);
     let v2 = client.get_aggregate_with_version(&asset);
@@ -56,7 +56,7 @@ fn test_version_increments_on_price_change() {
         base_reserve: 10,
         min_temp_entry_ttl: 10,
         min_persistent_entry_ttl: 10,
-        max_entry_ttl: 4096,
+        max_entry_ttl: 6_312_000,
     });
     client.submit_price(&source, &asset, &2_000_000i128, &1200u64);
     let v3 = client.get_aggregate_with_version(&asset);
@@ -76,7 +76,7 @@ fn test_version_consistent_with_get_price() {
 
     client.submit_price(&source, &asset, &5_000_000i128, &500u64);
     let versioned = client.get_aggregate_with_version(&asset);
-    let direct = client.get_price(&asset).unwrap();
+    let direct = client.get_price(&asset, &0u64).unwrap();
     assert_eq!(versioned.aggregate.price, direct.price);
     assert_eq!(versioned.aggregate.version, direct.version);
 }
@@ -113,7 +113,7 @@ fn test_version_monotonic_across_multiple_changes() {
             base_reserve: 10,
             min_temp_entry_ttl: 10,
             min_persistent_entry_ttl: 10,
-            max_entry_ttl: 4096,
+            max_entry_ttl: 6_312_000,
         });
         client.submit_price(&source, &asset, &p, &(1000u64 + i as u64 * 100));
         let v = client.get_aggregate_with_version(&asset);
@@ -146,7 +146,7 @@ fn test_compact_history_disabled_noop() {
             base_reserve: 10,
             min_temp_entry_ttl: 10,
             min_persistent_entry_ttl: 10,
-            max_entry_ttl: 4096,
+            max_entry_ttl: 6_312_000,
         });
         client.submit_price(&source, &asset, &((i + 1) as i128 * 1_000_000), &(1000 + i as u64 * 50));
     }
@@ -190,7 +190,7 @@ fn test_compact_history_removes_stable_entries() {
             base_reserve: 10,
             min_temp_entry_ttl: 10,
             min_persistent_entry_ttl: 10,
-            max_entry_ttl: 4096,
+            max_entry_ttl: 6_312_000,
         });
         client.submit_price(&source, &asset, price, ts);
     }
@@ -287,7 +287,7 @@ fn test_migrate_history_to_shards() {
             base_reserve: 10,
             min_temp_entry_ttl: 10,
             min_persistent_entry_ttl: 10,
-            max_entry_ttl: 4096,
+            max_entry_ttl: 6_312_000,
         });
         client.submit_price(&source, &asset, &((i + 1) as i128 * 100), &(1000 + i as u64 * 100));
     }
@@ -328,7 +328,7 @@ fn test_get_bucket_entries_after_migration() {
             base_reserve: 10,
             min_temp_entry_ttl: 10,
             min_persistent_entry_ttl: 10,
-            max_entry_ttl: 4096,
+            max_entry_ttl: 6_312_000,
         });
         client.submit_price(&source, &asset, &((i + 1) as i128 * 100), &(1000 + i as u64 * 100));
     }
@@ -359,7 +359,7 @@ fn test_migrate_history_idempotent() {
             base_reserve: 10,
             min_temp_entry_ttl: 10,
             min_persistent_entry_ttl: 10,
-            max_entry_ttl: 4096,
+            max_entry_ttl: 6_312_000,
         });
         client.submit_price(&source, &asset, &((i + 1) as i128 * 500), &(1000 + i as u64 * 100));
     }
@@ -410,7 +410,7 @@ fn test_storage_budget_grows_with_entries() {
             base_reserve: 10,
             min_temp_entry_ttl: 10,
             min_persistent_entry_ttl: 10,
-            max_entry_ttl: 4096,
+            max_entry_ttl: 6_312_000,
         });
         client.submit_price(&source, &asset, &((i + 1) as i128 * 100_000), &(1000 + i as u64 * 100));
     }
@@ -443,7 +443,7 @@ fn test_total_storage_budget_aggregates() {
             base_reserve: 10,
             min_temp_entry_ttl: 10,
             min_persistent_entry_ttl: 10,
-            max_entry_ttl: 4096,
+            max_entry_ttl: 6_312_000,
         });
         client.submit_price(&source, &asset1, &((i + 1) as i128 * 100), &(1000 + i as u64 * 100));
     }
@@ -455,7 +455,7 @@ fn test_total_storage_budget_aggregates() {
         base_reserve: 10,
         min_temp_entry_ttl: 10,
         min_persistent_entry_ttl: 10,
-        max_entry_ttl: 4096,
+        max_entry_ttl: 6_312_000,
     });
     client.submit_price(&source, &asset2, &999i128, &2000u64);
 
@@ -496,7 +496,7 @@ fn test_total_budget_equals_sum_of_individuals() {
             base_reserve: 10,
             min_temp_entry_ttl: 10,
             min_persistent_entry_ttl: 10,
-            max_entry_ttl: 4096,
+            max_entry_ttl: 6_312_000,
         });
         client.submit_price(&source, &asset1, &((i + 1) as i128 * 1000), &(1000 + i as u64 * 100));
         client.submit_price(&source, &asset2, &((i + 1) as i128 * 500), &(1000 + i as u64 * 100));

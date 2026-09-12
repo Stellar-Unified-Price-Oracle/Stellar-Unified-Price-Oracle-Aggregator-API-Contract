@@ -1,11 +1,15 @@
 #![cfg(test)]
 
-use soroban_sdk::{testutils::Address as _, Address, Env, String};
+use soroban_sdk::testutils::{Address as _, Ledger};
+use soroban_sdk::{Address, Env, String};
 
 use crate::{test_helpers::setup_contract, PriceOracleContractClient};
 
 fn setup_price_bounds_case<'a>(e: &'a Env) -> (PriceOracleContractClient<'a>, Address, Address) {
     let (client, _admin) = setup_contract(e);
+    // Submissions below use timestamps around 1000; align the ledger clock so
+    // they stay inside the default timestamp threshold.
+    e.ledger().with_mut(|l| l.timestamp = 1000);
     let source = Address::generate(e);
     let asset = Address::generate(e);
     client.add_source(&source, &String::from_str(e, "Source"));

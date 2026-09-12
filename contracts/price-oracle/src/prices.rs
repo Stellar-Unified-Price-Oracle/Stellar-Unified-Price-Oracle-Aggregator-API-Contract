@@ -650,18 +650,18 @@ fn aggregate_asset(env: &Env, asset: &Address, current_ledger: u32, decimals: u3
         );
 
         // Record gas usage for this aggregation run.
-        let before_cpu = crate::gas_metering::cpu_usage(&env);
-        let before_mem = crate::gas_metering::mem_usage(&env);
+        let before_cpu = crate::gas_metering::cpu_usage(env);
+        let before_mem = crate::gas_metering::mem_usage(env);
         // NOTE: the measured delta here only captures the remainder of the
         // aggregation function after this point; callers (e.g. submit_price)
         // record end-to-end cost. Still store an aggregate-internal snapshot.
-        let after_cpu = crate::gas_metering::cpu_usage(&env);
-        let after_mem = crate::gas_metering::mem_usage(&env);
+        let after_cpu = crate::gas_metering::cpu_usage(env);
+        let after_mem = crate::gas_metering::mem_usage(env);
         let cpu_delta = after_cpu.saturating_sub(before_cpu);
         let mem_delta = after_mem.saturating_sub(before_mem);
         crate::gas_metering::write_last_gas(
-            &env,
-            soroban_sdk::String::from_str(&env, "aggregate"),
+            env,
+            soroban_sdk::String::from_str(env, "aggregate"),
             cpu_delta,
             mem_delta,
         );
@@ -688,7 +688,7 @@ fn aggregate_asset(env: &Env, asset: &Address, current_ledger: u32, decimals: u3
             .get(&ledgers_key)
             .unwrap_or(soroban_sdk::Vec::new(env));
         if !skip_history {
-            if ledger_list.len() == 0
+            if ledger_list.is_empty()
                 || ledger_list.get_unchecked(ledger_list.len() - 1) != current_ledger
             {
                 ledger_list.push_back(current_ledger);
@@ -878,6 +878,32 @@ pub(crate) fn check_deviation_circuit_breaker(
     _price: i128,
 ) -> bool {
     is_circuit_breaker_tripped(env, asset)
+}
+
+/// Submits a price without requiring the caller to track a replay nonce.
+///
+/// This is the entrypoint behind the plain `submit_price` contract method,
+/// which is authenticated with `source.require_auth()`: every call is
+/// explicitly authorized by the source, so a monotonic nonce is not needed for
+/// replay protection. The stored nonce is still advanced by one on each call so
+/// that callers which *do* track nonces stay in sync. Paths where the nonce is
+/// part of a signed payload must keep calling [`submit_price`] directly with an
+/// explicit nonce.
+pub fn submit_price_auto(env: &Env, source: Address, asset: Address, price: i128, timestamp: u64) {
+    let last_nonce: u64 = env
+        .storage()
+        .persistent()
+        .get::<DataKey, u64>(&DataKey::SourceNonce(source.clone()))
+        .unwrap_or(0);
+
+    submit_price(
+        env,
+        source,
+        asset,
+        price,
+        timestamp,
+        last_nonce.saturating_add(1),
+    );
 }
 
 pub fn submit_price(
@@ -1118,7 +1144,7 @@ fn log2_fixed(value: i128) -> i128 {
 
     let mut frac: i128 = 0;
     for i in 1..=32 {
-        y = ((y as u128).saturating_mul(y as u128) >> 32) as u128;
+        y = y.saturating_mul(y) >> 32;
         if y >= (2u128 << 32) {
             y >>= 1;
             frac |= 1 << (32 - i);
@@ -1328,11 +1354,25 @@ pub fn get_price_with_confidence(env: &Env, asset: Address) -> Option<(Aggregate
 pub fn get_source_price(env: &Env, asset: Address, source: Address) -> PriceEntry {
     check_registered_asset(env, &asset);
     check_source(env, &source);
-    let key = DataKey::Submission(asset, source);
-    env.storage()
-        .persistent()
-        .extend_ttl(&key, LEDGER_THRESHOLD, LEDGER_BUMP);
-    env.storage().persistent().get(&key).unwrap()
+    let key = DataKey::Submission(asset.clone(), source.clone());
+    if let Some(entry) = env.storage().persistent().get::<_, PriceEntry>(&key) {
+        env.storage()
+            .persistent()
+            .extend_ttl(&key, LEDGER_THRESHOLD, LEDGER_BUMP);
+        return entry;
+    }
+
+    // A registered source that has not submitted yet reads as a zeroed entry
+    // rather than panicking, so callers can poll the key safely.
+    PriceEntry {
+        price: 0,
+        timestamp: 0,
+        source,
+        decimals: crate::admin::get_decimals(env),
+        last_updated: 0,
+        ledger_timestamp: 0,
+        volume: None,
+    }
 }
 
 pub fn get_all_prices(env: &Env, asset: Address) -> Vec<PriceEntry> {
@@ -1871,8 +1911,12 @@ pub fn commit_price(env: &Env, source: Address, asset: Address, hash: soroban_sd
     };
 
     // Use temporary storage so the commitment expires automatically after the reveal window,
-    // preventing griefing through permanent storage bloat.
-    let ttl = commit_window + get_reveal_window(env) + 1;
+    // preventing griefing through permanent storage bloat. The TTL is measured
+    // from the commit itself and keeps the entry alive for one extra reveal
+    // window past `reveal_end`, so expired commits remain slashable.
+    let reveal_window = get_reveal_window(env);
+    let reveal_end = round_ledger + commit_window + reveal_window;
+    let ttl = reveal_end.saturating_sub(current_ledger) + reveal_window + 2;
     env.storage().temporary().set(&commit_key, &commit);
     env.storage().temporary().extend_ttl(&commit_key, ttl, ttl);
 

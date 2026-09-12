@@ -49,7 +49,7 @@ fn set_ledger(e: &Env, seq: u32, ts: u64) {
         base_reserve: 10,
         min_temp_entry_ttl: 10,
         min_persistent_entry_ttl: 10,
-        max_entry_ttl: 4_096,
+        max_entry_ttl: 6_312_000,
     });
 }
 
@@ -166,7 +166,7 @@ fn bench_get_price(e: &Env, client: &PriceOracleContractClient<'_>, n_sources: u
         );
     }
     let (cpu, mem) = measure(e, || {
-        client.get_price(&asset);
+        client.get_price(&asset, &0u64);
     });
     row(
         "get_price",

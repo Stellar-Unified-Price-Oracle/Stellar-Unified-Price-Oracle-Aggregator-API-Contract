@@ -1,9 +1,13 @@
 #[cfg(test)]
-use soroban_sdk::Vec;
 mod tests {
     use super::super::*;
+    // These tests exercise pure governance/simulation logic with `format!`,
+    // `vec!` and `to_string()`, so shadow the SDK collections pulled in by the
+    // glob import above with their `std` equivalents.
+    use std::string::{String, ToString};
+    use std::vec::Vec;
 
-    #[derive(Clone, Debug)]
+    #[derive(Clone, Debug, PartialEq)]
     enum GovernanceOperationType {
         ParameterChange,
         SourceAdd,

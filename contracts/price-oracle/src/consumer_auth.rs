@@ -126,11 +126,11 @@ pub fn set_consumer_access_mode(env: &Env, mode: u32) {
         _ => panic_with_error!(env, ErrorCode::InvalidConfiguration),
     };
 
-    write_access_mode(env, mode_enum.clone());
+    write_access_mode(env, mode_enum);
 
     ConsumerAccessModeChangedEvent {
         admin,
-        new_mode: mode_enum.clone(),
+        new_mode: mode_enum,
     }
     .publish(env);
 }
