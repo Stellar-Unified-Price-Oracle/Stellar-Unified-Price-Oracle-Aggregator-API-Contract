@@ -13,7 +13,8 @@ Run:
 ```
 
 This builds the contract (if needed) and writes the full Soroban contract
-spec to [`docs/abi.json`](./abi.json) via `stellar contract inspect`. The
+spec to [`docs/abi.json`](./abi.json) via
+`stellar contract info interface --output json-formatted`. The
 JSON includes every exported function with its parameter and return types,
 plus all `#[contracttype]` structs and enums used in the public interface.
 

@@ -7,6 +7,10 @@
 # Outputs:
 #   docs/abi.json — machine-readable Soroban contract spec (function
 #                   signatures, parameter types, struct/enum definitions)
+#
+# Note: `stellar contract inspect` only accepts xdr-base64/xdr-base64-array/
+# docs and is deprecated in favour of `stellar contract info interface`, whose
+# `--output json-formatted` is what emits the JSON spec.
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -19,6 +23,6 @@ if [[ ! -f "$WASM_PATH" ]]; then
 fi
 
 echo "Extracting ABI from $WASM_PATH ..."
-stellar contract inspect --wasm "$WASM_PATH" --output json > "$OUT_PATH"
+stellar contract info interface --wasm "$WASM_PATH" --output json-formatted > "$OUT_PATH"
 
 echo "ABI written to $OUT_PATH"
