@@ -70,6 +70,7 @@ mod freeze;
 mod gas_metering;
 mod health;
 mod history;
+mod incremental_aggregate;
 mod metadata;
 mod migration;
 mod multisig;
@@ -5844,3 +5845,12 @@ mod issue_381_adaptive_ttl_tests;
 
 #[cfg(test)]
 mod source_diversity_tests;
+
+#[cfg(test)]
+mod reputation_gaming_tests;
+
+#[cfg(test)]
+mod event_integrity_tests;
+
+#[cfg(test)]
+mod invariant_harness_tests;
