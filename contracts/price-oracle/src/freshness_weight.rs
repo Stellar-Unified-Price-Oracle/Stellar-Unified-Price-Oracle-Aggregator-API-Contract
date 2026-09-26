@@ -20,8 +20,9 @@
 //!
 //! Weights are bounded by construction (`max/min <= W_MAX / min_weight`). On
 //! top of that, when three or more sources contribute, no single weight may
-//! exceed the sum of all the others (a 50 % maximum share), so a lone fresh
-//! value can never outvote the rest by weight alone.
+//! exceed the configurable influence cap (default 50 %, see
+//! [`crate::influence_cap`]), so a lone fresh value can never outvote the rest
+//! by weight alone.
 
 use soroban_sdk::{panic_with_error, Address, Env, Vec};
 
@@ -166,7 +167,7 @@ pub fn capped(env: &Env, weights: &Vec<u32>) -> Vec<u32> {
     for (i, slot) in buf.iter_mut().take(n).enumerate() {
         *slot = weights.get_unchecked(i as u32);
     }
-    cap_weights(&mut buf[..n]);
+    crate::influence_cap::apply_cap(&mut buf[..n], crate::influence_cap::get_cap_bps(env));
     let mut out: Vec<u32> = Vec::new(env);
     for w in buf[..n].iter() {
         out.push_back(*w);

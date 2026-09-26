@@ -35,6 +35,7 @@ pub fn challenge_price(
     expected_price: i128,
     proof_data: Bytes,
 ) {
+    challenger.require_auth();
     // Validate asset is registered
     crate::storage::check_registered_asset(env, &asset);
 
@@ -170,6 +171,7 @@ pub fn resolve_challenge(env: &Env, challenge_id: u32, is_valid: bool) {
 ///
 /// The amount of rewards claimed (in stroops).
 pub fn claim_rewards(env: &Env, claimer: Address) -> i128 {
+    claimer.require_auth();
     let rewards: i128 = env
         .storage()
         .persistent()

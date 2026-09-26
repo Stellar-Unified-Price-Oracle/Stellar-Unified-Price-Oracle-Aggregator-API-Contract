@@ -649,13 +649,28 @@ fn aggregate_asset(env: &Env, asset: &Address, current_ledger: u32, decimals: u3
                 asset: asset.clone(),
                 raw_median: compute_median(&valid_prices),
                 weighted_median: weighted,
-                weights,
+                weights: weights.clone(),
+            }
+            .publish(env);
+            crate::events::InfluenceCapAppliedEvent {
+                asset: asset.clone(),
+                cap_bps: crate::influence_cap::get_cap_bps(env),
+                influence_bps: crate::influence_cap::influence_bps(env, &weights),
             }
             .publish(env);
             weighted
         } else {
             aggregate_prices(env, asset, &valid_prices, &valid_volumes)
         };
+
+        if let Some(band) = crate::confidence_band::band_for(env, &valid_prices, decimals) {
+            crate::events::ConfidenceBandEvent {
+                asset: asset.clone(),
+                price: median_price,
+                band,
+            }
+            .publish(env);
+        }
 
         let agg_key = DataKey::Aggregate(asset.clone());
         let prev_aggregate: AggregatePrice =

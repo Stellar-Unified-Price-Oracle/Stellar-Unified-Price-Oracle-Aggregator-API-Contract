@@ -1,4 +1,4 @@
-use soroban_sdk::{panic_with_error, Address, Bytes, BytesN, Env, String, Vec};
+use soroban_sdk::{panic_with_error, xdr::ToXdr, Address, Bytes, BytesN, Env, String, Vec};
 
 use crate::admin::{get_decimals, get_timestamp_threshold};
 use crate::assets::get_min_price;
@@ -142,7 +142,11 @@ fn hash_relayer_delegation_payload(
     expiration_ledger: u32,
 ) -> BytesN<32> {
     let mut buf = Bytes::new(env);
-    buf.append(&Bytes::from_slice(env, b"source_relayer_delegation_v1"));
+    // v2 binds the network and this contract instance so a delegation cannot
+    // be replayed on another chain or oracle deployment (#468).
+    buf.append(&Bytes::from_slice(env, b"source_relayer_delegation_v2"));
+    buf.append(&env.ledger().network_id().into());
+    buf.append(&env.current_contract_address().to_xdr(env));
     buf.append(&Bytes::from_slice(env, &nonce.to_le_bytes()));
     buf.append(&Bytes::from(&source.to_string()));
     buf.append(&Bytes::from(&relayer.to_string()));

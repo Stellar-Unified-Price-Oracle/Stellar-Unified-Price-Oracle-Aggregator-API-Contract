@@ -10,7 +10,7 @@ Tests: `contracts/price-oracle/src/decoder_forgery_tests.rs`.
 | `wormhole_relay::decode_price_payload` | `price i128 LE[16] ‖ decimals u32 LE[4] ‖ timestamp u64 LE[8]` | exactly 28 bytes | `InvalidVaaPayload` (#147) |
 | Timelock batch `execute_single_op` | Upgrade: `hash[32]`. SetMinSources / MaxHistory / Resolution / Decimals: `u32 BE[4]`. SetTimestampThreshold: `u64 BE[8]`. SetAdmin / SetDescription: ignored. | exact (**fixed in this change**) | `InvalidConfiguration` (#10) |
 | `price_proof::validate_proof` | opaque `payload_hash` / `signature` blobs with a minimum length | minimum only | `InvalidProof` (#112) |
-| `signed_submission` digest | `sha256("price_proof_v1" ‖ nonce ‖ price ‖ timestamp ‖ expiration)` | N/A (fields are typed) | `NotAuthorized` |
+| `signed_submission` digest | `sha256("price_proof_v2" ‖ network_id ‖ contract ‖ source ‖ asset ‖ nonce ‖ price ‖ timestamp ‖ expiration)` | N/A (fields are typed) | `NotAuthorized` |
 
 ## Properties
 

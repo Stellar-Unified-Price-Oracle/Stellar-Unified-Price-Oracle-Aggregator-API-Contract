@@ -2894,6 +2894,19 @@ pub struct WeightedAggregate {
     pub weights: soroban_sdk::Vec<u32>,
 }
 
+/// Interquartile confidence band around an aggregate (#476). All values use
+/// the aggregate's `decimals`; see `docs/confidence-bands.md`.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct ConfidenceBand {
+    pub lower: i128,
+    pub upper: i128,
+    pub median: i128,
+    pub num_sources: u32,
+    pub decimals: u32,
+    pub low_confidence: bool,
+}
+
 /// TWAP value together with the observation statistics backing it.
 #[derive(Clone, Debug, Eq, PartialEq)]
 #[contracttype]

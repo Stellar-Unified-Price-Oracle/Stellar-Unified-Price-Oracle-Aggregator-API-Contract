@@ -1,7 +1,7 @@
 #![cfg(test)]
 
 use ed25519_dalek::{Signer, SigningKey, VerifyingKey};
-use soroban_sdk::{testutils::Address as _, Address, Bytes, BytesN, Env, String};
+use soroban_sdk::{testutils::Address as _, xdr::ToXdr, Address, Bytes, BytesN, Env, String};
 
 use crate::{PriceOracleContract, PriceOracleContractClient};
 
@@ -9,13 +9,16 @@ const SOURCE_DELEGATION_KEY: [u8; 32] = [7u8; 32];
 
 fn make_source_delegation_digest(
     e: &Env,
+    contract: &Address,
     source: &Address,
     relayer: &Address,
     nonce: u64,
     expiration_ledger: u32,
 ) -> BytesN<32> {
     let mut buf = Bytes::new(e);
-    buf.append(&Bytes::from_slice(e, b"source_relayer_delegation_v1"));
+    buf.append(&Bytes::from_slice(e, b"source_relayer_delegation_v2"));
+    buf.append(&e.ledger().network_id().into());
+    buf.append(&contract.clone().to_xdr(e));
     buf.append(&Bytes::from_slice(e, &nonce.to_le_bytes()));
     buf.append(&Bytes::from(&source.to_string()));
     buf.append(&Bytes::from(&relayer.to_string()));
@@ -25,13 +28,15 @@ fn make_source_delegation_digest(
 
 fn sign_delegation(
     e: &Env,
+    contract: &Address,
     source: &Address,
     relayer: &Address,
     nonce: u64,
     expiration_ledger: u32,
     signing_key: &SigningKey,
 ) -> BytesN<64> {
-    let digest = make_source_delegation_digest(e, source, relayer, nonce, expiration_ledger);
+    let digest =
+        make_source_delegation_digest(e, contract, source, relayer, nonce, expiration_ledger);
     let sig = signing_key.sign(&digest.to_array());
     BytesN::from_array(e, &sig.to_bytes())
 }
@@ -219,6 +224,7 @@ fn test_delegate_relayer_without_admin_approval() {
     let expiration_ledger = e.ledger().sequence() + 100;
     let signature = sign_delegation(
         &e,
+        &client.address,
         &source,
         &relayer,
         nonce,
