@@ -149,9 +149,28 @@ pub fn mean_core(prices: &[i128]) -> i128 {
     }
     let mut sum: i128 = 0;
     for &p in prices {
-        sum = sum.saturating_add(p);
+        match sum.checked_add(p) {
+            Some(s) => sum = s,
+            None => return mean_no_overflow(prices),
+        }
     }
     sum / (n as i128)
+}
+
+/// Overflow-free mean used when the plain sum would exceed `i128` (#464).
+///
+/// Accumulates per-element quotients and remainders separately so the result is
+/// the exact truncated mean instead of a saturated (wrong) value. Only reached
+/// for same-sign inputs, where truncation equals rounding toward zero.
+pub fn mean_no_overflow(prices: &[i128]) -> i128 {
+    let n = prices.len() as i128;
+    let mut quotient: i128 = 0;
+    let mut remainder: i128 = 0;
+    for &p in prices {
+        quotient += p / n;
+        remainder += p % n;
+    }
+    quotient + remainder / n
 }
 
 // ────────────────────────────────────────────────────────────────────────────
