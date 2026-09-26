@@ -163,6 +163,12 @@ pub fn propose_operation_with_priority(
     env.storage()
         .persistent()
         .set(&DataKey::TlPendingOpCount, &op_id);
+    // Snapshot the delay so a later `set_priority_delay` cannot shorten the
+    // wait of an operation that is already queued (#455).
+    env.storage().persistent().set(
+        &DataKey::TlOpRequiredDelay(op_id),
+        &get_priority_delay(env, &priority),
+    );
 
     OperationProposedEvent {
         operation_id: op_id,
@@ -190,8 +196,10 @@ pub fn execute_operation(env: &Env, op_id: u32) {
         .ok_or_else(|| panic_with_error!(env, ErrorCode::OperationNotFound))
         .unwrap();
 
-    // Use priority-aware delay
-    let required_delay = get_priority_delay(env, &pending_op.priority);
+    // Use priority-aware delay; never shorter than the delay snapshotted at proposal.
+    let snapshot_key = DataKey::TlOpRequiredDelay(op_id);
+    let snapshot: u32 = env.storage().persistent().get(&snapshot_key).unwrap_or(0);
+    let required_delay = get_priority_delay(env, &pending_op.priority).max(snapshot);
     let current_ledger = env.ledger().sequence();
     let elapsed = current_ledger - pending_op.proposed_ledger;
 
@@ -202,6 +210,7 @@ pub fn execute_operation(env: &Env, op_id: u32) {
     env.storage()
         .persistent()
         .remove(&DataKey::TlPendingOp(op_id));
+    env.storage().persistent().remove(&snapshot_key);
 
     OperationExecutedEvent {
         operation_id: op_id,
@@ -229,6 +238,9 @@ pub fn cancel_operation(env: &Env, op_id: u32) {
     env.storage()
         .persistent()
         .remove(&DataKey::TlPendingOp(op_id));
+    env.storage()
+        .persistent()
+        .remove(&DataKey::TlOpRequiredDelay(op_id));
 
     OperationCancelledEvent {
         operation_id: op_id,
@@ -278,6 +290,7 @@ pub fn propose_batch(env: &Env, operations: soroban_sdk::Vec<crate::types::Batch
     let batch_id = batch_count + 1;
 
     let num_ops = operations.len();
+    let required_delay = batch_required_delay(env, &operations);
     let pending = crate::types::PendingBatch {
         id: batch_id,
         proposed_by: admin.clone(),
@@ -291,6 +304,10 @@ pub fn propose_batch(env: &Env, operations: soroban_sdk::Vec<crate::types::Batch
     env.storage()
         .persistent()
         .set(&DataKey::PendingBatchCount, &batch_id);
+    env.storage().persistent().set(
+        &DataKey::PendingBatchRequiredDelay(batch_id),
+        &required_delay,
+    );
 
     crate::events::BatchProposedEvent {
         batch_id,
@@ -314,11 +331,11 @@ pub fn execute_batch(env: &Env, batch_id: u32) {
         .ok_or_else(|| panic_with_error!(env, ErrorCode::OperationNotFound))
         .unwrap();
 
-    let timelock_duration: u32 = env
-        .storage()
-        .persistent()
-        .get(&DataKey::TimelockDuration)
-        .unwrap_or(10);
+    // Every element must respect its own delay: the batch waits for the
+    // longest one, and never less than the delay snapshotted at proposal (#455).
+    let snapshot_key = DataKey::PendingBatchRequiredDelay(batch_id);
+    let snapshot: u32 = env.storage().persistent().get(&snapshot_key).unwrap_or(0);
+    let timelock_duration = batch_required_delay(env, &pending.operations).max(snapshot);
     let current_ledger = env.ledger().sequence();
     if current_ledger - pending.proposed_ledger < timelock_duration {
         panic_with_error!(env, ErrorCode::TimelockNotReady);
@@ -335,6 +352,7 @@ pub fn execute_batch(env: &Env, batch_id: u32) {
     env.storage()
         .persistent()
         .remove(&DataKey::PendingBatch(batch_id));
+    env.storage().persistent().remove(&snapshot_key);
 
     crate::events::BatchExecutedEvent {
         batch_id,
@@ -359,6 +377,9 @@ pub fn cancel_batch(env: &Env, batch_id: u32) {
     env.storage()
         .persistent()
         .remove(&DataKey::PendingBatch(batch_id));
+    env.storage()
+        .persistent()
+        .remove(&DataKey::PendingBatchRequiredDelay(batch_id));
 
     crate::events::BatchCancelledEvent {
         batch_id,
@@ -367,8 +388,48 @@ pub fn cancel_batch(env: &Env, batch_id: u32) {
     .publish(env);
 }
 
+/// Delay (ledgers) a single batch element must wait: `Upgrade` and `SetAdmin`
+/// take the `LongTerm` tier, every other operation the `Normal` tier.
+fn element_delay(env: &Env, op_type: u32) -> u32 {
+    match op_type {
+        0 | 1 => get_priority_delay(env, &OperationPriority::LongTerm),
+        _ => get_priority_delay(env, &OperationPriority::Normal),
+    }
+}
+
+/// Delay (ledgers) a batch must wait: the legacy batch duration, raised to the
+/// longest per-element delay so a long-delay element cannot ship under a
+/// short-delay element's window.
+fn batch_required_delay(
+    env: &Env,
+    operations: &soroban_sdk::Vec<crate::types::BatchOperation>,
+) -> u32 {
+    let mut delay: u32 = env
+        .storage()
+        .persistent()
+        .get(&DataKey::TimelockDuration)
+        .unwrap_or(10);
+    for op in operations.iter() {
+        delay = delay.max(element_delay(env, op.op_type));
+    }
+    delay
+}
+
 fn execute_single_op(env: &Env, op_type: u32, data: &Bytes) {
     let admin = get_admin(env);
+    // Fail closed on truncated or trailing payload bytes instead of silently
+    // skipping or ignoring them (#451).
+    let expected_len = match op_type {
+        0 => Some(32),
+        2..=5 => Some(4),
+        7 => Some(8),
+        _ => None,
+    };
+    if let Some(len) = expected_len {
+        if data.len() != len {
+            panic_with_error!(env, ErrorCode::InvalidConfiguration);
+        }
+    }
     match op_type {
         0 => {
             // Upgrade: data is a BytesN<32>

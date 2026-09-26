@@ -18,6 +18,27 @@ use crate::types::{DataKey, ErrorCode, GuardianRecovery};
 
 /// Default cancellation-window delay: ~1 day, assuming ~5s ledgers.
 const DEFAULT_RECOVERY_DELAY: u32 = 17_280;
+/// Upper bound on the cancellation-window delay (~10 days at 5s ledgers), so a
+/// compromised admin cannot stall recovery indefinitely with a huge delay (#454).
+const MAX_RECOVERY_DELAY: u32 = 172_800;
+
+/// Rejects guardian-set / delay changes while a recovery is in flight or while
+/// a veto cooldown is active, so a compromised admin cannot swap out the
+/// guardians (or stretch the delay) to block its own revocation (#454).
+fn check_recovery_config_unlocked(env: &Env) {
+    if env.storage().persistent().has(&DataKey::PendingRecovery) {
+        panic_with_error!(env, ErrorCode::RecoveryAlreadyPending);
+    }
+    if let Some((_, until)) = env
+        .storage()
+        .persistent()
+        .get::<DataKey, (Address, u32)>(&DataKey::RecoveryVeto)
+    {
+        if env.ledger().sequence() < until {
+            panic_with_error!(env, ErrorCode::RecoveryAlreadyPending);
+        }
+    }
+}
 
 fn read_guardians(env: &Env) -> Vec<Address> {
     let key = DataKey::RecoveryGuardians;
@@ -45,9 +66,11 @@ fn read_threshold(env: &Env) -> u32 {
 /// # Errors
 /// * [`ErrorCode::NotAuthorized`] — caller is not the admin.
 /// * [`ErrorCode::InvalidGuardianConfig`] — threshold is `0` or exceeds the guardian count.
+/// * [`ErrorCode::RecoveryAlreadyPending`] — a recovery is pending or a veto cooldown is active.
 pub fn set_guardians(env: &Env, guardians: Vec<Address>, threshold: u32) {
     let admin = get_admin(env);
     admin.require_auth();
+    check_recovery_config_unlocked(env);
 
     if threshold == 0 || threshold > guardians.len() {
         panic_with_error!(env, ErrorCode::InvalidGuardianConfig);
@@ -91,11 +114,13 @@ pub fn get_recovery_threshold(env: &Env) -> u32 {
 ///
 /// # Errors
 /// * [`ErrorCode::NotAuthorized`] — caller is not the admin.
-/// * [`ErrorCode::InvalidConfiguration`] — `delay_ledgers` is `0`.
+/// * [`ErrorCode::InvalidConfiguration`] — `delay_ledgers` is `0` or exceeds `MAX_RECOVERY_DELAY`.
+/// * [`ErrorCode::RecoveryAlreadyPending`] — a recovery is pending or a veto cooldown is active.
 pub fn set_recovery_delay(env: &Env, delay_ledgers: u32) {
     let admin = get_admin(env);
     admin.require_auth();
-    if delay_ledgers == 0 {
+    check_recovery_config_unlocked(env);
+    if delay_ledgers == 0 || delay_ledgers > MAX_RECOVERY_DELAY {
         panic_with_error!(env, ErrorCode::InvalidConfiguration);
     }
     env.storage()
@@ -189,7 +214,8 @@ pub fn approve_recovery(env: &Env, guardian: Address, new_admin: Address) {
 /// lets a still-in-control admin stop a recovery before it executes.
 ///
 /// # Errors
-/// * [`ErrorCode::NotAuthorized`] — caller is not the admin.
+/// * [`ErrorCode::NotAuthorized`] — caller is not the admin, or the pending
+///   recovery re-reached quorum for a candidate the admin already vetoed.
 /// * [`ErrorCode::RecoveryNotPending`] — no recovery is currently pending.
 pub fn cancel_recovery(env: &Env) {
     let admin = get_admin(env);
@@ -201,6 +227,30 @@ pub fn cancel_recovery(env: &Env) {
         .persistent()
         .get(&key)
         .unwrap_or_else(|| panic_with_error!(env, ErrorCode::RecoveryNotPending));
+
+    // The admin gets one veto per candidate once guardians reach quorum. If
+    // the guardians re-approve the same candidate, the admin can no longer
+    // cancel it — guardian quorum outranks the admin key (#454).
+    if recovery.ready_ledger != 0 {
+        let veto: Option<(Address, u32)> = env.storage().persistent().get(&DataKey::RecoveryVeto);
+        if let Some((vetoed, _)) = veto {
+            if vetoed == recovery.new_admin {
+                panic_with_error!(env, ErrorCode::NotAuthorized);
+            }
+        }
+        let until = env
+            .ledger()
+            .sequence()
+            .saturating_add(get_recovery_delay(env));
+        env.storage()
+            .persistent()
+            .set(&DataKey::RecoveryVeto, &(recovery.new_admin.clone(), until));
+        env.storage().persistent().extend_ttl(
+            &DataKey::RecoveryVeto,
+            LEDGER_THRESHOLD,
+            LEDGER_BUMP,
+        );
+    }
 
     env.storage().persistent().remove(&key);
 
@@ -234,7 +284,7 @@ pub fn execute_recovery(env: &Env) {
     }
 
     let delay = get_recovery_delay(env);
-    if env.ledger().sequence() < recovery.ready_ledger + delay {
+    if env.ledger().sequence() < recovery.ready_ledger.saturating_add(delay) {
         panic_with_error!(env, ErrorCode::RecoveryDelayNotElapsed);
     }
 
@@ -243,6 +293,7 @@ pub fn execute_recovery(env: &Env) {
         .persistent()
         .set(&DataKey::Admin, &recovery.new_admin);
     env.storage().persistent().remove(&key);
+    env.storage().persistent().remove(&DataKey::RecoveryVeto);
 
     RecoveryExecutedEvent {
         old_admin,

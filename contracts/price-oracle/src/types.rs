@@ -127,6 +127,9 @@ pub enum DataKey {
     TlPendingOpCount,
     /// A [`PendingOperation`] awaiting timelock expiry before execution.
     TlPendingOp(u32),
+    /// Delay (ledgers) snapshotted when a timelock operation was proposed (u32).
+    /// Execution requires the larger of this and the current tier delay (#455).
+    TlOpRequiredDelay(u32),
     /// Number of ledgers that must pass between proposing and executing a timelock operation.
     TimelockDuration,
     /// Tracks the number of queries made by a consumer for a specific ledger.
@@ -165,6 +168,9 @@ pub enum DataKey {
     PendingBatchCount,
     /// A pending batch operation.
     PendingBatch(u32),
+    /// Delay (ledgers) snapshotted when a batch was proposed: the maximum of
+    /// every element's own delay (#455).
+    PendingBatchRequiredDelay(u32),
     /// Current storage schema version (u32). Absent means version 1.
     StorageVersion,
     /// Active migration state, if a migration is in progress.
@@ -673,6 +679,9 @@ pub enum DataKey {
     RecoveryGuardians,
     /// Guardian approval threshold (u32).
     RecoveryThreshold,
+    /// `(vetoed_candidate, cooldown_until_ledger)` recorded when the admin
+    /// cancels a quorum-approved recovery (#454).
+    RecoveryVeto,
 
     // -------------------------------------------------------------------------
     // #297: Price callbacks
