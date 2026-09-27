@@ -142,6 +142,11 @@ pub fn remove_source(env: &Env, source: Address) {
     env.storage()
         .persistent()
         .remove(&DataKey::SrcActive(source.clone()));
+    // Revoke the off-chain signing key so a re-added source cannot have
+    // proofs signed by its old key accepted (#468).
+    env.storage()
+        .persistent()
+        .remove(&DataKey::SignedSubmitPubKey(source.clone()));
 
     let mut oracle_sources: OracleSources = read_oracle_sources(env);
     let mut new_sources: Vec<Address> = Vec::new(env);

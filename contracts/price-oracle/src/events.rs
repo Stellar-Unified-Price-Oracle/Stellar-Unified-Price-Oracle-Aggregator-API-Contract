@@ -2635,3 +2635,30 @@ pub struct WeightedAggregationEvent {
     pub weighted_median: i128,
     pub weights: soroban_sdk::Vec<u32>,
 }
+
+/// Emitted with every aggregate: the interquartile confidence band of the
+/// contributing prices (#476). `price` is the published aggregate.
+///
+/// Topics: `asset`
+#[contractevent]
+#[derive(Clone)]
+pub struct ConfidenceBandEvent {
+    #[topic]
+    pub asset: Address,
+    pub price: i128,
+    pub band: crate::types::ConfidenceBand,
+}
+
+/// Emitted with a weighted (method 4) aggregation: the influence cap in force
+/// and each contributing submission's effective influence in basis points,
+/// in the same order as `WeightedAggregationEvent::weights` (#475).
+///
+/// Topics: `asset`
+#[contractevent]
+#[derive(Clone)]
+pub struct InfluenceCapAppliedEvent {
+    #[topic]
+    pub asset: Address,
+    pub cap_bps: u32,
+    pub influence_bps: soroban_sdk::Vec<u32>,
+}

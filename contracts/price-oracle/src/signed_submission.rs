@@ -11,7 +11,17 @@
 //!
 //! Mirrors the convention used by [`crate::state_channel`]: the signed
 //! digest is
-//! `sha256("price_proof_v1" || nonce_le(8) || price_le(16) || timestamp_le(8) || expiration_ledger_le(4))`.
+//! ```text
+//! sha256("price_proof_v2" || network_id(32) || xdr(contract_address)
+//!        || xdr(source) || xdr(asset) || nonce_le(8) || price_le(16)
+//!        || timestamp_le(8) || expiration_ledger_le(4))
+//! ```
+//!
+//! Binding the network id and this contract's address prevents replay across
+//! chains and contract instances; binding `source` and `asset` prevents moving
+//! a signature to another source or asset. See
+//! `docs/security/signed-submission-binding.md` for the full field list,
+//! including the fields that are intentionally *not* signed.
 //!
 //! ## Replay protection & expiry
 //!
@@ -20,7 +30,7 @@
 //! `expiration_ledger` additionally bounds how long a signed price may be
 //! relayed before it goes stale.
 
-use soroban_sdk::{panic_with_error, Address, Bytes, BytesN, Env};
+use soroban_sdk::{panic_with_error, xdr::ToXdr, Address, Bytes, BytesN, Env};
 
 use crate::admin::{get_decimals, get_timestamp_threshold};
 use crate::assets::get_min_price;
@@ -60,15 +70,21 @@ pub(crate) fn read_submission_key(env: &Env, source: &Address) -> BytesN<32> {
         .unwrap_or_else(|| panic_with_error!(env, ErrorCode::SigningKeyNotRegistered))
 }
 
-fn hash_proof_payload(
+pub(crate) fn hash_proof_payload(
     env: &Env,
+    source: &Address,
+    asset: &Address,
     nonce: u64,
     price: i128,
     timestamp: u64,
     expiration_ledger: u32,
 ) -> BytesN<32> {
     let mut buf = Bytes::new(env);
-    buf.append(&Bytes::from_slice(env, b"price_proof_v1"));
+    buf.append(&Bytes::from_slice(env, b"price_proof_v2"));
+    buf.append(&env.ledger().network_id().into());
+    buf.append(&env.current_contract_address().to_xdr(env));
+    buf.append(&source.clone().to_xdr(env));
+    buf.append(&asset.clone().to_xdr(env));
     buf.append(&Bytes::from_slice(env, &nonce.to_le_bytes()));
     buf.append(&Bytes::from_slice(env, &(price as u128).to_le_bytes()));
     buf.append(&Bytes::from_slice(env, &timestamp.to_le_bytes()));
@@ -116,6 +132,7 @@ pub fn submit_price_with_proof(
     check_not_paused(env);
     check_source(env, &source);
     check_registered_asset(env, &asset);
+    crate::freeze::check_not_frozen(env, &asset);
     check_source_asset(env, &source, &asset);
 
     if is_source_suspended(env, source.clone()) {
@@ -138,7 +155,15 @@ pub fn submit_price_with_proof(
     }
 
     let public_key = read_submission_key(env, &source);
-    let digest = hash_proof_payload(env, nonce, price, timestamp, expiration_ledger);
+    let digest = hash_proof_payload(
+        env,
+        &source,
+        &asset,
+        nonce,
+        price,
+        timestamp,
+        expiration_ledger,
+    );
     let digest_bytes: Bytes = digest.into();
     env.crypto()
         .ed25519_verify(&public_key, &digest_bytes, &signature);
@@ -153,6 +178,18 @@ pub fn submit_price_with_proof(
     if timestamp > ledger_time.saturating_add(threshold) {
         record_invalid_submission(env, source.clone());
         panic_with_error!(env, ErrorCode::InvalidTimestamp);
+    }
+
+    // Same out-of-order guard as the `require_auth` path: a delayed proof must
+    // never replace a newer price from the same source.
+    if let Some(prev) = env
+        .storage()
+        .persistent()
+        .get::<_, PriceEntry>(&DataKey::Submission(asset.clone(), source.clone()))
+    {
+        if timestamp < prev.timestamp {
+            panic_with_error!(env, ErrorCode::InvalidTimestamp);
+        }
     }
 
     if check_deviation_circuit_breaker(env, &source, &asset, price) {

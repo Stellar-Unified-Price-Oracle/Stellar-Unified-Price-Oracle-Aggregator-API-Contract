@@ -105,6 +105,7 @@ mod state_introspection;
 mod submission_deadline;
 mod subscription;
 // #304 — Consumer contract authorization (wired in from disk).
+mod confidence_band;
 mod consumer_auth;
 // #305 — Price update subscription registry (wired in from disk).
 mod price_update_subscription;
@@ -115,6 +116,7 @@ mod types;
 mod vdf_sampler;
 mod verification;
 mod whitelisting;
+mod influence_cap;
 mod wormhole_relay;
 mod zk_verify;
 
@@ -4971,6 +4973,7 @@ impl PriceOracleContract {
     /// indexed under `(symbol!("price_upd"), asset_symbol)` for off-chain
     /// relayers to pick up.
     pub fn relay_emit_price_update(env: Env, asset_symbol: Symbol, payload: PriceEventPayload) {
+        crate::storage::get_admin(&env).require_auth();
         cross_chain_relay::emit_price_update(&env, asset_symbol, payload);
     }
 
@@ -5621,6 +5624,7 @@ impl PriceOracleContract {
     /// Registers an operation that may only run once every id in `depends_on`
     /// has completed.
     pub fn create_operation(env: Env, op_id: String, depends_on: Vec<String>) {
+        crate::storage::get_admin(&env).require_auth();
         operations::create_operation(&env, op_id, depends_on);
     }
 
@@ -5636,11 +5640,13 @@ impl PriceOracleContract {
     /// * [`ErrorCode::DependencyNotMet`] — a dependency has not executed yet.
     /// * [`ErrorCode::InvalidOperationState`] — the operation is not pending.
     pub fn execute_dependent_operation(env: Env, op_id: String) {
+        crate::storage::get_admin(&env).require_auth();
         operations::execute_operation(&env, op_id);
     }
 
     /// Cancels a dependency-scheduled operation, cascading to its dependents.
     pub fn cancel_dependent_operation(env: Env, op_id: String) {
+        crate::storage::get_admin(&env).require_auth();
         operations::cancel_operation(&env, op_id);
     }
 
@@ -5768,6 +5774,23 @@ impl PriceOracleContract {
     /// Returns raw and freshness-weighted medians with the per-source weights.
     pub fn get_weighted_aggregate(env: Env, asset: Address) -> Option<WeightedAggregate> {
         freshness_weight::get_weighted_aggregate(&env, &asset)
+    }
+
+    /// Sets the maximum aggregate influence share of any single source, in
+    /// basis points (`1_000..=10_000`, default `5_000`). Admin only (#475).
+    pub fn set_influence_cap(env: Env, cap_bps: u32) {
+        influence_cap::set_cap_bps(&env, cap_bps);
+    }
+
+    /// Returns the per-source influence cap in basis points.
+    pub fn get_influence_cap(env: Env) -> u32 {
+        influence_cap::get_cap_bps(&env)
+    }
+
+    /// Returns the interquartile confidence band of the current submissions
+    /// for `asset`, or `None` when there are none (#476).
+    pub fn get_confidence_band(env: Env, asset: Address) -> Option<types::ConfidenceBand> {
+        confidence_band::get_confidence_band(&env, &asset)
     }
 
     // ── TWAP observation cardinality ─────────────────────────────────────────
