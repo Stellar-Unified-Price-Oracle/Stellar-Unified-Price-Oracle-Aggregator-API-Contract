@@ -11,6 +11,25 @@ use crate::events::{
 use crate::storage::{get_admin, LEDGER_BUMP, LEDGER_THRESHOLD};
 use crate::types::{Challenge, DataKey, ErrorCode};
 
+/// Maximum unresolved challenges a single challenger may have open at once (#461).
+pub const MAX_OPEN_CHALLENGES_PER_CHALLENGER: u32 = 3;
+/// Maximum unresolved challenges that may be open against one asset (#461).
+pub const MAX_OPEN_CHALLENGES_PER_ASSET: u32 = 5;
+/// Challenges resolved as invalid after which a challenger is barred (#461).
+pub const MAX_CHALLENGER_STRIKES: u32 = 3;
+
+fn read_u32(env: &Env, key: &DataKey) -> u32 {
+    env.storage().persistent().get(key).unwrap_or(0)
+}
+
+fn write_u32(env: &Env, key: &DataKey, value: u32) {
+    if value == 0 {
+        env.storage().persistent().remove(key);
+    } else {
+        env.storage().persistent().set(key, &value);
+    }
+}
+
 /// Challenge a price submission for an asset.
 ///
 /// Any address can challenge an aggregate price by providing their expected price
@@ -28,6 +47,8 @@ use crate::types::{Challenge, DataKey, ErrorCode};
 ///
 /// * [`ErrorCode::AssetNotRegistered`] — if the asset is not registered.
 /// * [`ErrorCode::InvalidPrice`] — if `expected_price` is <= 0.
+/// * [`ErrorCode::NotAuthorized`] — if the challenger reached [`MAX_CHALLENGER_STRIKES`].
+/// * [`ErrorCode::RateLimitExceeded`] — if the challenger or asset open-challenge cap is hit.
 pub fn challenge_price(
     env: &Env,
     challenger: Address,
@@ -36,12 +57,29 @@ pub fn challenge_price(
     proof_data: Bytes,
 ) {
     challenger.require_auth();
+
     // Validate asset is registered
     crate::storage::check_registered_asset(env, &asset);
 
     if expected_price <= 0 {
         panic_with_error!(env, ErrorCode::InvalidPrice);
     }
+
+    // Anti-griefing (#461): barred challengers and bounded open challenges.
+    if read_u32(env, &DataKey::ChallengerStrikes(challenger.clone())) >= MAX_CHALLENGER_STRIKES {
+        panic_with_error!(env, ErrorCode::NotAuthorized);
+    }
+    let challenger_key = DataKey::ChallengerOpenCount(challenger.clone());
+    let challenger_open = read_u32(env, &challenger_key);
+    let asset_key = DataKey::AssetOpenChallenges(asset.clone());
+    let asset_open = read_u32(env, &asset_key);
+    if challenger_open >= MAX_OPEN_CHALLENGES_PER_CHALLENGER
+        || asset_open >= MAX_OPEN_CHALLENGES_PER_ASSET
+    {
+        panic_with_error!(env, ErrorCode::RateLimitExceeded);
+    }
+    write_u32(env, &challenger_key, challenger_open + 1);
+    write_u32(env, &asset_key, asset_open + 1);
 
     let current_ledger = env.ledger().sequence();
 
@@ -119,6 +157,15 @@ pub fn resolve_challenge(env: &Env, challenge_id: u32, is_valid: bool) {
     challenge.is_resolved = true;
     challenge.is_valid = is_valid;
 
+    let challenger_key = DataKey::ChallengerOpenCount(challenge.challenger.clone());
+    write_u32(
+        env,
+        &challenger_key,
+        read_u32(env, &challenger_key).saturating_sub(1),
+    );
+    let asset_key = DataKey::AssetOpenChallenges(challenge.asset.clone());
+    write_u32(env, &asset_key, read_u32(env, &asset_key).saturating_sub(1));
+
     // Calculate reward if valid
     if is_valid {
         // Simple reward: 0.1% of the challenged price, in the asset's own scale.
@@ -139,6 +186,17 @@ pub fn resolve_challenge(env: &Env, challenge_id: u32, is_valid: bool) {
             &DataKey::ChallengerRewards(challenge.challenger.clone()),
             &(challenger_rewards + challenge.reward_amount),
         );
+    } else {
+        // Frivolous challenge (#461): record a strike and forfeit an amount equal
+        // to the reward a valid challenge would have earned from unclaimed rewards.
+        let strikes_key = DataKey::ChallengerStrikes(challenge.challenger.clone());
+        write_u32(env, &strikes_key, read_u32(env, &strikes_key) + 1);
+        let rewards_key = DataKey::ChallengerRewards(challenge.challenger.clone());
+        let rewards: i128 = env.storage().persistent().get(&rewards_key).unwrap_or(0);
+        let penalty = (challenge.expected_price / 1000).max(1);
+        env.storage()
+            .persistent()
+            .set(&rewards_key, &(rewards - penalty).max(0));
     }
 
     // Update challenge
@@ -245,6 +303,13 @@ pub fn get_challenge_history(env: &Env, asset: Address, limit: u32) -> Vec<Chall
     }
 
     results
+}
+
+/// Number of unresolved challenges against `asset` (#461).
+///
+/// Consumers must treat a price with open challenges as disputed.
+pub fn get_open_challenge_count(env: &Env, asset: Address) -> u32 {
+    read_u32(env, &DataKey::AssetOpenChallenges(asset))
 }
 
 /// Get accumulated unclaimed rewards for a challenger.

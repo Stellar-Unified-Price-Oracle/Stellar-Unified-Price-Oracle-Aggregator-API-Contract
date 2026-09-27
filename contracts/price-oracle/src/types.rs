@@ -427,6 +427,12 @@ pub enum DataKey {
     ChallengeCount,
     /// Challenger rewards balance (#235).
     ChallengerRewards(Address),
+    /// Unresolved challenges filed by a challenger (#461).
+    ChallengerOpenCount(Address),
+    /// Challenges resolved as invalid for a challenger (#461).
+    ChallengerStrikes(Address),
+    /// Unresolved challenges against an asset (#461).
+    AssetOpenChallenges(Address),
 
     /// Cross-chain relay configuration (#182).
     CrossChainRelayConfig,
@@ -474,6 +480,8 @@ pub enum DataKey {
 
     /// State channel per source (#179).
     StateChannel(Address),
+    /// Ed25519 key bound to a source's state channel on first batch (#466).
+    StateChannelSigner(Address),
 
     /// Current aggregation round metadata.
     CurrentAggregationRound,

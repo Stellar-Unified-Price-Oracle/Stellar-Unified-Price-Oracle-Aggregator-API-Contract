@@ -335,6 +335,17 @@ pub fn sample_sources(
     selected
 }
 
+/// Test hook exposing the unverified selection step (#466).
+#[cfg(test)]
+pub fn select_for_test(
+    env: &Env,
+    sources: &soroban_sdk::Vec<Address>,
+    n: u32,
+    randomness: BytesN<32>,
+) -> soroban_sdk::Vec<Address> {
+    select_sources_deterministic(env, sources, n, randomness)
+}
+
 /// Deterministic source selection using a hash-based Fisher-Yates partial shuffle.
 ///
 /// Works entirely within Soroban's `Vec<Address>` type.

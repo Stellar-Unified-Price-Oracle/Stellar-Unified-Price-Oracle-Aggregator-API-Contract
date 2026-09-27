@@ -131,10 +131,10 @@ fn test_get_challenge_history() {
     client.register_asset(&asset);
 
     let proof = Bytes::new(&e);
-    let challenger = Address::generate(&e);
 
-    // Submit multiple challenges
+    // Submit multiple challenges (distinct challengers: each is capped, #461)
     for i in 0..5 {
+        let challenger = Address::generate(&e);
         client.challenge_price(&challenger, &asset, &((1000 + i) as i128), &proof);
     }
 

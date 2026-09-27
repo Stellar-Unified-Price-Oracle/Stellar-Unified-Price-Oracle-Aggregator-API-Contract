@@ -15,6 +15,9 @@ use crate::types::{
 
 const DEFAULT_DISPUTE_WINDOW: u32 = 120;
 const DEFAULT_MIN_BOND: i128 = 100_000_000;
+/// Ledgers after `expires_at_ledger` a dispute may stay unresolved (~1 day at 5s
+/// ledgers). Past this, the proposal is rejected and its price is never served (#462).
+pub const MAX_DISPUTE_DURATION: u32 = 17_280;
 
 fn read_dispute_window(env: &Env) -> u32 {
     env.storage()
@@ -134,6 +137,22 @@ fn write_price_snapshot(
 }
 
 fn finalize_if_expired(env: &Env, proposal: &OptimisticProposal) -> OptimisticProposal {
+    if proposal.status == OptimisticProposalStatus::Disputed as u32 {
+        // Fail safe (#462): a dispute cannot pin a proposal open forever; once the
+        // bound elapses it is rejected without writing its price.
+        let deadline = proposal
+            .expires_at_ledger
+            .saturating_add(MAX_DISPUTE_DURATION);
+        if env.ledger().sequence() < deadline {
+            return proposal.clone();
+        }
+        let mut rejected = proposal.clone();
+        rejected.status = OptimisticProposalStatus::Resolved as u32;
+        rejected.resolved = true;
+        rejected.resolution = 2;
+        write_proposal(env, &rejected);
+        return rejected;
+    }
     if proposal.status != OptimisticProposalStatus::Pending as u32 {
         return proposal.clone();
     }

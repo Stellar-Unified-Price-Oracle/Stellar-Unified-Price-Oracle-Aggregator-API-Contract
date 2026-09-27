@@ -70,6 +70,7 @@ mod freeze;
 mod gas_metering;
 mod health;
 mod history;
+mod incremental_aggregate;
 mod metadata;
 mod migration;
 mod multisig;
@@ -232,6 +233,18 @@ mod string_boundary_tests;
 
 #[cfg(test)]
 mod challenger_tests;
+
+#[cfg(test)]
+mod challenger_griefing_tests;
+
+#[cfg(test)]
+mod optimistic_liveness_tests;
+
+#[cfg(test)]
+mod fixed_point_tests;
+
+#[cfg(test)]
+mod channel_vdf_tests;
 
 #[cfg(test)]
 mod audit_log_tests;
@@ -540,6 +553,11 @@ impl PriceOracleContract {
 
     pub fn get_challenger_rewards(env: Env, challenger: Address) -> i128 {
         challenger::get_challenger_rewards(&env, challenger)
+    }
+
+    /// Number of unresolved challenges against `asset`; non-zero means disputed.
+    pub fn get_open_challenge_count(env: Env, asset: Address) -> u32 {
+        challenger::get_open_challenge_count(&env, asset)
     }
 
     pub fn get_audit_log_count(env: Env) -> u32 {
@@ -5869,4 +5887,10 @@ mod issue_381_adaptive_ttl_tests;
 mod source_diversity_tests;
 
 #[cfg(test)]
-mod issues_467_468_475_476_tests;
+mod reputation_gaming_tests;
+
+#[cfg(test)]
+mod event_integrity_tests;
+
+#[cfg(test)]
+mod invariant_harness_tests;
