@@ -231,7 +231,20 @@ pub fn compute_mean(prices: &soroban_sdk::Vec<i128>) -> i128 {
     }
     let mut sum: i128 = 0;
     for i in 0..n {
-        sum = sum.saturating_add(prices.get_unchecked(i));
+        let p = prices.get_unchecked(i);
+        match sum.checked_add(p) {
+            Some(s) => sum = s,
+            // Overflow (#464): exact quotient/remainder mean, never a saturated sum.
+            None => {
+                let n = n as i128;
+                let (mut quotient, mut remainder) = (0i128, 0i128);
+                for p in prices.iter() {
+                    quotient += p / n;
+                    remainder += p % n;
+                }
+                return quotient + remainder / n;
+            }
+        }
     }
     sum / (n as i128)
 }

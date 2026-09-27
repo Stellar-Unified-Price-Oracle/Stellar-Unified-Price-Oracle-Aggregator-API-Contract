@@ -232,6 +232,18 @@ mod string_boundary_tests;
 mod challenger_tests;
 
 #[cfg(test)]
+mod challenger_griefing_tests;
+
+#[cfg(test)]
+mod optimistic_liveness_tests;
+
+#[cfg(test)]
+mod fixed_point_tests;
+
+#[cfg(test)]
+mod channel_vdf_tests;
+
+#[cfg(test)]
 mod audit_log_tests;
 
 #[cfg(test)]
@@ -538,6 +550,11 @@ impl PriceOracleContract {
 
     pub fn get_challenger_rewards(env: Env, challenger: Address) -> i128 {
         challenger::get_challenger_rewards(&env, challenger)
+    }
+
+    /// Number of unresolved challenges against `asset`; non-zero means disputed.
+    pub fn get_open_challenge_count(env: Env, asset: Address) -> u32 {
+        challenger::get_open_challenge_count(&env, asset)
     }
 
     pub fn get_audit_log_count(env: Env) -> u32 {
