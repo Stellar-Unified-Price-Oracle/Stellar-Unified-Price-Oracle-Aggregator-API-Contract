@@ -234,6 +234,10 @@ pub fn cancel_subscription(env: &Env, consumer: Address) {
         }
     }
 
+    // #289: void every auto-renewal right in the same invocation, so there is no
+    // window in which a cancelled subscription can still be renewed by a keeper.
+    crate::auto_renewal::revoke_on_cancel(env, &consumer);
+
     // Remove the subscription expiry record.
     let expiry_key = DataKey::SubscriptionExpiry(consumer.clone());
     if env.storage().persistent().has(&expiry_key) {

@@ -104,6 +104,12 @@ mod state_channel;
 mod state_introspection;
 mod submission_deadline;
 mod subscription;
+// #246/#289/#397/#478 — storage tiers, auto-renewal, consensus rounds and
+// derived feeds.
+mod auto_renewal;
+mod consensus_rounds;
+mod derived_feeds;
+mod storage_tier;
 // #304 — Consumer contract authorization (wired in from disk).
 mod confidence_band;
 mod consumer_auth;
@@ -299,6 +305,23 @@ mod delta_encoding_storage_tests;
 
 #[cfg(test)]
 mod wasm_binary_size_tests;
+
+#[cfg(test)]
+mod auto_renewal_tests;
+#[cfg(test)]
+mod consensus_rounds_tests;
+#[cfg(test)]
+mod derived_feeds_tests;
+#[cfg(test)]
+mod storage_tier_tests;
+
+// #246/#289/#397/#478 — storage tiers, auto-renewal, consensus rounds and
+// derived feeds.
+pub use types::{
+    AutoRenewRecord, ConfirmedPrice, DerivedFeed, DerivedFeedInput, DerivedFeedKind,
+    HistoryStorageTier, RenewalAttempt, RenewalAuthorization, RoundConfig, RoundStatus, RoundTally,
+    StorageTierDowngradeRequest, StorageTierInfo,
+};
 
 pub use types::{
     AdminOpLimit, AdminOperationType, AggregatePrice, AggregationMethod, AggregationRound,
@@ -5965,6 +5988,253 @@ impl PriceOracleContract {
         method: TwapMethod,
     ) -> Option<TwapResult> {
         prices::get_twap_ex(&env, Asset::Stellar(asset), window_ledgers, method)
+    }
+    // =========================================================================
+    // #246 — Configurable history storage tier
+    // =========================================================================
+
+    /// Admin endpoint selecting the storage tier an asset's price history uses.
+    ///
+    /// Upgrades (temporary → persistent) apply immediately. Downgrades
+    /// (persistent → temporary) are destructive — they let an asset's evidence
+    /// trail expire — so they require multi-party approval plus a timelock; see
+    /// `propose_storage_tier_downgrade`, `approve_storage_tier_downgrade` and
+    /// `execute_storage_tier_downgrade`.
+    ///
+    /// # Errors
+    /// * [`ErrorCode::AssetNotRegistered`] — `asset` is not registered.
+    /// * [`ErrorCode::NotAuthorized`] — caller is not the admin.
+    /// * [`ErrorCode::StorageTierDowngradeNotReady`] — a downgrade was attempted
+    ///   without a matured, fully approved request.
+    pub fn set_asset_storage_tier(env: Env, asset: Address, tier: HistoryStorageTier) {
+        storage_tier::set_asset_storage_tier(&env, asset, tier);
+    }
+
+    /// Returns the storage tier an asset's price history is written to.
+    pub fn get_asset_storage_tier(env: Env, asset: Address) -> HistoryStorageTier {
+        storage_tier::get_asset_storage_tier(&env, &asset)
+    }
+
+    /// Returns the discoverable retention guarantee for an asset's history tier.
+    pub fn get_storage_tier_info(env: Env, asset: Address) -> StorageTierInfo {
+        storage_tier::get_storage_tier_info(&env, &asset)
+    }
+
+    /// Proposes a persistent → temporary downgrade and returns the ledger at
+    /// which the approval window closes. Admin only.
+    pub fn propose_storage_tier_downgrade(env: Env, asset: Address) -> u32 {
+        storage_tier::propose_storage_tier_downgrade(&env, asset)
+    }
+
+    /// Records a second party's approval of a pending downgrade. `approver` must
+    /// authorize the call and must not be the proposing admin.
+    pub fn approve_storage_tier_downgrade(env: Env, asset: Address, approver: Address) {
+        storage_tier::approve_storage_tier_downgrade(&env, asset, approver);
+    }
+
+    /// Executes a fully approved, matured downgrade request. Admin only.
+    pub fn execute_storage_tier_downgrade(env: Env, asset: Address) {
+        storage_tier::execute_storage_tier_downgrade(&env, asset);
+    }
+
+    /// Copies an asset's retained history entries into `to_tier`, returning the
+    /// number of entries migrated. Admin only.
+    pub fn migrate_history_to_tier(env: Env, asset: Address, to_tier: HistoryStorageTier) -> u32 {
+        storage_tier::migrate_history_to_tier(&env, asset, to_tier)
+    }
+
+    /// Reads one history entry strictly from the asset's configured tier.
+    ///
+    /// Returns `None` when the entry is absent — including when a temporary-tier
+    /// entry has expired — and never falls back to the other tier, so a missing
+    /// entry can never be mistaken for a differently-stored one.
+    pub fn get_tiered_historical_price(
+        env: Env,
+        asset: Address,
+        ledger: u32,
+    ) -> Option<PriceHistoryEntry> {
+        storage_tier::read_history_entry(&env, &asset, ledger)
+    }
+
+    /// Reports whether a history entry exists in the asset's configured tier.
+    pub fn has_tiered_historical_price(env: Env, asset: Address, ledger: u32) -> bool {
+        storage_tier::read_history_entry(&env, &asset, ledger).is_some()
+    }
+
+    // =========================================================================
+    // #289 — Subscription auto-renewal
+    // =========================================================================
+
+    /// Grants a bounded standing authorization for the contract to renew a
+    /// subscription by pulling tokens. `consumer` must authorize the call.
+    pub fn enable_auto_renewal(
+        env: Env,
+        consumer: Address,
+        token: Address,
+        plan_duration: u32,
+        max_amount_per_period: i128,
+        periods_authorized: u32,
+    ) {
+        auto_renewal::enable_auto_renewal(
+            &env,
+            consumer,
+            token,
+            plan_duration,
+            max_amount_per_period,
+            periods_authorized,
+        );
+    }
+
+    /// Revokes a standing auto-renewal authorization. `consumer` must authorize.
+    pub fn disable_auto_renewal(env: Env, consumer: Address) {
+        auto_renewal::disable_auto_renewal(&env, consumer);
+    }
+
+    /// Issues a single-use authorization to renew one specific period.
+    /// `consumer` must authorize the call.
+    pub fn authorize_renewal(env: Env, consumer: Address, period_id: u64, nonce: u64) {
+        auto_renewal::authorize_renewal(&env, consumer, period_id, nonce);
+    }
+
+    /// Attempts one renewal on a consumer's behalf. Callable by any keeper and
+    /// never panics, so a failed renewal cannot lock a consumer out.
+    pub fn try_auto_renew(env: Env, consumer: Address) -> RenewalAttempt {
+        auto_renewal::try_auto_renew(&env, consumer)
+    }
+
+    /// Returns a consumer's standing auto-renewal authorization, if any.
+    pub fn get_auto_renewal_record(env: Env, consumer: Address) -> Option<AutoRenewRecord> {
+        auto_renewal::get_auto_renewal_record(&env, &consumer)
+    }
+
+    /// Returns the single-use renewal authorization for a period, if any.
+    pub fn get_renewal_authorization(
+        env: Env,
+        consumer: Address,
+        period_id: u64,
+    ) -> Option<RenewalAuthorization> {
+        auto_renewal::get_renewal_authorization(&env, &consumer, period_id)
+    }
+
+    // =========================================================================
+    // #397 — Multi-round price confirmation
+    // =========================================================================
+
+    /// Configures multi-round price confirmation for an asset. Admin only.
+    ///
+    /// `required_rounds == 1` restores the default single-round behaviour.
+    pub fn set_round_config(env: Env, asset: Address, config: RoundConfig) {
+        consensus_rounds::set_round_config(&env, asset, config);
+    }
+
+    /// Returns an asset's round configuration (default: single-round, disabled).
+    pub fn get_round_config(env: Env, asset: Address) -> RoundConfig {
+        consensus_rounds::get_round_config(&env, &asset)
+    }
+
+    /// Opens a new confirmation round and returns its identity. Any keeper may
+    /// call this; the round identity is derived from contract state, not input.
+    pub fn start_round(env: Env, asset: Address) -> u32 {
+        consensus_rounds::start_round(&env, asset)
+    }
+
+    /// Submits a source's observation into the asset's current round.
+    /// `source` must authorize the call.
+    pub fn submit_round_vote(
+        env: Env,
+        source: Address,
+        asset: Address,
+        round: u32,
+        price: i128,
+        timestamp: u64,
+    ) {
+        consensus_rounds::submit_round_vote(&env, source, asset, round, price, timestamp);
+    }
+
+    /// Finalizes a price once `required_rounds` consecutive, independent rounds
+    /// have agreed. Panics with [`ErrorCode::NoData`] when they have not.
+    pub fn finalize_confirmation(env: Env, asset: Address) -> ConfirmedPrice {
+        consensus_rounds::finalize_confirmation(&env, asset)
+    }
+
+    /// Returns the most recently confirmed price for an asset, if any.
+    pub fn get_confirmed_price(env: Env, asset: Address) -> Option<ConfirmedPrice> {
+        consensus_rounds::get_confirmed_price(&env, &asset)
+    }
+
+    /// Returns the current round's status, including its liveness deadline.
+    pub fn get_round_status(env: Env, asset: Address) -> RoundStatus {
+        consensus_rounds::get_round_status(&env, &asset)
+    }
+
+    /// Abandons a stalled round so a fresh one can start, returning the new round.
+    pub fn abandon_stalled_round(env: Env, asset: Address) -> u32 {
+        consensus_rounds::abandon_stalled_round(&env, asset)
+    }
+
+    /// Returns the tally recorded for a round that reached quorum, if any.
+    pub fn get_round_tally(env: Env, asset: Address, round: u32) -> Option<RoundTally> {
+        consensus_rounds::get_round_tally(&env, &asset, round)
+    }
+
+    /// Durably records an equivocation penalty against a source for one round.
+    ///
+    /// Permissionless — the evidence is on-chain, so anyone may report. This is
+    /// a separate call from `submit_round_vote` because the conflicting
+    /// submission panics, and a panicking call rolls back its own writes.
+    pub fn report_equivocation(env: Env, source: Address, asset: Address, round: u32) {
+        consensus_rounds::report_equivocation(&env, source, asset, round);
+    }
+
+    /// Returns a source's lifetime equivocation count for an asset.
+    pub fn get_equivocation_count(env: Env, source: Address, asset: Address) -> u32 {
+        consensus_rounds::get_equivocation_count(&env, &source, &asset)
+    }
+
+    /// Returns whether a source is barred from a round for equivocation.
+    pub fn is_barred_from_round(env: Env, source: Address, asset: Address, round: u32) -> bool {
+        consensus_rounds::is_barred_from_round(&env, &source, &asset, round)
+    }
+
+    // =========================================================================
+    // #478 — On-chain derived price feeds
+    // =========================================================================
+
+    /// Pins a canonical base price for an asset, used by the derivation engine
+    /// in preference to the live aggregate. Admin only.
+    pub fn set_derived_feed_base(env: Env, asset: Address, price: i128, timestamp: u64) {
+        derived_feeds::set_derived_feed_base(&env, asset, price, timestamp);
+    }
+
+    /// Returns the inverse feed `1 / asset`.
+    pub fn get_inverse_feed(env: Env, asset: Address) -> DerivedFeed {
+        derived_feeds::get_inverse_feed(&env, asset)
+    }
+
+    /// Returns the pairwise ratio feed `base / quote`.
+    pub fn get_ratio_feed(env: Env, base: Address, quote: Address) -> DerivedFeed {
+        derived_feeds::get_ratio_feed(&env, base, quote)
+    }
+
+    /// Returns the triangulated cross-rate `(base / pivot) * (pivot / quote)`.
+    pub fn get_triangulated_feed(
+        env: Env,
+        base: Address,
+        pivot: Address,
+        quote: Address,
+    ) -> DerivedFeed {
+        derived_feeds::get_triangulated_feed(&env, base, pivot, quote)
+    }
+
+    /// Computes a derived feed of any kind, with full provenance.
+    pub fn compute_derived_feed(
+        env: Env,
+        kind: DerivedFeedKind,
+        base: Address,
+        quote: Address,
+        pivot: Option<Address>,
+    ) -> DerivedFeed {
+        derived_feeds::compute_derived_feed(&env, kind, base, quote, pivot)
     }
 }
 
