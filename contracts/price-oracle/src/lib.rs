@@ -297,22 +297,28 @@ mod storage_round_trip_tests;
 #[cfg(test)]
 mod ttl_boundary_tests;
 
+// #519 — hermetic local-network integration harness. The harness is compiled
+// only under cfg(test): it is test scaffolding, not contract logic, and must
+// not reach the WASM build.
+#[cfg(test)]
+mod hermetic_harness;
+
+#[cfg(test)]
+mod hermetic_integration_tests;
+
 pub use types::{
     AdminOpLimit, AdminOperationType, AggregatePrice, AggregationMethod, AggregationRound,
     AlertSubscription, AmmPool, AmmWeightConfig, Asset, AssetDecimalConfig, AssetMetadata,
     AssetMetadataUpdate, AssetPricingConfig, AssetProofRequirement, AssetType, AuditEntry,
     BatchItem, BatchOperation, BatchSimulationResult, BftAggregationMethod, BridgeOracleConfig,
     BridgedPrice, CallbackRegistration, Challenge, CompactionMetadata, ConfidenceBand,
-    ConfigSnapshot,
-    ConsumerAccessMode, ConsumerInfo, ConsumerTier, ContractMetadata, ContribQualityRecord,
-    CorrelationBand, CorrelationPair, CrossChainPriceEntry, CrossChainPricePayload,
-    CrossChainRelayConfig, CrossReferenceResult, DataKey, DecentralizationReport, DemeritConfig,
-    DiversityThresholds,
-    DeviationReport, DexPrice, DisqualificationStatus, EcosystemMetadata, EmergencyPause,
-    EffectivePolicy, ErrorCode, ExportedEntry, ExportedHistorySnapshot, ExternalDataProof,
-    FeeMarketSubmission,
-    FeedMetadata, FinalityStatus, FinalizedPrice, ForeignAssetMapping, FreshnessCurve, FrozenPrice,
-    GasRecord,
+    ConfigSnapshot, ConsumerAccessMode, ConsumerInfo, ConsumerTier, ContractMetadata,
+    ContribQualityRecord, CorrelationBand, CorrelationPair, CrossChainPriceEntry,
+    CrossChainPricePayload, CrossChainRelayConfig, CrossReferenceResult, DataKey,
+    DecentralizationReport, DemeritConfig, DeviationReport, DexPrice, DisqualificationStatus,
+    DiversityThresholds, EcosystemMetadata, EffectivePolicy, EmergencyPause, ErrorCode,
+    ExportedEntry, ExportedHistorySnapshot, ExternalDataProof, FeeMarketSubmission, FeedMetadata,
+    FinalityStatus, FinalizedPrice, ForeignAssetMapping, FreshnessCurve, FrozenPrice, GasRecord,
     Groth16Proof, Groth16VerifyingKey, GuardianRecovery, HealthReport, MigrationState,
     MigrationStatus, MultiSigOperation, NotificationPreference, Operation, OperationKind,
     OperationPriority, OperationSimulationResult, OperationStatus, OperationTemplate,
