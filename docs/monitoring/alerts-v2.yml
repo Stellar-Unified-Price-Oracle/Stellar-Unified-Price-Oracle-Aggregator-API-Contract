@@ -142,3 +142,59 @@ groups:
           sla_class: governance
         annotations:
           summary: "Elevated rate of unauthorized calls against {{ $labels.contract_id }}"
+
+  # ─── Capacity (docs/capacity-planning.md) ────────────────────────────────────
+  # Pre-exhaustion alerting: warn while headroom is still above zero, so the
+  # shedding policy in docs/capacity-planning.md §3 can be applied before the
+  # resource is gone. Gauges are exported by services/capacity/model.py.
+  - name: oracle-capacity
+    rules:
+      - alert: OracleCapacityHeadroomLow
+        expr: oracle_capacity_headroom_ratio < 0.30
+        for: 15m
+        labels:
+          severity: warning
+          sla_class: capacity
+        annotations:
+          summary: "Capacity headroom for {{ $labels.resource }} is {{ $value }}, below the 30% target (docs/capacity-planning.md §2)"
+          runbook: "Apply the load-shedding steps in docs/capacity-planning.md §3, cheapest consumer-visible cost first"
+
+      - alert: OracleCapacityHeadroomCritical
+        expr: oracle_capacity_headroom_ratio < 0.10
+        for: 5m
+        labels:
+          severity: warning
+          sla_class: capacity
+        annotations:
+          summary: "Capacity headroom for {{ $labels.resource }} is {{ $value }}, within 10% of exhaustion (docs/capacity-planning.md §4)"
+          runbook: "Shed load now, or take the critical path to RB-11; the critical path is never dropped"
+
+      - alert: OracleCapacityLagApproachingTarget
+        expr: oracle_capacity_lag_seconds > 45
+        for: 5m
+        labels:
+          severity: warning
+          sla_class: capacity
+        annotations:
+          summary: "Publication lag is {{ $value }}s, approaching the 60s SLA §1.2 freshness target"
+          runbook: "Raise per-asset submission priority for settlement-window assets (docs/capacity-planning.md §3)"
+
+      - alert: OracleCapacityExhausted
+        expr: oracle_capacity_headroom_ratio <= 0
+        for: 5m
+        labels:
+          severity: critical
+          sla_class: P1
+        annotations:
+          summary: "Capacity for {{ $labels.resource }} is exhausted — load is being dropped or is failing"
+          runbook: "Work RB-11: shed by priority, protect the critical path, and page before degrading signature verification"
+
+      - alert: OracleCapacityLagTargetBreached
+        expr: oracle_capacity_lag_seconds > 60
+        for: 5m
+        labels:
+          severity: critical
+          sla_class: P1
+        annotations:
+          summary: "Publication lag is {{ $value }}s, breaching the SLA §1.2 60s freshness target"
+          runbook: "Work RB-11: shed by priority and notify consumer relations if the breach passes the SLA §6.2 credit tier"
