@@ -2585,7 +2585,7 @@ pub struct SourceDiversityUpdatedEvent {
 }
 
 /// Emitted when diversity thresholds are changed by the admin.
-#[contractevent]
+#[contractevent(topics = ["diversity_thresholds_set"])]
 #[derive(Clone)]
 pub struct DiversityThresholdsChangedEvent {
     #[topic]
@@ -2597,7 +2597,7 @@ pub struct DiversityThresholdsChangedEvent {
 /// Emitted when the active source set breaches diversity thresholds:
 /// effective count below minimum OR any axis HHI above maximum — even when
 /// the raw source count looks healthy (the Sybil / nominal-diversity trap).
-#[contractevent]
+#[contractevent(topics = ["diversity_threshold_breached"])]
 #[derive(Clone)]
 pub struct DiversityThresholdBreachedEvent {
     pub raw_count: u32,

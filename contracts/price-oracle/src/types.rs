@@ -796,6 +796,24 @@ pub enum DataKey {
     ExternalGovernor,
     /// Allow-list flag for a governance operation name (bool).
     GovernorAllowedOp(String),
+    /// Governor authorization epoch (u32); bumping it revokes every op grant.
+    GovernorEpoch,
+    /// Epoch (u32) at which a governance operation name was granted.
+    GovernorOpGrant(String),
+
+    // -------------------------------------------------------------------------
+    // #470/#472/#474: per-asset policy, freshness weighting, TWAP cardinality
+    // -------------------------------------------------------------------------
+    /// Per-asset aggregation policy override (`PolicyOverride`).
+    AssetPolicy(Address),
+    /// Per-class aggregation policy override (`PolicyOverride`).
+    ClassPolicy(u32),
+    /// Asset class id an asset belongs to (u32).
+    AssetClassId(Address),
+    /// Per-asset freshness weighting curve (`FreshnessCurve`).
+    FreshnessCurve(Address),
+    /// Minimum distinct observations a TWAP window must contain (u32).
+    TwapMinCardinality,
 
     // -------------------------------------------------------------------------
     // #399: Source diversity — effective independence thresholds
