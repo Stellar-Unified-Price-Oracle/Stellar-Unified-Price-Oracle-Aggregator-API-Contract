@@ -106,6 +106,23 @@ Consider adding Grafana alerts on:
 - `oracle_price_submissions_total` rate = 0 for > 15 min per source — source may be down
 - `oracle_latest_price` unchanged for > staleness window — stale price data
 
+### Runbook coverage
+
+Every **paging** alert (`severity: critical`, or SLA class `P0`/`P1`) in
+`alerts.yml` and `alerts-v2.yml` has an entry in
+[`docs/runbook.md`](../runbook.md) with its meaning, first check, mitigation,
+escalation, resolution, owner and review cadence. The mapping is enforced, not
+documented-and-hoped-for:
+
+```bash
+python -m services.runbook.check_runbook           # coverage gate
+python -m services.runbook.check_runbook --routing # {alert: {entry, url, owner}}
+```
+
+The `--routing` output is what an Alertmanager `runbook_url` templating step
+links from, so the responder's page carries a direct link to its entry. Rule
+files are discovered, so adding a new alert file without an entry fails CI.
+
 ## Related off-chain services
 
 These services scrape into the same Prometheus/Grafana stack described above (add their

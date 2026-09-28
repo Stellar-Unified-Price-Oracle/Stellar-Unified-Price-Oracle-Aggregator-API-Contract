@@ -53,6 +53,14 @@ hermetic:
 lint:
 	cargo clippy -p price-oracle -- -D warnings
 
+# Ops documentation gates: every paging alert has a runbook entry (#527),
+# every postmortem is structured, indexed and owned (#528), and the capacity
+# and backup docs match their code (#529, #530).
+ops-check:
+	python3 -m services.runbook.check_runbook
+	python3 -m services.incident_review.check_postmortems
+	python3 -m pytest services/runbook services/incident_review services/backup services/capacity -q
+
 # Format source code
 fmt:
 	cargo fmt --manifest-path contracts/price-oracle/Cargo.toml
