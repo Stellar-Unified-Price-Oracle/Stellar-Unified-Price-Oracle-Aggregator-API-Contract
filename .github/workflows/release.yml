@@ -1,0 +1,169 @@
+name: Release
+
+# #525: signed contract artifacts with SLSA provenance. Every release ships the
+# WASM, a keyless cosign signature, and an in-toto/SLSA attestation binding the
+# artifact to its source commit and build environment. See
+# docs/release-provenance.md.
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing tag to (re)publish provenance for"
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build and attest
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      # Keyless signing: the OIDC token is exchanged for a short-lived Fulcio
+      # certificate, so no signing key is stored anywhere (#525).
+      id-token: write
+    outputs:
+      artifact_digest: ${{ steps.digest.outputs.sha256 }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Full history so the tagged commit can be resolved and attested.
+          fetch-depth: 0
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@1.91.0
+        with:
+          targets: wasm32v1-none
+      - name: Cache dependencies
+        uses: Swatinem/rust-cache@v2
+      - name: Build contract
+        run: make build
+      - name: Compute artifact digest
+        id: digest
+        run: |
+          set -euo pipefail
+          WASM=target/wasm32v1-none/release/price_oracle.wasm
+          test -f "$WASM"
+          echo "sha256=$(sha256sum "$WASM" | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
+      - name: Generate SLSA provenance
+        env:
+          ARTIFACT: target/wasm32v1-none/release/price_oracle.wasm
+          COMMIT: ${{ github.sha }}
+          WORKFLOW_REF: ${{ github.workflow_ref }}
+          TAG: ${{ inputs.tag || github.ref_name }}
+        run: |
+          set -euo pipefail
+          python -m services.provenance.attest generate \
+            --artifact "$ARTIFACT" \
+            --commit "$COMMIT" \
+            --workflow-ref "$WORKFLOW_REF" \
+            --run-id "${{ github.run_id }}" \
+            --tag "$TAG" \
+            --out provenance.json
+      - name: Install cosign
+        run: |
+          set -euo pipefail
+          curl -fsSL -o cosign \
+            "https://github.com/sigstore/cosign/releases/download/v2.4.1/cosign-linux-amd64"
+          chmod +x cosign && sudo mv cosign /usr/local/bin/
+          cosign version
+      - name: Sign the artifact (keyless, Fulcio + Rekor)
+        env:
+          ARTIFACT: target/wasm32v1-none/release/price_oracle.wasm
+        run: |
+          set -euo pipefail
+          # No --key: the signing identity is this workflow's OIDC token, and
+          # the certificate + transparency-log entry are what a third party
+          # verifies. There is no long-lived signing key to store or rotate.
+          cosign sign-blob --yes --output-signature "${ARTIFACT}.sig" "$ARTIFACT"
+          cosign attest --yes --predicate provenance.json --type slsaprovenance1 \
+            "$ARTIFACT"
+      - name: Verify our own signature before publishing
+        env:
+          ARTIFACT: target/wasm32v1-none/release/price_oracle.wasm
+        run: |
+          set -euo pipefail
+          # The release is refused unless the signature verifies against the
+          # keyless identity and the transparency log.
+          cosign verify-blob \
+            --certificate-identity-regexp \
+              "^https://github.com/stellar-unified-price-oracle/stellar-unified-price-oracle-aggregator-api-contract/\.github/workflows/release\.yml@refs/tags/v[0-9].*$" \
+            --certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
+            "${ARTIFACT}.sig" "$ARTIFACT"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: contract-release
+          path: |
+            target/wasm32v1-none/release/price_oracle.wasm
+            target/wasm32v1-none/release/price_oracle.wasm.sig
+            provenance.json
+          retention-days: 365
+
+  publish:
+    name: Publish release with provenance
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: contract-release
+          path: dist
+      - uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: dist/price_oracle.wasm
+      - name: Attach the signature bundle to the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.tag || github.ref_name }}
+        run: |
+          set -euo pipefail
+          gh release upload "$TAG" \
+            dist/price_oracle.wasm \
+            dist/price_oracle.wasm.sig \
+            dist/provenance.json \
+            --clobber
+
+  verify-published:
+    name: Verify published artifact against a fresh build
+    needs: publish
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+          fetch-depth: 0
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@1.91.0
+        with:
+          targets: wasm32v1-none
+      - name: Cache dependencies
+        uses: Swatinem/rust-cache@v2
+      - name: Build fresh from the tagged source
+        run: make build
+      - uses: actions/download-artifact@v4
+        with:
+          name: contract-release
+          path: dist
+      - name: Fresh build must match the published artifact and provenance
+        env:
+          COMMIT: ${{ github.sha }}
+          WORKFLOW_REF: ${{ github.workflow_ref }}
+        run: |
+          set -euo pipefail
+          python -m services.provenance.attest verify \
+            --bundle dist/provenance.json \
+            --artifact target/wasm32v1-none/release/price_oracle.wasm \
+            --commit "$COMMIT" \
+            --workflow-ref "$WORKFLOW_REF" \
+            --report provenance-verification.md \
+            | tee -a "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: provenance-verification-${{ github.run_id }}
+          path: provenance-verification.md
