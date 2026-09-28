@@ -334,13 +334,54 @@ pub enum ErrorCode {
     /// The supplied diversity thresholds are invalid (e.g. max HHI > 10000).
     InvalidDiversityThresholds = 155,
 
-    // ── Configuration lookups (misc range 50-61) ──────────────────────────────
+    // ── Configuration lookups (misc range 50–61) ─────────────────────────────
     /// A required configuration value has not been set yet.
     ConfigMissing = 54,
     /// A relayer's bond is locked and cannot be drawn or returned.
     RelayerBondLocked = 55,
 
-    // ── Price-data adequacy (asset/price bounds range 62-74) ───────────────────
+    // ── Price-data adequacy (asset/price bounds range 62–74) ──────────────────
     /// A TWAP window holds fewer distinct observations than the configured floor.
     TwapInsufficientObservations = 68,
+
+    // ── 156–158: Configurable history storage tier (#246) ─────────────────────
+    /// A persistent → temporary tier downgrade was attempted without the required
+    /// multi-party approval and timelock having completed.
+    StorageTierDowngradeNotReady = 156,
+    /// The requested storage tier value is not a known `StorageTier` discriminant.
+    UnknownStorageTier = 157,
+    /// A history-tier migration could not be completed.
+    StorageTierMigrationFailed = 158,
+
+    // ── 159–163: Subscription auto-renewal (#289) ─────────────────────────────
+    /// A renewal authorization was replayed after it had already been consumed.
+    RenewalAuthorizationReplay = 159,
+    /// No single-use renewal authorization exists for the requested period.
+    RenewalAuthorizationMissing = 160,
+    /// The consumer has no standing auto-renewal authorization.
+    AutoRenewalNotEnabled = 161,
+    /// The subscription was cancelled or superseded, so it cannot renew.
+    AutoRenewalCancelled = 162,
+    /// The consumer's pre-approved allowance would be exceeded by this renewal.
+    AutoRenewalAllowanceExceeded = 163,
+
+    // ── 164–167: Multi-round price confirmation (#397) ────────────────────────
+    /// The requested round is not the asset's current round.
+    RoundNotFound = 164,
+    /// The round's deadline has passed; it can no longer accept observations.
+    RoundExpired = 165,
+    /// The same observation was already used to satisfy an earlier round's quorum.
+    RoundEvidenceReplay = 166,
+    /// The participant equivocated inside a round and was penalized.
+    RoundEquivocation = 167,
+
+    // ── 168–171: Derived price feeds (#478) ────────────────────────────────────
+    /// A derived feed was requested with a zero denominator.
+    DerivedFeedZeroDenominator = 168,
+    /// One (or more) of the requested pair/triplet is unknown or has no price.
+    UnknownDerivedPair = 169,
+    /// The requested derivation would form a cycle in the derivation graph.
+    DerivedFeedCycle = 170,
+    /// The derivation graph depth bound would be exceeded.
+    DerivedFeedDepthExceeded = 171,
 }
