@@ -333,4 +333,14 @@ pub enum ErrorCode {
     LowSourceDiversity = 154,
     /// The supplied diversity thresholds are invalid (e.g. max HHI > 10000).
     InvalidDiversityThresholds = 155,
+
+    // ── Configuration lookups (misc range 50-61) ──────────────────────────────
+    /// A required configuration value has not been set yet.
+    ConfigMissing = 54,
+    /// A relayer's bond is locked and cannot be drawn or returned.
+    RelayerBondLocked = 55,
+
+    // ── Price-data adequacy (asset/price bounds range 62-74) ───────────────────
+    /// A TWAP window holds fewer distinct observations than the configured floor.
+    TwapInsufficientObservations = 68,
 }

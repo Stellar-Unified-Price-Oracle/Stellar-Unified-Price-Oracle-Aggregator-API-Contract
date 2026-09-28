@@ -804,6 +804,25 @@ pub enum DataKey {
     DiversityThresholds,
     /// Ledger of the last diversity-threshold breach (u32, for alert damping).
     DiversityLastBreachLedger,
+
+    // -------------------------------------------------------------------------
+    // Configuration keys referenced by policy.rs, prices.rs and
+    // external_governance.rs.
+    // -------------------------------------------------------------------------
+    /// Minimum distinct observations a TWAP window needs (u32).
+    TwapMinCardinality,
+    /// External-governor authorization epoch (u32); bumping it revokes every grant.
+    GovernorEpoch,
+    /// Epoch at which an operation name was allow-listed for the external governor.
+    GovernorOpGrant(String),
+    /// Per-asset freshness decay curve (FreshnessCurve).
+    FreshnessCurve(Address),
+    /// Asset-class id an asset is assigned to (u32).
+    AssetClassId(Address),
+    /// Per-asset policy override (`Option<PolicyOverride>`).
+    AssetPolicy(Address),
+    /// Per-asset-class policy override (`Option<PolicyOverride>`).
+    ClassPolicy(u32),
 }
 
 /// A price submission from a single oracle source for a specific asset.

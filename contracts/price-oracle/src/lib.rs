@@ -320,6 +320,8 @@ pub use types::{
     SubscriptionPayment, SubscriptionPlan, SubscriptionPlans, TemplateStep, TotalStorageBudget,
     TwapMethod, VersionedAggregatePrice, WormholeGuardianSet, WormholePricePayload, WormholeVaa,
     ZkPriceAttestation,
+    // Types named directly by the `#[contractimpl]` entrypoints below.
+    EffectivePolicy, FreshnessCurve, PolicyOverride, TwapResult, WeightedAggregate,
 };
 
 use soroban_sdk::{
