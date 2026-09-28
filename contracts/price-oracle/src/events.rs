@@ -2585,9 +2585,12 @@ pub struct SourceDiversityUpdatedEvent {
 }
 
 /// Emitted when diversity thresholds are changed by the admin.
+///
+/// Named `DiversityThresholdSetEvent` (not `...ThresholdsChangedEvent`) because
+/// the snake-cased event symbol must fit `ScSymbol`'s 32-byte limit.
 #[contractevent]
 #[derive(Clone)]
-pub struct DiversityThresholdsChangedEvent {
+pub struct DiversityThresholdSetEvent {
     #[topic]
     pub admin: Address,
     pub min_effective_sources: u32,
@@ -2599,7 +2602,7 @@ pub struct DiversityThresholdsChangedEvent {
 /// the raw source count looks healthy (the Sybil / nominal-diversity trap).
 #[contractevent]
 #[derive(Clone)]
-pub struct DiversityThresholdBreachedEvent {
+pub struct DiversityBreachEvent {
     pub raw_count: u32,
     pub effective_independent_count: u32,
     pub largest_domain_size: u32,

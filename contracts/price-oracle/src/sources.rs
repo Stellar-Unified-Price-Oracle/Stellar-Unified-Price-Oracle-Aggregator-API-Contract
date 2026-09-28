@@ -110,6 +110,25 @@ pub fn add_source_with_assets(env: &Env, source: Address, name: String, assets: 
 pub fn remove_source(env: &Env, source: Address) {
     let admin = get_admin(env);
     admin.require_auth();
+    remove_source_inner(env, source.clone());
+    // #483: the removed source's last submission must not linger in the
+    // published median. Recompute every asset it could have contributed to
+    // from the surviving registry, in this same transaction, and emit the
+    // resulting aggregate alongside the removal event.
+    crate::recompute::recompute_source_change(
+        env,
+        &source,
+        crate::recompute::RecomputeReason::Removed,
+    );
+    emit_admin_action(env, symbol_short!("rem_src"), admin, Bytes::new(env));
+}
+
+/// De-registers `source` without recomputing. `remove_source` and
+/// `remove_sources` layer the (#483) recomputation on top so a batch pays for
+/// one aggregation pass instead of one per source.
+fn remove_source_inner(env: &Env, source: Address) {
+    let admin = get_admin(env);
+    admin.require_auth();
     if !env
         .storage()
         .persistent()
@@ -158,7 +177,7 @@ pub fn remove_source(env: &Env, source: Address) {
     }
     oracle_sources.sources = new_sources;
     let removed_source = source.clone();
-    oracle_sources.metadata.remove(source);
+    oracle_sources.metadata.remove(source.clone());
     oracle_sources.verification.remove(removed_source.clone());
     env.storage()
         .persistent()
@@ -171,10 +190,27 @@ pub fn remove_source(env: &Env, source: Address) {
         .remove(&DataKey::SourceVerification(removed_source.clone()));
     SourceRemovedEvent {
         source: removed_source,
-        admin: admin.clone(),
+        admin,
     }
     .publish(env);
-    emit_admin_action(env, symbol_short!("rem_src"), admin, Bytes::new(env));
+}
+
+/// Removes several sources and recomputes once at the end (#483).
+///
+/// Equivalent to removing them one at a time: recomputation is a pure
+/// function of the surviving registry, so the batch converges on the same
+/// aggregate as the sequential path. Removal of the final source is rejected
+/// with `ErrorCode::SourceNotFound` by [`remove_source`].
+pub fn remove_sources(env: &Env, sources: Vec<Address>) {
+    let admin = get_admin(env);
+    admin.require_auth();
+    if sources.is_empty() {
+        panic_with_error!(env, ErrorCode::InvalidConfiguration);
+    }
+    for i in 0..sources.len() {
+        remove_source_inner(env, sources.get_unchecked(i));
+    }
+    crate::recompute::recompute_all(env, crate::recompute::RecomputeReason::Removed);
 }
 
 pub fn is_source(env: &Env, source: Address) -> bool {
@@ -259,9 +295,23 @@ pub fn remove_source_asset(env: &Env, source: Address, asset: Address) {
     if removed {
         SourceAssetRemovedEvent {
             source: source.clone(),
-            asset,
+            asset: asset.clone(),
         }
         .publish(env);
+        // #483: dropping the source's claim on this asset drops its stored
+        // value for this asset too, so it cannot keep influencing the
+        // published median through a later recomputation.
+        env.storage()
+            .persistent()
+            .remove(&DataKey::Submission(asset.clone(), source.clone()));
+        // #483: and the aggregate is re-derived immediately, not at the next
+        // submission. The affected-asset scan can no longer see this source
+        // (its submission and claim are gone), so the asset is named directly.
+        crate::recompute::recompute_assets(
+            env,
+            &soroban_sdk::vec![env, asset.clone()],
+            crate::recompute::RecomputeReason::AssetClaimRemoved,
+        );
     }
     emit_admin_action(env, symbol_short!("rem_sass"), admin, Bytes::new(env));
 }
@@ -525,6 +575,7 @@ pub fn is_source_inactive(env: &Env, source: Address) -> bool {
                     2u32
                 };
                 mark_source_inactive(env, &source);
+                crate::recompute::note_excluded_source(env);
                 forfeit_source_bond_internal(env, source.clone());
 
                 // Record when inactivity started (only on first trip).
@@ -548,6 +599,12 @@ pub fn is_source_inactive(env: &Env, source: Address) -> bool {
                     last_heartbeat: hb_time,
                 }
                 .publish(env);
+                // #483: a suspended source stops contributing immediately.
+                crate::recompute::recompute_source_change(
+                    env,
+                    &source,
+                    crate::recompute::RecomputeReason::Suspended,
+                );
                 return true;
             }
 
@@ -566,6 +623,7 @@ pub fn is_source_inactive(env: &Env, source: Address) -> bool {
             let new_missed = increment_missed_heartbeats(env, &source);
             if new_missed >= MISS_THRESHOLD {
                 mark_source_inactive(env, &source);
+                crate::recompute::note_excluded_source(env);
                 let inactive_since_key = DataKey::SrcInactiveSinceLedger(source.clone());
                 if !env.storage().persistent().has(&inactive_since_key) {
                     env.storage()
@@ -722,12 +780,22 @@ pub fn record_invalid_submission(env: &Env, source: Address) {
                 .publish(env);
             }
             DisqualificationStatus::Disqualified => {
+                // #483: make the aggregation loop filter this source out from
+                // the next pass on, and recompute now.
+                crate::recompute::note_excluded_source(env);
                 SourceDisqualifiedEvent {
                     source: source.clone(),
                     demerits: state.demerits,
                     status_updated_ledger: current_ledger,
                 }
                 .publish(env);
+                // #483: a disqualified source must stop influencing the
+                // published median immediately, not at the next submission.
+                crate::recompute::recompute_source_change(
+                    env,
+                    &source,
+                    crate::recompute::RecomputeReason::Disqualified,
+                );
             }
             _ => {}
         }
