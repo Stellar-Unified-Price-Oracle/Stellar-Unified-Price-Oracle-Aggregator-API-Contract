@@ -108,6 +108,7 @@ mod subscription;
 mod confidence_band;
 mod consumer_auth;
 // #305 — Price update subscription registry (wired in from disk).
+mod influence_cap;
 mod price_update_subscription;
 mod timelock;
 mod triggers;
@@ -116,9 +117,15 @@ mod types;
 mod vdf_sampler;
 mod verification;
 mod whitelisting;
-mod influence_cap;
 mod wormhole_relay;
 mod zk_verify;
+
+// ── Data-quality modules (#491 outlier filter, #492 latency analytics,
+// #493 provenance, #494 disagreement index) ──
+mod disagreement;
+mod latency;
+mod outlier_filter;
+mod provenance;
 
 // =============================================================================
 // #283 — Stellar DID Integration
@@ -291,6 +298,9 @@ mod delta_encoding_storage_tests;
 #[cfg(test)]
 mod wasm_binary_size_tests;
 
+#[cfg(test)]
+mod issues_491_492_493_494_tests;
+
 pub use types::{
     AdminOpLimit, AdminOperationType, AggregatePrice, AggregationMethod, AggregationRound,
     AlertSubscription, AmmPool, AmmWeightConfig, Asset, AssetDecimalConfig, AssetMetadata,
@@ -300,26 +310,26 @@ pub use types::{
     ConsumerAccessMode, ConsumerInfo, ConsumerTier, ContractMetadata, ContribQualityRecord,
     CorrelationBand, CorrelationPair, CrossChainPriceEntry, CrossChainPricePayload,
     CrossChainRelayConfig, CrossReferenceResult, DataKey, DecentralizationReport, DemeritConfig,
-    DiversityThresholds,
-    DeviationReport, DexPrice, DisqualificationStatus, EcosystemMetadata, EmergencyPause,
-    ErrorCode, ExportedEntry, ExportedHistorySnapshot, ExternalDataProof, FeeMarketSubmission,
-    FeedMetadata, FinalityStatus, FinalizedPrice, ForeignAssetMapping, FrozenPrice, GasRecord,
-    Groth16Proof, Groth16VerifyingKey, GuardianRecovery, HealthReport, MigrationState,
-    MigrationStatus, MultiSigOperation, NotificationPreference, Operation, OperationKind,
-    OperationPriority, OperationSimulationResult, OperationStatus, OperationTemplate,
-    OperationType, OptimisticProposal, OptimisticProposalStatus, OracleSources, PendingBatch,
-    PendingFeeSubmissions, PendingFinalityEntry, PendingOperation, PriceBounds, PriceCommit,
-    PriceData, PriceEntry, PriceEventPayload, PriceHistoryEntry, PriceOverrideEntry, PriceProof,
-    ReferenceOracleEntry, RelayedSubmission, RelayerAssetStat, RelayerDashboard,
-    RelayerFailureReason, RelayerInfo, Role, SimulationWarning, SoroswapPool, SourceDemeritState,
-    SourceDidLink, SourceDiversityReport, SourceGeoMetadata, SourceGovernance, SourceHealthStatus,
-    SourceProposal,
-    SourceRelayerDelegation, SourceRotationSchedule, SourceStakeRecord, SourceVerification,
-    StateAnalysis, StateChannel, StateDiff, StateDiffEntry, StateDump, StellarHeader,
-    StorageBatchRequest, StorageBatchResult, StorageBudget, StorageTtlEntry, SubscriptionExpiry,
-    SubscriptionPayment, SubscriptionPlan, SubscriptionPlans, TemplateStep, TotalStorageBudget,
-    TwapMethod, VersionedAggregatePrice, WormholeGuardianSet, WormholePricePayload, WormholeVaa,
-    ZkPriceAttestation,
+    DeviationReport, DexPrice, DisagreementIndex, DisagreementRecord, DisqualificationStatus,
+    DiversityThresholds, EcosystemMetadata, EffectivePolicy, EmergencyPause, ErrorCode,
+    ExportedEntry, ExportedHistorySnapshot, ExternalDataProof, FeeMarketSubmission, FeedMetadata,
+    FinalityStatus, FinalizedPrice, ForeignAssetMapping, FreshnessCurve, FrozenPrice, GasRecord,
+    Groth16Proof, Groth16VerifyingKey, GuardianRecovery, HealthReport, LatencyReport,
+    LatencySample, MigrationState, MigrationStatus, MultiSigOperation, NotificationPreference,
+    Operation, OperationKind, OperationPriority, OperationSimulationResult, OperationStatus,
+    OperationTemplate, OperationType, OptimisticProposal, OptimisticProposalStatus, OracleSources,
+    OutlierConfig, OutlierExclusion, PendingBatch, PendingFeeSubmissions, PendingFinalityEntry,
+    PendingOperation, PolicyOverride, PriceBounds, PriceCommit, PriceData, PriceEntry,
+    PriceEventPayload, PriceHistoryEntry, PriceOverrideEntry, PriceProof, ProvenanceEntry,
+    ProvenanceHead, ProvenanceRecord, ReferenceOracleEntry, RelayedSubmission, RelayerAssetStat,
+    RelayerDashboard, RelayerFailureReason, RelayerInfo, Role, SimulationWarning, SoroswapPool,
+    SourceDemeritState, SourceDidLink, SourceDiversityReport, SourceGeoMetadata, SourceGovernance,
+    SourceHealthStatus, SourceProposal, SourceRelayerDelegation, SourceRotationSchedule,
+    SourceStakeRecord, SourceVerification, StateAnalysis, StateChannel, StateDiff, StateDiffEntry,
+    StateDump, StellarHeader, StorageBatchRequest, StorageBatchResult, StorageBudget,
+    StorageTtlEntry, SubscriptionExpiry, SubscriptionPayment, SubscriptionPlan, SubscriptionPlans,
+    TemplateStep, TotalStorageBudget, TwapMethod, TwapResult, VersionedAggregatePrice,
+    WeightedAggregate, WormholeGuardianSet, WormholePricePayload, WormholeVaa, ZkPriceAttestation,
 };
 
 use soroban_sdk::{
@@ -1666,17 +1676,9 @@ impl PriceOracleContract {
         reentrancy::exit(&env);
     }
 
-    pub fn set_diversity_thresholds(
-        env: Env,
-        min_effective_sources: u32,
-        max_hhi_per_axis: u32,
-    ) {
+    pub fn set_diversity_thresholds(env: Env, min_effective_sources: u32, max_hhi_per_axis: u32) {
         reentrancy::enter(&env);
-        source_diversity::set_diversity_thresholds(
-            &env,
-            min_effective_sources,
-            max_hhi_per_axis,
-        );
+        source_diversity::set_diversity_thresholds(&env, min_effective_sources, max_hhi_per_axis);
         reentrancy::exit(&env);
     }
 
@@ -5791,6 +5793,90 @@ impl PriceOracleContract {
     /// for `asset`, or `None` when there are none (#476).
     pub fn get_confidence_band(env: Env, asset: Address) -> Option<types::ConfidenceBand> {
         confidence_band::get_confidence_band(&env, &asset)
+    }
+
+    // ── Robust outlier pre-filtering (#491) ──────────────────────────────────
+
+    /// Configures the robust outlier pre-filter for `asset`. Admin only.
+    ///
+    /// `detector`: `0` disables filtering, `1` selects the median absolute
+    /// deviation, `2` the interquartile range. `sensitivity_bps` is the
+    /// exclusion threshold in that detector's units (default `35000` = 3.5
+    /// MAD for detector 1, `15000` = 1.5 x IQR for detector 2).
+    /// `min_sources` is the source-count floor below which filtering is
+    /// skipped, in `4..=64`. Pass `None` to clear the override.
+    ///
+    /// # Errors
+    /// * [`ErrorCode::InvalidConfiguration`] — a bound above is violated.
+    pub fn set_outlier_config(env: Env, asset: Address, config: Option<types::OutlierConfig>) {
+        outlier_filter::set_config(&env, asset, config);
+    }
+
+    /// Returns the robust pre-filter configuration of `asset`.
+    pub fn get_outlier_config(env: Env, asset: Address) -> types::OutlierConfig {
+        outlier_filter::get_config(&env, &asset)
+    }
+
+    /// Returns the prices the pre-filter excluded during the most recent
+    /// aggregation of `asset`, with the score of each (#491).
+    pub fn get_outlier_exclusions(
+        env: Env,
+        asset: Address,
+    ) -> soroban_sdk::Vec<types::OutlierExclusion> {
+        outlier_filter::get_exclusions(&env, &asset)
+    }
+
+    // ── Submission-to-aggregate latency analytics (#492) ─────────────────────
+
+    /// Returns latency percentiles for a (source, asset) pair over the
+    /// rolling window of stored samples (#492).
+    ///
+    /// Every duration is in **ledgers**; `seconds_per_ledger` in the report
+    /// gives the nominal conversion. `never_counted` counts submissions that
+    /// were replaced before any aggregate counted them, and `window`
+    /// carries the raw samples so the percentiles can be recomputed.
+    pub fn get_latency_report(env: Env, source: Address, asset: Address) -> types::LatencyReport {
+        latency::get_report(&env, &source, &asset)
+    }
+
+    /// Returns the raw rolling latency samples for a (source, asset) pair,
+    /// oldest first (#492).
+    pub fn get_latency_samples(
+        env: Env,
+        source: Address,
+        asset: Address,
+    ) -> soroban_sdk::Vec<types::LatencySample> {
+        latency::get_samples(&env, &source, &asset)
+    }
+
+    // ── Aggregate provenance (#493) ─────────────────────────────────────────
+
+    /// Returns the provenance record of the aggregate published for
+    /// `asset` at `ledger`, naming every contributing submission, source
+    /// and weight (#493).
+    ///
+    /// # Errors
+    /// * [`ErrorCode::NoData`] — no record at that ledger. It was never
+    ///   written, or it was pruned along with the price history.
+    pub fn get_provenance(env: Env, asset: Address, ledger: u32) -> types::ProvenanceRecord {
+        provenance::get_record(&env, &asset, ledger)
+            .unwrap_or_else(|| panic_with_error!(&env, ErrorCode::NoData))
+    }
+
+    /// Verifies a provenance record: its commitment matches its contents and
+    /// it chains to its predecessor of the same asset (#493).
+    ///
+    /// Returns `false` for a record that was edited, replaced or back-dated.
+    pub fn verify_provenance(env: Env, asset: Address, ledger: u32) -> bool {
+        provenance::verify_link(&env, &asset, ledger)
+    }
+
+    // ── Pairwise disagreement index (#494) ──────────────────────────────────
+
+    /// Returns the pairwise disagreement index recorded by the most recent
+    /// aggregate of `asset` (#494).
+    pub fn get_disagreement_index(env: Env, asset: Address) -> Option<types::DisagreementIndex> {
+        disagreement::get_index(&env, &asset)
     }
 
     // ── TWAP observation cardinality ─────────────────────────────────────────

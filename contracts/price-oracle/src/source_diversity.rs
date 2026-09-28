@@ -42,8 +42,7 @@
 use soroban_sdk::{Address, Env, Map, String, Vec};
 
 use crate::events::{
-    DiversityThresholdBreachedEvent, DiversityThresholdsChangedEvent,
-    SourceDiversityUpdatedEvent,
+    DiversityThresholdBreachedEvent, DiversityThresholdsChangedEvent, SourceDiversityUpdatedEvent,
 };
 use crate::sources::get_source_geo;
 use crate::storage::{get_admin, is_source_inactive as check_inactive, read_oracle_sources};
@@ -68,11 +67,7 @@ pub fn get_diversity_thresholds(env: &Env) -> DiversityThresholds {
         .unwrap_or_else(default_thresholds)
 }
 
-pub fn set_diversity_thresholds(
-    env: &Env,
-    min_effective_sources: u32,
-    max_hhi_per_axis: u32,
-) {
+pub fn set_diversity_thresholds(env: &Env, min_effective_sources: u32, max_hhi_per_axis: u32) {
     let admin = get_admin(env);
     admin.require_auth();
     if min_effective_sources == 0 || max_hhi_per_axis == 0 || max_hhi_per_axis > MAX_HHI {
@@ -190,7 +185,12 @@ pub fn get_source_diversity(env: &Env) -> SourceDiversityReport {
         let (region, provider, jurisdiction, infra, upstream, owner) =
             match get_source_geo(env, src) {
                 Some(g) => (
-                    g.region, g.provider, g.jurisdiction, g.infra, g.upstream, g.owner,
+                    g.region,
+                    g.provider,
+                    g.jurisdiction,
+                    g.infra,
+                    g.upstream,
+                    g.owner,
                 ),
                 None => (
                     unknown.clone(),

@@ -796,6 +796,20 @@ pub enum DataKey {
     ExternalGovernor,
     /// Allow-list flag for a governance operation name (bool).
     GovernorAllowedOp(String),
+    /// Governor authorization epoch (u32); bumping it revokes every op grant.
+    GovernorEpoch,
+    /// Epoch (u32) at which a governance operation name was granted.
+    GovernorOpGrant(String),
+    /// Per-asset aggregation policy override (`PolicyOverride`).
+    AssetPolicy(Address),
+    /// Per-class aggregation policy override (`PolicyOverride`).
+    ClassPolicy(u32),
+    /// Asset class id an asset belongs to (u32).
+    AssetClassId(Address),
+    /// Per-asset freshness weighting curve (`FreshnessCurve`).
+    FreshnessCurve(Address),
+    /// Minimum distinct observations a TWAP window must contain (u32).
+    TwapMinCardinality,
 
     // -------------------------------------------------------------------------
     // #399: Source diversity — effective independence thresholds
@@ -804,6 +818,42 @@ pub enum DataKey {
     DiversityThresholds,
     /// Ledger of the last diversity-threshold breach (u32, for alert damping).
     DiversityLastBreachLedger,
+
+    // -------------------------------------------------------------------------
+    // #491: Robust outlier pre-filtering
+    // -------------------------------------------------------------------------
+    /// Per-asset [`OutlierConfig`] for the MAD/IQR pre-filter (#491).
+    OutlierConfig(Address),
+    /// Exclusions produced by the most recent aggregation of an asset (#491).
+    OutlierExclusions(Address),
+
+    // -------------------------------------------------------------------------
+    // #492: Submission-to-aggregate latency analytics
+    // -------------------------------------------------------------------------
+    /// Rolling latency samples for a (source, asset) pair (#492).
+    LatencySamples(Address, Address),
+    /// Ledger of the last published aggregate of an asset (#492). Kept
+    /// inside the disagreement record rather than beside it, so a round does
+    /// not pay for an extra ledger entry.
+    #[doc(hidden)]
+    _LastAggregateLedgerUnused(Address),
+
+    // -------------------------------------------------------------------------
+    // #493: Aggregate provenance
+    // -------------------------------------------------------------------------
+    /// [`ProvenanceRecord`] published for an asset at a ledger (#493).
+    Provenance(Address, u32),
+    /// Chain head of an asset's provenance (#493): the hash and ledger of its
+    /// most recent record, in one entry so a round does not pay for two.
+    ProvenanceHead(Address),
+
+    // -------------------------------------------------------------------------
+    // #494: Pairwise disagreement index
+    // -------------------------------------------------------------------------
+    /// Most recently computed [`DisagreementIndex`] for an asset, together
+    /// with the rolling window of prior values that forms its baseline (#494).
+    /// Held in one entry so a round writes one key instead of two.
+    DisagreementIndex(Address),
 }
 
 /// A price submission from a single oracle source for a specific asset.
@@ -2915,6 +2965,162 @@ pub struct ConfidenceBand {
     pub low_confidence: bool,
 }
 
+/// Per-asset configuration of the robust outlier pre-filter (#491).
+///
+/// See `docs/outlier-filtering.md`. `detector` selects the estimator:
+/// `0` = disabled (default), `1` = median absolute deviation, `2` =
+/// interquartile range. `sensitivity_bps` is the exclusion threshold in
+/// scaled units: for MAD the robust z-score in basis points, for IQR the
+/// multiple of the IQR (e.g. `15_000` = 1.5 x IQR, the classic 1.5 rule).
+/// `min_sources` is the source-count floor below which filtering is
+/// disabled, because the estimators are unstable on tiny samples.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct OutlierConfig {
+    pub detector: u32,
+    pub sensitivity_bps: u32,
+    pub min_sources: u32,
+}
+
+/// One price removed from an aggregation by the robust pre-filter (#491).
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct OutlierExclusion {
+    pub source: Address,
+    pub price: i128,
+    /// Robust score of the excluded value: the modified z-score in bps for
+    /// MAD, or the distance from the nearest quartile in bps of the IQR for
+    /// IQR. `>=` the configured sensitivity.
+    pub score_bps: u32,
+    /// Center the score was measured from (median, or midpoint of the
+    /// quartiles for IQR).
+    pub center: i128,
+    /// Scale the score was measured in (scaled MAD or IQR); `0` when the
+    /// scale collapsed and the value was excluded by the absolute floor.
+    pub scale: i128,
+}
+
+/// One submission-to-aggregate latency sample, in ledgers (#492).
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct LatencySample {
+    /// Ledger in which the submission was accepted.
+    pub submission_ledger: u32,
+    /// Ledger in which the submission was counted into a published
+    /// aggregate; `0` when the submission was never counted.
+    pub inclusion_ledger: u32,
+    /// `inclusion_ledger - submission_ledger`, or `0` if never counted.
+    pub latency_ledgers: u32,
+    /// Ledgers the aggregate publication itself was deferred past the
+    /// source's own submission. Reported separately from
+    /// `latency_ledgers` so a slow source is distinguishable from a slow
+    /// aggregator.
+    pub deferral_ledgers: u32,
+    /// Whether the submission was ever counted into a published aggregate.
+    pub counted: bool,
+}
+
+/// Latency percentiles for one (source, asset) pair over the rolling
+/// window of stored samples (#492). All latencies are in **ledgers**
+/// (Stellar's close time is ~5 s); multiply by `seconds_per_ledger` for
+/// wall-clock seconds.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct LatencyReport {
+    pub asset: Address,
+    pub source: Address,
+    /// Number of samples currently in the rolling window.
+    pub samples: u32,
+    /// Number of samples in the window that were never counted.
+    pub never_counted: u32,
+    /// Maximum number of samples retained per (source, asset) pair.
+    pub max_samples: u32,
+    pub p50_ledgers: u32,
+    pub p90_ledgers: u32,
+    pub max_ledgers: u32,
+    /// Mean deferral over the counted samples, in ledgers.
+    pub avg_deferral_ledgers: u32,
+    /// Nominal ledger close time used to convert ledgers to seconds.
+    pub seconds_per_ledger: u32,
+    /// The raw stored samples, oldest first, so the percentiles above can
+    /// be recomputed off-chain.
+    pub window: soroban_sdk::Vec<LatencySample>,
+}
+
+/// Contribution record for a single source inside a published aggregate
+/// (#493).
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct ProvenanceEntry {
+    pub source: Address,
+    /// Price the source submitted for this round.
+    pub price: i128,
+    /// Weight the source carried in the aggregation, in bps of the total.
+    pub weight_bps: u32,
+    /// Ledger in which the counted submission was made.
+    pub submission_ledger: u32,
+}
+
+/// Why an aggregate was published, with every contributing submission
+/// (#493). `hash` chains to the previous record of the same asset, so a
+/// record cannot be altered or back-dated without detection; see
+/// `docs/provenance.md`.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct ProvenanceRecord {
+    /// Stable identifier: the SHA-256 commitment `hash`.
+    pub id: soroban_sdk::BytesN<32>,
+    pub asset: Address,
+    /// Ledger in which the aggregate was published.
+    pub ledger: u32,
+    /// The published aggregate price.
+    pub price: i128,
+    /// Timestamp of the newest counted submission.
+    pub timestamp: u64,
+    /// The unweighted median of the counted prices — the reference value
+    /// the aggregate was checked against.
+    pub reference: i128,
+    pub num_sources: u32,
+    /// Aggregation method in force (0..=4, see `policy::MAX_METHOD`).
+    pub method: u32,
+    /// Every contributing submission, in aggregation order.
+    pub contributors: soroban_sdk::Vec<ProvenanceEntry>,
+    /// Ledgers the publications were deferred past, one per contributor,
+    /// in the same order.
+    pub deferral_ledgers: soroban_sdk::Vec<u32>,
+    /// Hash of the previous provenance record of this asset, or 32 zero
+    /// bytes for the first one.
+    pub previous_hash: soroban_sdk::BytesN<32>,
+    /// SHA-256 over the record's fields and `previous_hash`.
+    pub hash: soroban_sdk::BytesN<32>,
+}
+
+/// Chain head of an asset's provenance (#493): the hash of its most recent
+/// record and the ledger that record was published at.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct ProvenanceHead {
+    pub hash: soroban_sdk::BytesN<32>,
+    pub ledger: u32,
+}
+
+/// A stored disagreement reading: the index itself plus the rolling window of
+/// prior values that forms its baseline (#494).
+///
+/// Both live in one ledger entry so recording a round costs a single write.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct DisagreementRecord {
+    pub index: DisagreementIndex,
+    /// Previous index values for this asset, oldest first, capped at
+    /// [`crate::disagreement::BASELINE_WINDOW`].
+    pub history: soroban_sdk::Vec<u32>,
+    /// Ledger in which this asset last published an aggregate (#492). The
+    /// next round's publication deferral is measured from here, so the two
+    /// readings share an entry instead of costing two.
+    pub last_aggregate_ledger: u32,
+}
+
 /// TWAP value together with the observation statistics backing it.
 #[derive(Clone, Debug, Eq, PartialEq)]
 #[contracttype]
@@ -2928,4 +3134,32 @@ pub struct TwapResult {
     pub max_weight_bps: u32,
     /// True when the whole window rests on a single observation.
     pub concentrated: bool,
+}
+
+/// Pairwise source disagreement index for one asset at one ledger (#494).
+///
+/// Scale-invariant by construction: every deviation is divided by the
+/// median price, so an index computed on 8-decimal prices equals the index
+/// computed on the same prices scaled to 18 decimals. See
+/// `docs/disagreement-index.md` for interpretation.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct DisagreementIndex {
+    pub asset: Address,
+    pub ledger: u32,
+    /// Median of all pairwise relative deviations, in bps. `0` when fewer
+    /// than two sources contributed.
+    pub index_bps: u32,
+    /// Largest pairwise relative deviation, in bps. This is what separates
+    /// a lone dissenter (index low, `max_bps` high) from a broad split
+    /// (both high).
+    pub max_bps: u32,
+    /// Rolling median of the last [`crate::disagreement::BASELINE_WINDOW`]
+    /// index values, in bps; the value the current index is compared to.
+    pub baseline_bps: u32,
+    /// `index_bps > baseline_bps * 2` (and `baseline_bps > 0`).
+    pub above_baseline: bool,
+    pub num_sources: u32,
+    /// `num_sources < 3`: the index rests on at most one pair.
+    pub low_sample: bool,
 }

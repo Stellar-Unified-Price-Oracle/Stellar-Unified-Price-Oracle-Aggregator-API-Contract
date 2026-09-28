@@ -24,6 +24,7 @@ use soroban_sdk::contracterror;
 /// | 116–118 | Cross-chain asset registry |
 /// | 119–121 | Axelar GMP integration |
 /// | 122–125 | LayerZero integration |
+/// | 156–158 | Per-asset policy / TWAP cardinality / relayer bond lock |
 #[contracterror]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ErrorCode {
@@ -333,4 +334,14 @@ pub enum ErrorCode {
     LowSourceDiversity = 154,
     /// The supplied diversity thresholds are invalid (e.g. max HHI > 10000).
     InvalidDiversityThresholds = 155,
+
+    // ── 156–158: Per-asset policy, TWAP cardinality & relayer bonds ──────────
+    /// A required configuration entry is missing from storage (#470).
+    ConfigMissing = 156,
+    /// A TWAP window contains fewer distinct observations than the configured
+    /// cardinality floor (#472).
+    TwapInsufficientObservations = 157,
+    /// A relayer bond operation was attempted while failure reports are
+    /// still outstanding on the bond.
+    RelayerBondLocked = 158,
 }

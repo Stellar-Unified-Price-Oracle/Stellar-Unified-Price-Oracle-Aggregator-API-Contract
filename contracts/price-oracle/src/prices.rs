@@ -545,6 +545,11 @@ fn aggregate_asset(env: &Env, asset: &Address, current_ledger: u32, decimals: u3
     let mut valid_prices: Vec<i128> = Vec::new(env);
     let mut valid_volumes: Vec<i128> = Vec::new(env);
     let mut valid_weights: Vec<u32> = Vec::new(env);
+    // #491/#493: kept parallel to `valid_prices` so the robust pre-filter
+    // and the provenance record can name the source and submission ledger
+    // behind each surviving price.
+    let mut valid_sources: Vec<soroban_sdk::Address> = Vec::new(env);
+    let mut valid_sub_ledgers: Vec<u32> = Vec::new(env);
     let curve = crate::freshness_weight::get_curve(env, asset);
     let mut latest_timestamp: u64 = 0;
     let mut contributing_sources: u32 = 0;
@@ -623,21 +628,47 @@ fn aggregate_asset(env: &Env, asset: &Address, current_ledger: u32, decimals: u3
                 &entry_data,
                 &curve,
             ));
+            valid_sources.push_back(src);
+            valid_sub_ledgers.push_back(entry_data.last_updated);
             contributing_sources += 1;
         }
     }
 
-    if policy.max_deviation_bps > 0 {
-        let (p, v, w) = crate::policy::filter_deviation(
-            env,
-            &valid_prices,
-            &valid_volumes,
-            &valid_weights,
-            policy.max_deviation_bps,
-        );
+    // #491: robust pre-filter (MAD / IQR) runs *before* the deviation filter
+    // so a gross outlier is removed by a method that is itself robust to it.
+    // Both filters are expressed as index masks so sources and submission
+    // ledgers stay aligned with the surviving prices.
+    let outlier_mask =
+        crate::outlier_filter::filter_round(env, asset, &valid_prices, &valid_sources);
+    let deviation_mask = if policy.max_deviation_bps > 0 {
+        crate::policy::deviation_mask(&valid_prices, policy.max_deviation_bps)
+    } else {
+        Vec::new(env)
+    };
+
+    if policy.max_deviation_bps > 0 || !crate::outlier_filter::get_exclusions(env, asset).is_empty()
+    {
+        let mut p = Vec::new(env);
+        let mut v = Vec::new(env);
+        let mut w = Vec::new(env);
+        let mut s = Vec::new(env);
+        let mut l = Vec::new(env);
+        for i in 0..valid_prices.len() {
+            let keep = outlier_mask.get_unchecked(i)
+                && (deviation_mask.is_empty() || deviation_mask.get_unchecked(i));
+            if keep {
+                p.push_back(valid_prices.get_unchecked(i));
+                v.push_back(valid_volumes.get(i).unwrap_or(0));
+                w.push_back(valid_weights.get(i).unwrap_or(1));
+                s.push_back(valid_sources.get_unchecked(i));
+                l.push_back(valid_sub_ledgers.get_unchecked(i));
+            }
+        }
         valid_prices = p;
         valid_volumes = v;
         valid_weights = w;
+        valid_sources = s;
+        valid_sub_ledgers = l;
         contributing_sources = valid_prices.len();
     }
 
@@ -727,6 +758,45 @@ fn aggregate_asset(env: &Env, asset: &Address, current_ledger: u32, decimals: u3
             mem_delta,
         );
 
+        // ── #492 / #493 / #494: post-publication data-quality records ─────────
+        // All three read `valid_prices` *after* the robust pre-filter, so the
+        // latency accounting, the provenance record and the disagreement index
+        // all describe exactly the submissions the aggregate was built from.
+        let round_weights = crate::freshness_weight::capped(env, &valid_weights);
+        let influence = crate::influence_cap::influence_bps(env, &round_weights);
+        // Deferral is measured from the previous publication of this asset,
+        // so a deferred aggregate is not charged to the sources.
+        let deferral =
+            current_ledger.saturating_sub(crate::latency::last_aggregate_ledger(env, asset));
+
+        let mut contributors: soroban_sdk::Vec<crate::types::ProvenanceEntry> =
+            soroban_sdk::Vec::new(env);
+        let mut deferrals: soroban_sdk::Vec<u32> = soroban_sdk::Vec::new(env);
+        for i in 0..contributing_sources {
+            let src = valid_sources.get_unchecked(i);
+            let sub_ledger = valid_sub_ledgers.get_unchecked(i);
+            crate::latency::record_counted(env, &src, asset, sub_ledger, current_ledger, deferral);
+            contributors.push_back(crate::types::ProvenanceEntry {
+                source: src,
+                price: valid_prices.get_unchecked(i),
+                weight_bps: influence.get(i).unwrap_or(0),
+                submission_ledger: sub_ledger,
+            });
+            deferrals.push_back(deferral);
+        }
+        crate::provenance::record(
+            env,
+            asset,
+            current_ledger,
+            median_price,
+            latest_timestamp,
+            compute_median(&valid_prices),
+            policy.method,
+            contributors,
+            deferrals,
+        );
+        crate::disagreement::record(env, asset, current_ledger, &valid_prices);
+
         let history_entry = PriceHistoryEntry {
             price: median_price,
             timestamp: latest_timestamp,
@@ -783,6 +853,11 @@ fn aggregate_asset(env: &Env, asset: &Address, current_ledger: u32, decimals: u3
                 .temporary()
                 .remove(&DataKey::PriceHistory(asset.clone(), oldest_ledger));
             remove_history_shard_entry(env, asset, oldest_ledger);
+            // #493: provenance is pruned by exactly the same policy as the
+            // price it explains, under both the global and the per-asset cap,
+            // so a record can never outlive its history entry and accumulate
+            // without bound.
+            crate::provenance::prune(env, asset, oldest_ledger);
             HistoryPrunedEvent {
                 asset: asset.clone(),
                 pruned_ledger: oldest_ledger,
@@ -810,6 +885,8 @@ fn aggregate_asset(env: &Env, asset: &Address, current_ledger: u32, decimals: u3
                 .temporary()
                 .remove(&DataKey::PriceHistory(asset.clone(), oldest_ledger));
             remove_history_shard_entry(env, asset, oldest_ledger);
+            crate::provenance::prune(env, asset, oldest_ledger);
+
             HistoryPerAssetPrunedEvent {
                 asset: asset.clone(),
                 pruned_ledger: oldest_ledger,
@@ -1029,6 +1106,12 @@ pub fn submit_price(
     {
         if timestamp < prev.timestamp {
             panic_with_error!(env, ErrorCode::InvalidTimestamp);
+        }
+        // #492: a submission replaced here, before any aggregate counted it,
+        // is a never-counted submission. Recording it is what distinguishes
+        // a source that is never counted from one that is merely slow.
+        if prev.last_updated > crate::latency::last_aggregate_ledger(env, &asset) {
+            crate::latency::record_never_counted(env, &source, &asset, prev.last_updated);
         }
     }
 

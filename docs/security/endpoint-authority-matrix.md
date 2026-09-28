@@ -15,7 +15,7 @@ Authority values:
 | `contract-self` | Callable only with `current_contract_address` as the configured oracle (cross-contract self call). |
 | `public` | Permissionless by design (e.g. `initialize` guarded by `AlreadyInitialized`, keeper/crank functions, idempotent maintenance). Reviewed in #467: none of these write configuration, roles, or prices without a downstream check. |
 
-Totals: 476 endpoints — admin: 177, caller: 49, contract-self: 1, public: 9, public-read: 236, signature: 4
+Totals: 484 endpoints — admin: 178, caller: 49, contract-self: 1, public-read: 243, signature: 4
 
 | Endpoint | Authority |
 |---|---|
@@ -495,3 +495,11 @@ Totals: 476 endpoints — admin: 177, caller: 49, contract-self: 1, public: 9, p
 | `set_twap_min_cardinality` | `admin` |
 | `get_twap_min_cardinality` | `public-read` |
 | `get_twap_ex` | `public-read` |
+| `set_outlier_config` | `admin` |
+| `get_outlier_config` | `public-read` |
+| `get_outlier_exclusions` | `public-read` |
+| `get_latency_report` | `public-read` |
+| `get_latency_samples` | `public-read` |
+| `get_provenance` | `public-read` |
+| `verify_provenance` | `public-read` |
+| `get_disagreement_index` | `public-read` |

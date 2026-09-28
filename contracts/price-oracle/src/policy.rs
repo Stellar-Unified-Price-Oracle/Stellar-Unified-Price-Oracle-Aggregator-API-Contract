@@ -193,6 +193,27 @@ pub fn get_asset_policy(env: &Env, asset: &Address) -> Option<PolicyOverride> {
     read(env, &DataKey::AssetPolicy(asset.clone()))
 }
 
+/// Marks the prices that deviate from the plain median by more than
+/// `max_bps`.
+///
+/// Exposed separately from [`filter_deviation`] so callers that must keep
+/// other per-submission data aligned (sources, submission ledgers,
+/// provenance entries — see #491/#493) can apply the same rule through an
+/// index mask instead of three parallel vectors.
+pub fn deviation_mask(prices: &soroban_sdk::Vec<i128>, max_bps: u32) -> soroban_sdk::Vec<bool> {
+    let mut mask = soroban_sdk::Vec::new(prices.env());
+    if prices.is_empty() {
+        return mask;
+    }
+    let median = crate::storage::compute_median(prices);
+    let bound = median.abs().saturating_mul(max_bps as i128);
+    for i in 0..prices.len() {
+        let price = prices.get_unchecked(i);
+        mask.push_back((price - median).abs().saturating_mul(10_000) <= bound);
+    }
+    mask
+}
+
 /// Drops entries deviating from the plain median by more than `max_bps`.
 ///
 /// Fails closed: the caller re-checks quorum on what remains.
@@ -213,12 +234,10 @@ pub fn filter_deviation(
     if prices.is_empty() {
         return (p, v, w);
     }
-    let median = crate::storage::compute_median(prices);
-    let bound = median.abs().saturating_mul(max_bps as i128);
+    let mask = deviation_mask(prices, max_bps);
     for i in 0..prices.len() {
-        let price = prices.get_unchecked(i);
-        if (price - median).abs().saturating_mul(10_000) <= bound {
-            p.push_back(price);
+        if mask.get_unchecked(i) {
+            p.push_back(prices.get_unchecked(i));
             v.push_back(volumes.get(i).unwrap_or(0));
             w.push_back(weights.get(i).unwrap_or(1));
         }
