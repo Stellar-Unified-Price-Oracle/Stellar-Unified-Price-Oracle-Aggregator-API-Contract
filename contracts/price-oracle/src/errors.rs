@@ -323,7 +323,7 @@ pub enum ErrorCode {
     /// The relayer's performance bond is insufficient.
     RelayerBondInsufficient = 150,
     /// The relayer failure threshold has not been reached.
-    RelayerFailureThresholdNotReached = 151,
+    RelayerFailureThresholdMiss = 151,
     /// The external submission proof failed validation.
     InvalidExternalProof = 152,
     /// The source's stake could not be slashed.
@@ -335,13 +335,29 @@ pub enum ErrorCode {
     /// The supplied diversity thresholds are invalid (e.g. max HHI > 10000).
     InvalidDiversityThresholds = 155,
 
-    // ── 156–158: Per-asset policy, TWAP cardinality & relayer bonds ──────────
-    /// A required configuration entry is missing from storage (#470).
-    ConfigMissing = 156,
-    /// A TWAP window contains fewer distinct observations than the configured
-    /// cardinality floor (#472).
-    TwapInsufficientObservations = 157,
-    /// A relayer bond operation was attempted while failure reports are
-    /// still outstanding on the bond.
-    RelayerBondLocked = 158,
+    // ── 156–162: #484 bound tiers, #485 deferral, #486 price corrections ───────
+    /// The soft/hard bound ordering supplied for an asset is invalid (#484).
+    InvalidBoundOrdering = 156,
+    /// The supplied deferral policy is outside its documented bounds (#485).
+    InvalidDeferralPolicy = 157,
+    /// `correct_price` was called with an empty or oversized reason (#486).
+    InvalidCorrectionReason = 158,
+    /// The per-asset correction count cap has been reached (#486).
+    CorrectionLimitReached = 159,
+    /// The value supplied lies outside the asset's hard bounds (#484, #486).
+    AggregateRejectedByBounds = 160,
+    /// The aggregate being corrected is older than the correction window (#486).
+    CorrectionWindowExpired = 161,
+    /// The requested revision index does not exist in the chain (#486).
+    RevisionNotFound = 162,
+
+    // ── Restored discriminants referenced by wired modules but absent from
+    // the enum, which left the crate uncompilable. Numbers are taken from the
+    // registry note above and are never reused. ──────────────────────────────
+    /// A required configuration value has not been set.
+    ConfigMissing = 163,
+    /// Outstanding failure reports prevent the relayer bond from being locked.
+    RelayerBondLocked = 164,
+    /// The TWAP window holds fewer distinct observations than the floor.
+    TwapInsufficientObservations = 165,
 }

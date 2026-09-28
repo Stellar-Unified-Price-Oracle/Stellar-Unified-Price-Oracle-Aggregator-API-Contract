@@ -820,40 +820,64 @@ pub enum DataKey {
     DiversityLastBreachLedger,
 
     // -------------------------------------------------------------------------
-    // #491: Robust outlier pre-filtering
+    // #483: Aggregate recomputation on source-set change
     // -------------------------------------------------------------------------
-    /// Per-asset [`OutlierConfig`] for the MAD/IQR pre-filter (#491).
-    OutlierConfig(Address),
-    /// Exclusions produced by the most recent aggregation of an asset (#491).
-    OutlierExclusions(Address),
+    /// Ledger at which a forced aggregate recomputation last ran (u32).
+    LastForcedRecompute,
 
     // -------------------------------------------------------------------------
-    // #492: Submission-to-aggregate latency analytics
+    // #484: Two-tier price bounds (soft clamp / hard reject)
     // -------------------------------------------------------------------------
-    /// Rolling latency samples for a (source, asset) pair (#492).
-    LatencySamples(Address, Address),
-    /// Ledger of the last published aggregate of an asset (#492). Kept
-    /// inside the disagreement record rather than beside it, so a round does
-    /// not pay for an extra ledger entry.
-    #[doc(hidden)]
-    _LastAggregateLedgerUnused(Address),
+    /// Soft/hard bound pair for an asset (BoundsTier).
+    AssetBoundsTier(Address),
+    /// Last bound decision published for an asset (BoundStatus).
+    AssetBoundStatus(Address),
 
     // -------------------------------------------------------------------------
-    // #493: Aggregate provenance
+    // #485: Deferred (quorum-within-window) aggregation
     // -------------------------------------------------------------------------
-    /// [`ProvenanceRecord`] published for an asset at a ledger (#493).
-    Provenance(Address, u32),
-    /// Chain head of an asset's provenance (#493): the hash and ledger of its
-    /// most recent record, in one entry so a round does not pay for two.
-    ProvenanceHead(Address),
+    /// Deferral policy for an asset (DeferralPolicy).
+    AssetDeferral(Address),
+    /// Publication state for a deferrable asset (PublicationStatus).
+    AssetPublicationState(Address),
 
     // -------------------------------------------------------------------------
-    // #494: Pairwise disagreement index
+    // #486: Auditable price corrections
     // -------------------------------------------------------------------------
-    /// Most recently computed [`DisagreementIndex`] for an asset, together
-    /// with the rolling window of prior values that forms its baseline (#494).
-    /// Held in one entry so a round writes one key instead of two.
-    DisagreementIndex(Address),
+    /// Immutable revision chain for an asset's published aggregate (Vec<PriceRevision>).
+    PriceRevisions(Address),
+    /// The first-ever published aggregate value, preserved across corrections.
+    PriceOriginal(Address),
+    /// Count of corrections applied, used to enforce the per-asset correction cap.
+    PriceCorrectionCount(Address),
+    /// Global correction limits (CorrectionScope).
+    CfgCorrectionScope,
+    /// Global publication-path guard flags (PublicationGuards). Read exactly
+    /// once per aggregation pass; when every bit is clear the whole optional
+    /// post-publication path is skipped, so an oracle that uses none of
+    /// #483/#484/#485 pays a single storage read for all of them.
+    PublicationGuards,
+
+    // -------------------------------------------------------------------------
+    // Restored variants referenced by the wired policy / governor / TWAP /
+    // freshness modules. These were referenced from `policy.rs`,
+    // `external_governance.rs`, `freshness_weight.rs` and `prices.rs` but were
+    // absent from the enum, so the crate could not compile.
+    // -------------------------------------------------------------------------
+    /// Per-asset aggregation policy override (Option<PolicyOverride>).
+    AssetPolicy(Address),
+    /// Aggregation policy override for an asset class (Option<PolicyOverride>).
+    ClassPolicy(u32),
+    /// Asset class an asset belongs to (u32).
+    AssetClassId(Address),
+    /// Freshness-weighting curve for an asset (FreshnessCurve).
+    FreshnessCurve(Address),
+    /// Current external-governor authorization epoch (u32).
+    GovernorEpoch,
+    /// Per-operation grant to the external governor (bool).
+    GovernorOpGrant(String),
+    /// Minimum distinct TWAP observations required (u32).
+    TwapMinCardinality,
 }
 
 /// A price submission from a single oracle source for a specific asset.
@@ -2965,160 +2989,147 @@ pub struct ConfidenceBand {
     pub low_confidence: bool,
 }
 
-/// Per-asset configuration of the robust outlier pre-filter (#491).
+/// Two-tier price bounds for an asset (#484).
 ///
-/// See `docs/outlier-filtering.md`. `detector` selects the estimator:
-/// `0` = disabled (default), `1` = median absolute deviation, `2` =
-/// interquartile range. `sensitivity_bps` is the exclusion threshold in
-/// scaled units: for MAD the robust z-score in basis points, for IQR the
-/// multiple of the IQR (e.g. `15_000` = 1.5 x IQR, the classic 1.5 rule).
-/// `min_sources` is the source-count floor below which filtering is
-/// disabled, because the estimators are unstable on tiny samples.
+/// Ordering is validated on write: `0 < hard_min <= soft_min` and
+/// `soft_max <= hard_max`. A value outside `[soft_min, soft_max]` is clamped
+/// and flagged; a value outside `[hard_min, hard_max]` is rejected outright.
+/// See `docs/price-bounds-tiers.md`.
 #[derive(Clone, Debug, Eq, PartialEq)]
 #[contracttype]
-pub struct OutlierConfig {
-    pub detector: u32,
-    pub sensitivity_bps: u32,
-    pub min_sources: u32,
+pub struct BoundsTier {
+    /// Soft lower bound: an aggregate below it is clamped up to it.
+    pub soft_min: i128,
+    /// Soft upper bound: an aggregate above it is clamped down to it.
+    pub soft_max: i128,
+    /// Hard lower bound: an aggregate below it is rejected, not published.
+    pub hard_min: i128,
+    /// Hard upper bound: an aggregate above it is rejected, not published.
+    pub hard_max: i128,
 }
 
-/// One price removed from an aggregation by the robust pre-filter (#491).
+/// Consumer-visible outcome of the bound check for the latest aggregate (#484).
 #[derive(Clone, Debug, Eq, PartialEq)]
 #[contracttype]
-pub struct OutlierExclusion {
-    pub source: Address,
+pub struct BoundStatus {
+    /// The raw, pre-clamp aggregate.
+    pub raw_price: i128,
+    /// The published value (clamped when `clamped` is true).
     pub price: i128,
-    /// Robust score of the excluded value: the modified z-score in bps for
-    /// MAD, or the distance from the nearest quartile in bps of the IQR for
-    /// IQR. `>=` the configured sensitivity.
-    pub score_bps: u32,
-    /// Center the score was measured from (median, or midpoint of the
-    /// quartiles for IQR).
-    pub center: i128,
-    /// Scale the score was measured in (scaled MAD or IQR); `0` when the
-    /// scale collapsed and the value was excluded by the absolute floor.
-    pub scale: i128,
-}
-
-/// One submission-to-aggregate latency sample, in ledgers (#492).
-#[derive(Clone, Debug, Eq, PartialEq)]
-#[contracttype]
-pub struct LatencySample {
-    /// Ledger in which the submission was accepted.
-    pub submission_ledger: u32,
-    /// Ledger in which the submission was counted into a published
-    /// aggregate; `0` when the submission was never counted.
-    pub inclusion_ledger: u32,
-    /// `inclusion_ledger - submission_ledger`, or `0` if never counted.
-    pub latency_ledgers: u32,
-    /// Ledgers the aggregate publication itself was deferred past the
-    /// source's own submission. Reported separately from
-    /// `latency_ledgers` so a slow source is distinguishable from a slow
-    /// aggregator.
-    pub deferral_ledgers: u32,
-    /// Whether the submission was ever counted into a published aggregate.
-    pub counted: bool,
-}
-
-/// Latency percentiles for one (source, asset) pair over the rolling
-/// window of stored samples (#492). All latencies are in **ledgers**
-/// (Stellar's close time is ~5 s); multiply by `seconds_per_ledger` for
-/// wall-clock seconds.
-#[derive(Clone, Debug, Eq, PartialEq)]
-#[contracttype]
-pub struct LatencyReport {
-    pub asset: Address,
-    pub source: Address,
-    /// Number of samples currently in the rolling window.
-    pub samples: u32,
-    /// Number of samples in the window that were never counted.
-    pub never_counted: u32,
-    /// Maximum number of samples retained per (source, asset) pair.
-    pub max_samples: u32,
-    pub p50_ledgers: u32,
-    pub p90_ledgers: u32,
-    pub max_ledgers: u32,
-    /// Mean deferral over the counted samples, in ledgers.
-    pub avg_deferral_ledgers: u32,
-    /// Nominal ledger close time used to convert ledgers to seconds.
-    pub seconds_per_ledger: u32,
-    /// The raw stored samples, oldest first, so the percentiles above can
-    /// be recomputed off-chain.
-    pub window: soroban_sdk::Vec<LatencySample>,
-}
-
-/// Contribution record for a single source inside a published aggregate
-/// (#493).
-#[derive(Clone, Debug, Eq, PartialEq)]
-#[contracttype]
-pub struct ProvenanceEntry {
-    pub source: Address,
-    /// Price the source submitted for this round.
-    pub price: i128,
-    /// Weight the source carried in the aggregation, in bps of the total.
-    pub weight_bps: u32,
-    /// Ledger in which the counted submission was made.
-    pub submission_ledger: u32,
-}
-
-/// Why an aggregate was published, with every contributing submission
-/// (#493). `hash` chains to the previous record of the same asset, so a
-/// record cannot be altered or back-dated without detection; see
-/// `docs/provenance.md`.
-#[derive(Clone, Debug, Eq, PartialEq)]
-#[contracttype]
-pub struct ProvenanceRecord {
-    /// Stable identifier: the SHA-256 commitment `hash`.
-    pub id: soroban_sdk::BytesN<32>,
-    pub asset: Address,
-    /// Ledger in which the aggregate was published.
+    /// True when the published value was clamped to a soft bound.
+    pub clamped: bool,
+    /// True when the raw aggregate was outside the hard bounds and rejected.
+    pub rejected: bool,
+    /// Consumer-visible reason code (see `BoundReason`).
+    pub reason_code: u32,
+    /// Ledger at which the decision was taken.
     pub ledger: u32,
-    /// The published aggregate price.
+}
+
+/// Reason codes carried by [`BoundStatus::reason_code`] (#484).
+///
+/// `0` is the only value that means "in bounds"; every other value is a
+/// degradation or failure that a consumer is expected to handle explicitly.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[contracttype]
+pub enum BoundReason {
+    /// The aggregate lies inside the soft bounds.
+    InBounds = 0,
+    /// Clamped up to `soft_min`.
+    ClampedToSoftMin = 1,
+    /// Clamped down to `soft_max`.
+    ClampedToSoftMax = 2,
+    /// Rejected: below `hard_min`.
+    RejectedBelowHardMin = 3,
+    /// Rejected: above `hard_max`.
+    RejectedAboveHardMax = 4,
+}
+
+/// Quorum-within-window deferral policy for an asset (#485).
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct DeferralPolicy {
+    /// Submissions required inside the window before publication is allowed.
+    pub quorum: u32,
+    /// Length of the submission window, in seconds.
+    pub window_secs: u64,
+    /// Hard bound on how long publication may stay deferred, in seconds.
+    pub max_defer_secs: u64,
+}
+
+/// Publication lifecycle of a deferrable asset (#485).
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[contracttype]
+pub enum PublicationState {
+    /// No aggregate has ever been published for the asset.
+    Absent = 0,
+    /// Submissions exist but quorum has not been reached inside the window.
+    Deferred = 1,
+    /// A quorum-backed aggregate is live.
+    Published = 2,
+    /// Deferral outlived `max_defer_secs`; the asset is starved.
+    Stale = 3,
+}
+
+/// Deferral state exposed to consumers, with the missing-source count (#485).
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct PublicationStatus {
+    /// Current lifecycle state.
+    pub state: PublicationState,
+    /// Submissions counted inside the current window.
+    pub received: u32,
+    /// Submissions still required (`quorum.saturating_sub(received)`).
+    pub missing: u32,
+    /// Configured quorum.
+    pub quorum: u32,
+    /// Configured window, in seconds.
+    pub window_secs: u64,
+    /// Unix timestamp at which the current deferral began.
+    pub deferred_since: u64,
+    /// Configured deferral bound, in seconds.
+    pub max_defer_secs: u64,
+    /// Ledger at which the state was last written.
+    pub ledger: u32,
+}
+
+/// One immutable link in a published price's revision chain (#486).
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct PriceRevision {
+    /// Zero-based position in the chain; index 0 is the original publication.
+    pub index: u32,
+    /// The value published at this revision.
     pub price: i128,
-    /// Timestamp of the newest counted submission.
+    /// Unix timestamp of the publication.
     pub timestamp: u64,
-    /// The unweighted median of the counted prices — the reference value
-    /// the aggregate was checked against.
-    pub reference: i128,
-    pub num_sources: u32,
-    /// Aggregation method in force (0..=4, see `policy::MAX_METHOD`).
-    pub method: u32,
-    /// Every contributing submission, in aggregation order.
-    pub contributors: soroban_sdk::Vec<ProvenanceEntry>,
-    /// Ledgers the publications were deferred past, one per contributor,
-    /// in the same order.
-    pub deferral_ledgers: soroban_sdk::Vec<u32>,
-    /// Hash of the previous provenance record of this asset, or 32 zero
-    /// bytes for the first one.
-    pub previous_hash: soroban_sdk::BytesN<32>,
-    /// SHA-256 over the record's fields and `previous_hash`.
-    pub hash: soroban_sdk::BytesN<32>,
-}
-
-/// Chain head of an asset's provenance (#493): the hash of its most recent
-/// record and the ledger that record was published at.
-#[derive(Clone, Debug, Eq, PartialEq)]
-#[contracttype]
-pub struct ProvenanceHead {
-    pub hash: soroban_sdk::BytesN<32>,
+    /// Ledger of the publication.
     pub ledger: u32,
+    /// Address that produced this revision (the contract for the original).
+    pub actor: Address,
+    /// Mandatory human-readable reason (empty only for the original entry).
+    pub reason: String,
+    /// True when this entry was produced by `correct_price`.
+    pub corrected: bool,
 }
 
-/// A stored disagreement reading: the index itself plus the rolling window of
-/// prior values that forms its baseline (#494).
+/// Cheap global guard flags consulted once per aggregation pass.
 ///
-/// Both live in one ledger entry so recording a round costs a single write.
-#[derive(Clone, Debug, Eq, PartialEq)]
+/// Bundling the optional-feature checks behind one read keeps the default
+/// publication path flat: when no source is excluded and no asset has opted
+/// into bounds or deferral, every optional lookup below is skipped.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 #[contracttype]
-pub struct DisagreementRecord {
-    pub index: DisagreementIndex,
-    /// Previous index values for this asset, oldest first, capped at
-    /// [`crate::disagreement::BASELINE_WINDOW`].
-    pub history: soroban_sdk::Vec<u32>,
-    /// Ledger in which this asset last published an aggregate (#492). The
-    /// next round's publication deferral is measured from here, so the two
-    /// readings share an entry instead of costing two.
-    pub last_aggregate_ledger: u32,
+pub struct PublicationGuards {
+    /// At least one source is inactive or disqualified (#483).
+    pub any_source_excluded: bool,
+    /// At least one asset has soft/hard bounds configured (#484).
+    pub any_bounds_configured: bool,
+    /// At least one asset defers publication (#485).
+    pub any_deferral_configured: bool,
+    /// The admin has configured a correction scope (#486), so published
+    /// aggregates need their original value preserved.
+    pub any_corrections_enabled: bool,
 }
 
 /// TWAP value together with the observation statistics backing it.

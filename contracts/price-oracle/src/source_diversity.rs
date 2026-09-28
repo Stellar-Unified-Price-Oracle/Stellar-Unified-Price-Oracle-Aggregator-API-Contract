@@ -42,7 +42,7 @@
 use soroban_sdk::{Address, Env, Map, String, Vec};
 
 use crate::events::{
-    DiversityThresholdBreachedEvent, DiversityThresholdsChangedEvent, SourceDiversityUpdatedEvent,
+    DiversityBreachEvent, DiversityThresholdSetEvent, SourceDiversityUpdatedEvent,
 };
 use crate::sources::get_source_geo;
 use crate::storage::{get_admin, is_source_inactive as check_inactive, read_oracle_sources};
@@ -80,7 +80,7 @@ pub fn set_diversity_thresholds(env: &Env, min_effective_sources: u32, max_hhi_p
     env.storage()
         .persistent()
         .set(&DataKey::DiversityThresholds, &cfg);
-    DiversityThresholdsChangedEvent {
+    DiversityThresholdSetEvent {
         admin,
         min_effective_sources,
         max_hhi_per_axis,
@@ -320,7 +320,7 @@ pub fn check_diversity_alert(env: &Env) -> bool {
         .max(report.infra_hhi)
         .max(report.upstream_hhi)
         .max(report.owner_hhi);
-    DiversityThresholdBreachedEvent {
+    DiversityBreachEvent {
         raw_count: report.raw_count,
         effective_independent_count: report.effective_independent_count,
         largest_domain_size: report.largest_domain_size,

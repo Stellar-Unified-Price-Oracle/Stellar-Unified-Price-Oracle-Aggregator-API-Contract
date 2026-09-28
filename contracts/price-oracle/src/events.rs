@@ -2588,14 +2588,11 @@ pub struct SourceDiversityUpdatedEvent {
 
 /// Emitted when diversity thresholds are changed by the admin.
 ///
-/// The event *name* is given explicitly because the derived snake_case name
-/// (`diversity_thresholds_changed_event`, 34 chars) exceeds the 32-character
-/// `ScSymbol` limit and fails to compile. `#[contractevent(topics = [...])]`
-/// sets the name, matching the convention used by the other long-named
-/// events in this file.
-#[contractevent(topics = ["diversity_thr_changed"])]
+/// Named `DiversityThresholdSetEvent` (not `...ThresholdsChangedEvent`) because
+/// the snake-cased event symbol must fit `ScSymbol`'s 32-byte limit.
+#[contractevent]
 #[derive(Clone)]
-pub struct DiversityThresholdsChangedEvent {
+pub struct DiversityThresholdSetEvent {
     #[topic]
     pub admin: Address,
     pub min_effective_sources: u32,
@@ -2610,7 +2607,7 @@ pub struct DiversityThresholdsChangedEvent {
 /// `DiversityThresholdsChangedEvent` above.
 #[contractevent(topics = ["diversity_thr_breached"])]
 #[derive(Clone)]
-pub struct DiversityThresholdBreachedEvent {
+pub struct DiversityBreachEvent {
     pub raw_count: u32,
     pub effective_independent_count: u32,
     pub largest_domain_size: u32,
