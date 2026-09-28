@@ -494,6 +494,29 @@ fn maybe_aggregate_after_submission(env: &Env, asset: &Address, current_ledger: 
     false
 }
 
+/// Re-derives the aggregate for `asset` from the current source set without
+/// any of the submission-side preconditions, and returns `(price, num_sources)`.
+///
+/// This is the primitive behind #483: source removal calls it after mutating
+/// the registry so a removed source's last value cannot linger in the
+/// published median. `price` is `0` when the surviving sources no longer meet
+/// quorum — the previously published aggregate is then left untouched and
+/// the caller is expected to treat the asset as quorum-deficient rather than
+/// as priced at zero.
+pub fn recompute_asset(env: &Env, asset: &Address) -> (i128, u32) {
+    let current_ledger = env.ledger().sequence();
+    let decimals = get_decimals(env);
+    aggregate_asset(env, asset, current_ledger, decimals);
+    match env
+        .storage()
+        .persistent()
+        .get::<DataKey, AggregatePrice>(&DataKey::Aggregate(asset.clone()))
+    {
+        Some(a) => (a.price, a.num_sources),
+        None => (0, 0),
+    }
+}
+
 /// Internal helper: re-aggregate all sources for a single asset and write history.
 fn aggregate_asset(env: &Env, asset: &Address, current_ledger: u32, decimals: u32) {
     let max_events = get_max_events_per_call(env);
@@ -562,9 +585,20 @@ fn aggregate_asset(env: &Env, asset: &Address, current_ledger: u32, decimals: u3
     };
     let current_ledger_for_agg = env.ledger().sequence();
     let selected_count = selected_sources.len();
+    // #483/#484/#485: one guard read decides whether any of the optional
+    // per-source / per-asset paths need to run at all.
+    let guards = crate::price_bounds::guards(env);
+    let filter_excluded = guards.any_source_excluded;
 
     for i in 0..selected_count {
         let src = selected_sources.get_unchecked(i);
+
+        // #483: a source that is inactive (suspended) or disqualified by the
+        // demerit system is no longer an eligible contributor, so its stored
+        // value is excluded here exactly as if it had never submitted.
+        if filter_excluded && crate::recompute::is_excluded(env, &src) {
+            continue;
+        }
 
         // #70: enforce min submission interval compliance
         if min_interval > 0 {
@@ -641,40 +675,72 @@ fn aggregate_asset(env: &Env, asset: &Address, current_ledger: u32, decimals: u3
         contributing_sources = valid_prices.len();
     }
 
-    if contributing_sources >= min_required && !valid_prices.is_empty() {
-        let median_price = if policy.method == 4 && read_bft_fault_tolerance(env) == 0 {
-            let weights = crate::freshness_weight::capped(env, &valid_weights);
-            let weighted = crate::freshness_weight::aggregate(&valid_prices, &weights);
-            crate::events::WeightedAggregationEvent {
-                asset: asset.clone(),
-                raw_median: compute_median(&valid_prices),
-                weighted_median: weighted,
-                weights: weights.clone(),
-            }
-            .publish(env);
-            crate::events::InfluenceCapAppliedEvent {
-                asset: asset.clone(),
-                cap_bps: crate::influence_cap::get_cap_bps(env),
-                influence_bps: crate::influence_cap::influence_bps(env, &weights),
-            }
-            .publish(env);
-            weighted
-        } else {
-            aggregate_prices(env, asset, &valid_prices, &valid_volumes)
-        };
+    // #485: an asset that opted into deferral publishes only once quorum is
+    // reached inside its window. Until then the asset is explicitly `Deferred`
+    // (and, past `max_defer_secs`, `Stale`) and the previously published
+    // aggregate is left untouched — deferral never publishes a thin result.
+    let deferred = !crate::deferral::should_publish(env, asset, guards);
 
-        if let Some(band) = crate::confidence_band::band_for(env, &valid_prices, decimals) {
-            crate::events::ConfidenceBandEvent {
-                asset: asset.clone(),
-                price: median_price,
-                band,
-            }
-            .publish(env);
-        }
+    if !deferred && contributing_sources >= min_required && !valid_prices.is_empty() {
+        // The labelled block lets a hard-bound rejection (#484) abort the
+        // publication without duplicating the ~200 lines that follow.
+        'publish: {
+            let raw_median = if policy.method == 4 && read_bft_fault_tolerance(env) == 0 {
+                let weights = crate::freshness_weight::capped(env, &valid_weights);
+                let weighted = crate::freshness_weight::aggregate(&valid_prices, &weights);
+                crate::events::WeightedAggregationEvent {
+                    asset: asset.clone(),
+                    raw_median: compute_median(&valid_prices),
+                    weighted_median: weighted,
+                    weights: weights.clone(),
+                }
+                .publish(env);
+                crate::events::InfluenceCapAppliedEvent {
+                    asset: asset.clone(),
+                    cap_bps: crate::influence_cap::get_cap_bps(env),
+                    influence_bps: crate::influence_cap::influence_bps(env, &weights),
+                }
+                .publish(env);
+                weighted
+            } else {
+                aggregate_prices(env, asset, &valid_prices, &valid_volumes)
+            };
 
-        let agg_key = DataKey::Aggregate(asset.clone());
-        let prev_aggregate: AggregatePrice =
-            env.storage()
+            // #484: two-tier bounds. A soft violation clamps the published value
+            // and records an explicit `BoundStatus` + `PriceClampedEvent`; a hard
+            // violation rejects the aggregate outright, in which case nothing is
+            // published, nothing enters history and the previous aggregate stays
+            // live. A `None` publishable value short-circuits the rest of the
+            // publication.
+            let (published_price, degraded) = if guards.any_bounds_configured {
+                crate::price_bounds::apply(env, asset, raw_median)
+            } else {
+                (Some(raw_median), false)
+            };
+            let median_price = published_price.unwrap_or(0);
+            if published_price.is_none() {
+                // Hard-bound rejection: the aggregate is not published, not written
+                // to history and not fed into callbacks. #485's publication state
+                // is left as-is so a deferrable asset stays `Deferred`/`Stale`.
+                break 'publish;
+            }
+
+            // #484: when the published value was clamped, the band is
+            // reported around the *raw* aggregate so a consumer can see how far
+            // the published value was moved.
+            let band_centre = if degraded { raw_median } else { median_price };
+            if let Some(band) = crate::confidence_band::band_for(env, &valid_prices, decimals) {
+                crate::events::ConfidenceBandEvent {
+                    asset: asset.clone(),
+                    price: band_centre,
+                    band,
+                }
+                .publish(env);
+            }
+
+            let agg_key = DataKey::Aggregate(asset.clone());
+            let prev_aggregate: AggregatePrice = env
+                .storage()
                 .persistent()
                 .get(&agg_key)
                 .unwrap_or(AggregatePrice {
@@ -686,201 +752,219 @@ fn aggregate_asset(env: &Env, asset: &Address, current_ledger: u32, decimals: u3
                     version: 0,
                 });
 
-        // Increment version only when the price actually changes (#252).
-        let new_version = if median_price != prev_aggregate.price {
-            prev_aggregate.version.saturating_add(1)
-        } else {
-            prev_aggregate.version
-        };
+            // Increment version only when the price actually changes (#252).
+            let new_version = if median_price != prev_aggregate.price {
+                prev_aggregate.version.saturating_add(1)
+            } else {
+                prev_aggregate.version
+            };
 
-        let aggregate = AggregatePrice {
-            price: median_price,
-            timestamp: latest_timestamp,
-            num_sources: contributing_sources,
-            decimals,
-            is_override: false,
-            version: new_version,
-        };
-        env.storage()
-            .persistent()
-            .set(&DataKey::Aggregate(asset.clone()), &aggregate);
-        env.storage().persistent().extend_ttl(
-            &DataKey::Aggregate(asset.clone()),
-            LEDGER_THRESHOLD,
-            LEDGER_BUMP,
-        );
-
-        // Record gas usage for this aggregation run.
-        let before_cpu = crate::gas_metering::cpu_usage(env);
-        let before_mem = crate::gas_metering::mem_usage(env);
-        // NOTE: the measured delta here only captures the remainder of the
-        // aggregation function after this point; callers (e.g. submit_price)
-        // record end-to-end cost. Still store an aggregate-internal snapshot.
-        let after_cpu = crate::gas_metering::cpu_usage(env);
-        let after_mem = crate::gas_metering::mem_usage(env);
-        let cpu_delta = after_cpu.saturating_sub(before_cpu);
-        let mem_delta = after_mem.saturating_sub(before_mem);
-        crate::gas_metering::write_last_gas(
-            env,
-            soroban_sdk::String::from_str(env, "aggregate"),
-            cpu_delta,
-            mem_delta,
-        );
-
-        let history_entry = PriceHistoryEntry {
-            price: median_price,
-            timestamp: latest_timestamp,
-            ledger: current_ledger,
-            num_sources: contributing_sources,
-            is_interpolated: false,
-        };
-        let skip_history = should_skip_on_write(env, asset, median_price);
-        env.storage().temporary().set(
-            &DataKey::PriceHistory(asset.clone(), current_ledger),
-            &history_entry,
-        );
-
-        // Track ledger in history index for pruning. Avoid duplicate sequence entries
-        // if aggregation is run more than once in the same ledger.
-        let ledgers_key = DataKey::PriceHistoryLedgers(asset.clone());
-        let mut ledger_list: soroban_sdk::Vec<u32> = env
-            .storage()
-            .persistent()
-            .get(&ledgers_key)
-            .unwrap_or(soroban_sdk::Vec::new(env));
-        if !skip_history {
-            if ledger_list.is_empty()
-                || ledger_list.get_unchecked(ledger_list.len() - 1) != current_ledger
-            {
-                ledger_list.push_back(current_ledger);
-            }
-            write_history_shard(env, asset, &history_entry);
-        } else {
-            env.storage()
-                .temporary()
-                .remove(&DataKey::PriceHistory(asset.clone(), current_ledger));
-        }
-
-        // Issue #92: check event budget before emitting prune events.
-        // Each prune loop iteration emits 1 event.
-
-        // Global history cap (existing MaxHistoryLength).
-        let max_history = get_max_history_length(env);
-        while ledger_list.len() > max_history {
-            // Issue #92: stop emitting prune events if we hit the cap.
-            if event_count >= max_events {
-                EventLimitWarningEvent {
-                    asset: asset.clone(),
-                    event_count,
-                    max_events,
-                }
-                .publish(env);
-                break;
-            }
-            let oldest_ledger = ledger_list.get_unchecked(0);
-            ledger_list.remove(0);
-            env.storage()
-                .temporary()
-                .remove(&DataKey::PriceHistory(asset.clone(), oldest_ledger));
-            remove_history_shard_entry(env, asset, oldest_ledger);
-            HistoryPrunedEvent {
-                asset: asset.clone(),
-                pruned_ledger: oldest_ledger,
-                remaining: ledger_list.len(),
-            }
-            .publish(env);
-            event_count += 1;
-        }
-
-        // Issue #94: per-asset history cap (MaxHistoryPerAsset, default 1000).
-        let max_per_asset = get_max_history_per_asset(env);
-        while ledger_list.len() > max_per_asset {
-            if event_count >= max_events {
-                EventLimitWarningEvent {
-                    asset: asset.clone(),
-                    event_count,
-                    max_events,
-                }
-                .publish(env);
-                break;
-            }
-            let oldest_ledger = ledger_list.get_unchecked(0);
-            ledger_list.remove(0);
-            env.storage()
-                .temporary()
-                .remove(&DataKey::PriceHistory(asset.clone(), oldest_ledger));
-            remove_history_shard_entry(env, asset, oldest_ledger);
-            HistoryPerAssetPrunedEvent {
-                asset: asset.clone(),
-                pruned_ledger: oldest_ledger,
-                remaining: ledger_list.len(),
-            }
-            .publish(env);
-            event_count += 1;
-        }
-
-        env.storage().persistent().set(&ledgers_key, &ledger_list);
-        if skip_history {
-            let metadata = CompactionMetadata {
-                original_count: ledger_list.len().saturating_add(1),
-                compacted_count: ledger_list.len(),
-                last_compaction_ledger: current_ledger,
-                threshold_bps: crate::history::get_compaction_threshold_bps(env),
+            let aggregate = AggregatePrice {
+                price: median_price,
+                timestamp: latest_timestamp,
+                num_sources: contributing_sources,
+                decimals,
+                is_override: false,
+                version: new_version,
             };
             env.storage()
                 .persistent()
-                .set(&DataKey::CompactionMeta(asset.clone()), &metadata);
-        }
+                .set(&DataKey::Aggregate(asset.clone()), &aggregate);
+            env.storage().persistent().extend_ttl(
+                &DataKey::Aggregate(asset.clone()),
+                LEDGER_THRESHOLD,
+                LEDGER_BUMP,
+            );
 
-        // Issue #92: only emit aggregation event if within budget.
-        if event_count < max_events {
-            PriceAggregatedEvent {
-                asset: asset.clone(),
+            // Record gas usage for this aggregation run.
+            let before_cpu = crate::gas_metering::cpu_usage(env);
+            let before_mem = crate::gas_metering::mem_usage(env);
+            // NOTE: the measured delta here only captures the remainder of the
+            // aggregation function after this point; callers (e.g. submit_price)
+            // record end-to-end cost. Still store an aggregate-internal snapshot.
+            let after_cpu = crate::gas_metering::cpu_usage(env);
+            let after_mem = crate::gas_metering::mem_usage(env);
+            let cpu_delta = after_cpu.saturating_sub(before_cpu);
+            let mem_delta = after_mem.saturating_sub(before_mem);
+            crate::gas_metering::write_last_gas(
+                env,
+                soroban_sdk::String::from_str(env, "aggregate"),
+                cpu_delta,
+                mem_delta,
+            );
+
+            let history_entry = PriceHistoryEntry {
                 price: median_price,
-                num_sources: contributing_sources,
                 timestamp: latest_timestamp,
-            }
-            .publish(env);
-        } else {
-            EventLimitWarningEvent {
-                asset: asset.clone(),
-                event_count,
-                max_events,
-            }
-            .publish(env);
-        }
+                ledger: current_ledger,
+                num_sources: contributing_sources,
+                is_interpolated: false,
+            };
+            let skip_history = should_skip_on_write(env, asset, median_price);
+            env.storage().temporary().set(
+                &DataKey::PriceHistory(asset.clone(), current_ledger),
+                &history_entry,
+            );
 
-        // ── #298: Update contribution quality scores for all contributing sources ──
-        let oracle_sources_for_quality = read_oracle_sources(env);
-        let nsrc = oracle_sources_for_quality.sources.len();
-        for qi in 0..nsrc {
-            let src = oracle_sources_for_quality.sources.get_unchecked(qi);
-            let sub_key = DataKey::Submission(asset.clone(), src.clone());
-            if let Some(entry) = env
+            // Track ledger in history index for pruning. Avoid duplicate sequence entries
+            // if aggregation is run more than once in the same ledger.
+            let ledgers_key = DataKey::PriceHistoryLedgers(asset.clone());
+            let mut ledger_list: soroban_sdk::Vec<u32> = env
                 .storage()
                 .persistent()
-                .get::<DataKey, crate::types::PriceEntry>(&sub_key)
-            {
-                crate::contribution_quality::update_contribution_quality(
-                    env,
-                    &src,
-                    asset,
-                    entry.price,
-                    median_price,
-                    entry.last_updated,
-                    current_ledger,
-                );
+                .get(&ledgers_key)
+                .unwrap_or(soroban_sdk::Vec::new(env));
+            if !skip_history {
+                if ledger_list.is_empty()
+                    || ledger_list.get_unchecked(ledger_list.len() - 1) != current_ledger
+                {
+                    ledger_list.push_back(current_ledger);
+                }
+                write_history_shard(env, asset, &history_entry);
+            } else {
+                env.storage()
+                    .temporary()
+                    .remove(&DataKey::PriceHistory(asset.clone(), current_ledger));
             }
-        }
 
-        // ── #297: Invoke registered price callbacks (fault-isolated) ─────────────
-        crate::price_callback::invoke_price_callbacks(
-            env,
-            asset,
-            median_price,
-            latest_timestamp,
-            contributing_sources,
-        );
+            // Issue #92: check event budget before emitting prune events.
+            // Each prune loop iteration emits 1 event.
+
+            // Global history cap (existing MaxHistoryLength).
+            let max_history = get_max_history_length(env);
+            while ledger_list.len() > max_history {
+                // Issue #92: stop emitting prune events if we hit the cap.
+                if event_count >= max_events {
+                    EventLimitWarningEvent {
+                        asset: asset.clone(),
+                        event_count,
+                        max_events,
+                    }
+                    .publish(env);
+                    break;
+                }
+                let oldest_ledger = ledger_list.get_unchecked(0);
+                ledger_list.remove(0);
+                env.storage()
+                    .temporary()
+                    .remove(&DataKey::PriceHistory(asset.clone(), oldest_ledger));
+                remove_history_shard_entry(env, asset, oldest_ledger);
+                HistoryPrunedEvent {
+                    asset: asset.clone(),
+                    pruned_ledger: oldest_ledger,
+                    remaining: ledger_list.len(),
+                }
+                .publish(env);
+                event_count += 1;
+            }
+
+            // Issue #94: per-asset history cap (MaxHistoryPerAsset, default 1000).
+            let max_per_asset = get_max_history_per_asset(env);
+            while ledger_list.len() > max_per_asset {
+                if event_count >= max_events {
+                    EventLimitWarningEvent {
+                        asset: asset.clone(),
+                        event_count,
+                        max_events,
+                    }
+                    .publish(env);
+                    break;
+                }
+                let oldest_ledger = ledger_list.get_unchecked(0);
+                ledger_list.remove(0);
+                env.storage()
+                    .temporary()
+                    .remove(&DataKey::PriceHistory(asset.clone(), oldest_ledger));
+                remove_history_shard_entry(env, asset, oldest_ledger);
+                HistoryPerAssetPrunedEvent {
+                    asset: asset.clone(),
+                    pruned_ledger: oldest_ledger,
+                    remaining: ledger_list.len(),
+                }
+                .publish(env);
+                event_count += 1;
+            }
+
+            env.storage().persistent().set(&ledgers_key, &ledger_list);
+            if skip_history {
+                let metadata = CompactionMetadata {
+                    original_count: ledger_list.len().saturating_add(1),
+                    compacted_count: ledger_list.len(),
+                    last_compaction_ledger: current_ledger,
+                    threshold_bps: crate::history::get_compaction_threshold_bps(env),
+                };
+                env.storage()
+                    .persistent()
+                    .set(&DataKey::CompactionMeta(asset.clone()), &metadata);
+            }
+
+            // Issue #92: only emit aggregation event if within budget.
+            if event_count < max_events {
+                PriceAggregatedEvent {
+                    asset: asset.clone(),
+                    price: median_price,
+                    num_sources: contributing_sources,
+                    timestamp: latest_timestamp,
+                }
+                .publish(env);
+            } else {
+                EventLimitWarningEvent {
+                    asset: asset.clone(),
+                    event_count,
+                    max_events,
+                }
+                .publish(env);
+            }
+
+            // ── #298: Update contribution quality scores for all contributing sources ──
+            let oracle_sources_for_quality = read_oracle_sources(env);
+            let nsrc = oracle_sources_for_quality.sources.len();
+            for qi in 0..nsrc {
+                let src = oracle_sources_for_quality.sources.get_unchecked(qi);
+                let sub_key = DataKey::Submission(asset.clone(), src.clone());
+                if let Some(entry) = env
+                    .storage()
+                    .persistent()
+                    .get::<DataKey, crate::types::PriceEntry>(&sub_key)
+                {
+                    crate::contribution_quality::update_contribution_quality(
+                        env,
+                        &src,
+                        asset,
+                        entry.price,
+                        median_price,
+                        entry.last_updated,
+                        current_ledger,
+                    );
+                }
+            }
+
+            // ── #297: Invoke registered price callbacks (fault-isolated) ─────────────
+            crate::price_callback::invoke_price_callbacks(
+                env,
+                asset,
+                median_price,
+                latest_timestamp,
+                contributing_sources,
+            );
+
+            // #485: the quorum-backed aggregate is live; record the transition.
+            crate::deferral::mark_published(env, asset);
+            // #486: the very first publication for this asset becomes revision 0
+            // of the immutable chain and is preserved forever.
+            crate::corrections::record_original(
+                env,
+                asset,
+                &AggregatePrice {
+                    price: median_price,
+                    timestamp: latest_timestamp,
+                    num_sources: contributing_sources,
+                    decimals,
+                    is_override: false,
+                    version: new_version,
+                },
+            );
+        }
     } else if event_count < max_events {
         SourcesInsufficientEvent {
             asset: asset.clone(),
