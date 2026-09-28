@@ -10,8 +10,12 @@
 #   clean   - remove build artifacts
 #   gas-gate  - adversarial gas-budget regression gates (#419)
 #   load-test - adversarial load test v2 (#413)
+#   mutation-gate       - mutation gate self-test, no cargo-mutants needed (#520)
+#   mutation-per-module - per-module mutation scores and thresholds (#520)
+#   hermetic           - hermetic integration harness, verifies determinism (#519)
 
-.PHONY: all build test lint fmt check clean watch gas-gate load-test
+.PHONY: all build test lint fmt check clean watch gas-gate load-test \
+        mutation-gate mutation-per-module hermetic
 
 all: build test
 
@@ -30,6 +34,20 @@ gas-gate:
 # Adversarial load test v2 (docs/gas-usage.md)
 load-test:
 	cargo test -p price-oracle --lib load_v2 -- --nocapture --test-threads=1
+
+# Verify the mutation gate's own logic (scoring, thresholds, waivers).
+# Needs only bash + jq, so it runs in seconds and needs no cargo-mutants.
+mutation-gate:
+	./scripts/mutation-gate.sh self-test
+
+# Per-module mutation scores and thresholds (requires cargo-mutants; slow).
+mutation-per-module:
+	./scripts/mutation-gate.sh per-module
+
+# Hermetic integration harness (#519). Runs the cross-contract suite twice and
+# fails if the runs disagree. No network or testnet required.
+hermetic:
+	./scripts/hermetic-integration.sh
 
 # Run clippy linter
 lint:

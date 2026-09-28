@@ -60,3 +60,49 @@ jobs:
         with:
           name: mutants-general-${{ matrix.shard }}
           path: mutants-general/mutants.out
+
+  # #520: the gate's own logic is covered on every PR. This needs neither
+  # cargo-mutants nor a built contract, so it stays fast and cannot be skipped
+  # by a mutation run that is itself scoped down to the PR diff.
+  gate-self-test:
+    name: Mutation gate self-test
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Exercise gate scoring, thresholds and waiver accounting
+        run: ./scripts/mutation-gate.sh self-test
+
+  # #520: per-module thresholds. Aggregation, auth and storage are held to a
+  # higher bar than the general threshold, so a weak suite in those modules
+  # cannot hide behind an aggregate score.
+  per-module:
+    name: Per-module mutation thresholds
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    strategy:
+      fail-fast: false
+      matrix:
+        module: [storage, prices, sources, rbac, admin, finality, migration]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: dtolnay/rust-toolchain@1.91.0
+      - uses: Swatinem/rust-cache@v2
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-mutants
+      - name: Mutate one module and enforce its threshold
+        env:
+          # Scoped to a single module per job: this is what keeps the wall clock
+          # inside budget while still scoring every guarded module.
+          MUTANTS_ARGS: --file contracts/price-oracle/src/${{ matrix.module }}.rs
+        run: |
+          set -euo pipefail
+          ./scripts/mutation-gate.sh per-module
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: mutants-${{ matrix.module }}
+          path: mutants-per-module/${{ matrix.module }}/mutants.out
