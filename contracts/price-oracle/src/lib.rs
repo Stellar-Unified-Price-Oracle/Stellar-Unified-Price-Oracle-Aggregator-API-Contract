@@ -108,6 +108,7 @@ mod subscription;
 mod confidence_band;
 mod consumer_auth;
 // #305 — Price update subscription registry (wired in from disk).
+mod influence_cap;
 mod price_update_subscription;
 mod timelock;
 mod triggers;
@@ -116,7 +117,6 @@ mod types;
 mod vdf_sampler;
 mod verification;
 mod whitelisting;
-mod influence_cap;
 mod wormhole_relay;
 mod zk_verify;
 
@@ -300,26 +300,25 @@ pub use types::{
     ConsumerAccessMode, ConsumerInfo, ConsumerTier, ContractMetadata, ContribQualityRecord,
     CorrelationBand, CorrelationPair, CrossChainPriceEntry, CrossChainPricePayload,
     CrossChainRelayConfig, CrossReferenceResult, DataKey, DecentralizationReport, DemeritConfig,
-    DiversityThresholds,
-    DeviationReport, DexPrice, DisqualificationStatus, EcosystemMetadata, EmergencyPause,
-    ErrorCode, ExportedEntry, ExportedHistorySnapshot, ExternalDataProof, FeeMarketSubmission,
-    FeedMetadata, FinalityStatus, FinalizedPrice, ForeignAssetMapping, FrozenPrice, GasRecord,
-    Groth16Proof, Groth16VerifyingKey, GuardianRecovery, HealthReport, MigrationState,
-    MigrationStatus, MultiSigOperation, NotificationPreference, Operation, OperationKind,
-    OperationPriority, OperationSimulationResult, OperationStatus, OperationTemplate,
-    OperationType, OptimisticProposal, OptimisticProposalStatus, OracleSources, PendingBatch,
-    PendingFeeSubmissions, PendingFinalityEntry, PendingOperation, PriceBounds, PriceCommit,
-    PriceData, PriceEntry, PriceEventPayload, PriceHistoryEntry, PriceOverrideEntry, PriceProof,
+    DeviationReport, DexPrice, DisqualificationStatus, DiversityThresholds, EcosystemMetadata,
+    EffectivePolicy, EmergencyPause, ErrorCode, ExportedEntry, ExportedHistorySnapshot,
+    ExternalDataProof, FeeMarketSubmission, FeedMetadata, FinalityStatus, FinalizedPrice,
+    ForeignAssetMapping, FreshnessCurve, FrozenPrice, GasRecord, Groth16Proof, Groth16VerifyingKey,
+    GuardianRecovery, HealthReport, MigrationState, MigrationStatus, MultiSigOperation,
+    NotificationPreference, Operation, OperationKind, OperationPriority, OperationSimulationResult,
+    OperationStatus, OperationTemplate, OperationType, OptimisticProposal,
+    OptimisticProposalStatus, OracleSources, PendingBatch, PendingFeeSubmissions,
+    PendingFinalityEntry, PendingOperation, PolicyOverride, PriceBounds, PriceCommit, PriceData,
+    PriceEntry, PriceEventPayload, PriceHistoryEntry, PriceOverrideEntry, PriceProof,
     ReferenceOracleEntry, RelayedSubmission, RelayerAssetStat, RelayerDashboard,
     RelayerFailureReason, RelayerInfo, Role, SimulationWarning, SoroswapPool, SourceDemeritState,
     SourceDidLink, SourceDiversityReport, SourceGeoMetadata, SourceGovernance, SourceHealthStatus,
-    SourceProposal,
-    SourceRelayerDelegation, SourceRotationSchedule, SourceStakeRecord, SourceVerification,
-    StateAnalysis, StateChannel, StateDiff, StateDiffEntry, StateDump, StellarHeader,
-    StorageBatchRequest, StorageBatchResult, StorageBudget, StorageTtlEntry, SubscriptionExpiry,
-    SubscriptionPayment, SubscriptionPlan, SubscriptionPlans, TemplateStep, TotalStorageBudget,
-    TwapMethod, VersionedAggregatePrice, WormholeGuardianSet, WormholePricePayload, WormholeVaa,
-    ZkPriceAttestation,
+    SourceProposal, SourceRelayerDelegation, SourceRotationSchedule, SourceStakeRecord,
+    SourceVerification, StateAnalysis, StateChannel, StateDiff, StateDiffEntry, StateDump,
+    StellarHeader, StorageBatchRequest, StorageBatchResult, StorageBudget, StorageTtlEntry,
+    SubscriptionExpiry, SubscriptionPayment, SubscriptionPlan, SubscriptionPlans, TemplateStep,
+    TotalStorageBudget, TwapMethod, TwapResult, VersionedAggregatePrice, WeightedAggregate,
+    WormholeGuardianSet, WormholePricePayload, WormholeVaa, ZkPriceAttestation,
 };
 
 use soroban_sdk::{
@@ -1666,17 +1665,9 @@ impl PriceOracleContract {
         reentrancy::exit(&env);
     }
 
-    pub fn set_diversity_thresholds(
-        env: Env,
-        min_effective_sources: u32,
-        max_hhi_per_axis: u32,
-    ) {
+    pub fn set_diversity_thresholds(env: Env, min_effective_sources: u32, max_hhi_per_axis: u32) {
         reentrancy::enter(&env);
-        source_diversity::set_diversity_thresholds(
-            &env,
-            min_effective_sources,
-            max_hhi_per_axis,
-        );
+        source_diversity::set_diversity_thresholds(&env, min_effective_sources, max_hhi_per_axis);
         reentrancy::exit(&env);
     }
 

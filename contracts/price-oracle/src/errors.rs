@@ -333,4 +333,12 @@ pub enum ErrorCode {
     LowSourceDiversity = 154,
     /// The supplied diversity thresholds are invalid (e.g. max HHI > 10000).
     InvalidDiversityThresholds = 155,
+
+    // ── Restored after a bad merge dropped these discriminants ──────────────
+    /// A required configuration entry is missing from storage (fail closed).
+    ConfigMissing = 156,
+    /// A relayer bond is locked by a pending dispute or slash.
+    RelayerBondLocked = 157,
+    /// The TWAP window holds fewer distinct observations than required.
+    TwapInsufficientObservations = 158,
 }
