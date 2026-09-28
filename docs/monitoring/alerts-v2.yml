@@ -143,60 +143,58 @@ groups:
         annotations:
           summary: "Elevated rate of unauthorized calls against {{ $labels.contract_id }}"
 
-  # ─── Multi-region ingest redundancy (#526) ─────────────────────────────────
-  # Emitted by services/ingest_failover/router.py (see docs/multi-region-ingest.md).
-  - name: oracle-ingest-regions
+  # ─── Capacity (docs/capacity-planning.md) ────────────────────────────────────
+  # Pre-exhaustion alerting: warn while headroom is still above zero, so the
+  # shedding policy in docs/capacity-planning.md §3 can be applied before the
+  # resource is gone. Gauges are exported by services/capacity/model.py.
+  - name: oracle-capacity
     rules:
-      - alert: IngestRegionDegraded
-        expr: ingest_region_up == 0
-        for: 1m
+      - alert: OracleCapacityHeadroomLow
+        expr: oracle_capacity_headroom_ratio < 0.30
+        for: 15m
         labels:
           severity: warning
-          sla_class: P2
+          sla_class: capacity
         annotations:
-          summary: "Ingest region {{ $labels.region }} is failing health checks and has been taken out of rotation"
-          runbook: "Check the region's RPC endpoint and ingest worker; failover should already have moved traffic (docs/multi-region-ingest.md §6)"
+          summary: "Capacity headroom for {{ $labels.resource }} is {{ $value }}, below the 30% target (docs/capacity-planning.md §2)"
+          runbook: "Apply the load-shedding steps in docs/capacity-planning.md §3, cheapest consumer-visible cost first"
 
-      - alert: IngestRegionFailover
-        expr: increase(ingest_failovers_total[5m]) > 0
+      - alert: OracleCapacityHeadroomCritical
+        expr: oracle_capacity_headroom_ratio < 0.10
+        for: 5m
         labels:
           severity: warning
-          sla_class: P2
+          sla_class: capacity
         annotations:
-          summary: "Ingest traffic failed over from {{ $labels.from }} to {{ $labels.to }}"
-          runbook: "Confirm {{ $labels.from }} is genuinely down and not flapping; check the cooldown window (docs/multi-region-ingest.md §3)"
+          summary: "Capacity headroom for {{ $labels.resource }} is {{ $value }}, within 10% of exhaustion (docs/capacity-planning.md §4)"
+          runbook: "Shed load now, or take the critical path to RB-11; the critical path is never dropped"
 
-      - alert: IngestFailoverFlapping
-        # More than three failovers in 15m means regions are flapping, which
-        # costs latency and risks exhausting the pool.
-        expr: count_over_time(ingest_failovers_total[15m]) > 3
+      - alert: OracleCapacityLagApproachingTarget
+        expr: oracle_capacity_lag_seconds > 45
+        for: 5m
+        labels:
+          severity: warning
+          sla_class: capacity
+        annotations:
+          summary: "Publication lag is {{ $value }}s, approaching the 60s SLA §1.2 freshness target"
+          runbook: "Raise per-asset submission priority for settlement-window assets (docs/capacity-planning.md §3)"
+
+      - alert: OracleCapacityExhausted
+        expr: oracle_capacity_headroom_ratio <= 0
         for: 5m
         labels:
           severity: critical
           sla_class: P1
         annotations:
-          summary: "Ingest is flapping between regions (>3 failovers in 15m)"
-          runbook: "Investigate regional network health; consider raising the cooldown to damp oscillation (docs/multi-region-ingest.md §3)"
+          summary: "Capacity for {{ $labels.resource }} is exhausted — load is being dropped or is failing"
+          runbook: "Work RB-11: shed by priority, protect the critical path, and page before degrading signature verification"
 
-      - alert: IngestAllRegionsDown
-        # Every region out: the oracle cannot submit at all.
-        expr: sum(ingest_region_up) == 0
-        for: 30s
-        labels:
-          severity: critical
-          sla_class: P0
-        annotations:
-          summary: "All ingest regions are down — the oracle cannot submit prices (SLA §5 P0)"
-          runbook: "Page on-call; 30m first response target per SLA §5 P0. Prices will breach the freshness target"
-
-      - alert: IngestAmbiguousSubmissionsQuarantined
-        # Quarantined keys mean a write had an unknown outcome and was not
-        # retried; reconciliation must resolve them or a round is lost.
-        expr: ingest_quarantined_submissions > 0
+      - alert: OracleCapacityLagTargetBreached
+        expr: oracle_capacity_lag_seconds > 60
         for: 5m
         labels:
-          severity: warning
-          sla_class: P2
+          severity: critical
+          sla_class: P1
         annotations:
-          summary: "{{ $value }} submission(s) quarantined after an ambiguous ingest outcome"
-          runbook: "Run reconciliation against the chain to determine whether the writes landed (docs/multi-region-ingest.md §5)"
+          summary: "Publication lag is {{ $value }}s, breaching the SLA §1.2 60s freshness target"
+          runbook: "Work RB-11: shed by priority and notify consumer relations if the breach passes the SLA §6.2 credit tier"

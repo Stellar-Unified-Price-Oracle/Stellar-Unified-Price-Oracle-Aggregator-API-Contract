@@ -1,5 +1,7 @@
 use soroban_sdk::{contractevent, Address, Bytes, BytesN, String, Symbol};
 
+use crate::types::OutlierConfig;
+
 /// Publishes a generic admin-action audit event.
 ///
 /// Used by every admin-mutating function to emit a consistent on-chain audit trail.
@@ -2585,9 +2587,12 @@ pub struct SourceDiversityUpdatedEvent {
 }
 
 /// Emitted when diversity thresholds are changed by the admin.
+///
+/// Named `DiversityThresholdSetEvent` (not `...ThresholdsChangedEvent`) because
+/// the snake-cased event symbol must fit `ScSymbol`'s 32-byte limit.
 #[contractevent]
 #[derive(Clone)]
-pub struct DiversityThresholdsChangedEvent {
+pub struct DiversityThresholdSetEvent {
     #[topic]
     pub admin: Address,
     pub min_effective_sources: u32,
@@ -2597,9 +2602,12 @@ pub struct DiversityThresholdsChangedEvent {
 /// Emitted when the active source set breaches diversity thresholds:
 /// effective count below minimum OR any axis HHI above maximum — even when
 /// the raw source count looks healthy (the Sybil / nominal-diversity trap).
-#[contractevent]
+///
+/// Named explicitly for the same 32-character `ScSymbol` reason as
+/// `DiversityThresholdsChangedEvent` above.
+#[contractevent(topics = ["diversity_thr_breached"])]
 #[derive(Clone)]
-pub struct DiversityThresholdBreachedEvent {
+pub struct DiversityBreachEvent {
     pub raw_count: u32,
     pub effective_independent_count: u32,
     pub largest_domain_size: u32,
@@ -2661,4 +2669,106 @@ pub struct InfluenceCapAppliedEvent {
     pub asset: Address,
     pub cap_bps: u32,
     pub influence_bps: soroban_sdk::Vec<u32>,
+}
+
+/// Emitted for every price the robust pre-filter removed before
+/// aggregation (#491). The full set for a round is also queryable via
+/// `get_outlier_exclusions`. Enough detail is included to reproduce the
+/// decision off-chain.
+///
+/// Topics: `asset`
+#[contractevent]
+#[derive(Clone)]
+pub struct OutlierExcludedEvent {
+    #[topic]
+    pub asset: Address,
+    /// 1 = MAD, 2 = IQR; 0 when the scale collapsed and the absolute
+    /// floor was used instead.
+    pub detector: u32,
+    pub source: Address,
+    pub price: i128,
+    pub score_bps: u32,
+    pub sensitivity_bps: u32,
+    pub center: i128,
+    pub scale: i128,
+    /// Prices that survived filtering.
+    pub num_retained: u32,
+}
+
+/// Emitted when an asset's outlier pre-filter configuration changes (#491).
+///
+/// Topics: `asset`
+#[contractevent]
+#[derive(Clone)]
+pub struct OutlierConfigChangedEvent {
+    #[topic]
+    pub asset: Address,
+    pub old: Option<OutlierConfig>,
+    pub new: Option<OutlierConfig>,
+}
+
+/// Emitted once per counted submission when an aggregate is published,
+/// carrying the submission-to-inclusion latency in ledgers (#492).
+///
+/// A submission that was superseded before it could be counted emits
+/// `SubmissionNeverCountedEvent` instead.
+///
+/// Topics: `asset`
+#[contractevent]
+#[derive(Clone)]
+pub struct SubmissionLatencyEvent {
+    #[topic]
+    pub asset: Address,
+    pub source: Address,
+    pub submission_ledger: u32,
+    pub inclusion_ledger: u32,
+    pub latency_ledgers: u32,
+    pub deferral_ledgers: u32,
+}
+
+/// Emitted when a source's submission is replaced before any aggregate
+/// counted it (#492). Distinguishes a never-counted submission (silent
+/// participation loss) from a merely slow one.
+///
+/// Topics: `asset`
+#[contractevent]
+#[derive(Clone)]
+pub struct SubmissionNeverCountedEvent {
+    #[topic]
+    pub asset: Address,
+    pub source: Address,
+    pub submission_ledger: u32,
+}
+
+/// Emitted with every published aggregate: the provenance identifier of
+/// the record naming its contributing submissions (#493). Fetch the full
+/// record with `get_provenance`.
+///
+/// Topics: `asset`
+#[contractevent]
+#[derive(Clone)]
+pub struct ProvenanceRecordedEvent {
+    #[topic]
+    pub asset: Address,
+    pub ledger: u32,
+    pub price: i128,
+    pub provenance_id: soroban_sdk::BytesN<32>,
+    pub num_sources: u32,
+}
+
+/// Emitted with every published aggregate: the pairwise disagreement index
+/// of the counted submissions and its rolling baseline (#494).
+///
+/// Topics: `asset`
+#[contractevent]
+#[derive(Clone)]
+pub struct DisagreementIndexEvent {
+    #[topic]
+    pub asset: Address,
+    pub index_bps: u32,
+    pub max_bps: u32,
+    pub baseline_bps: u32,
+    pub above_baseline: bool,
+    pub num_sources: u32,
+    pub low_sample: bool,
 }
