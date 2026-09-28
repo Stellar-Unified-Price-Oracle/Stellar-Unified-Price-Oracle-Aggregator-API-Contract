@@ -139,7 +139,7 @@ on both `reentered() == true` and a doubled `moved()` if `enter` were removed.
 Two independent, layered defences; either alone blocks a captured authorization.
 
 **Monotonic nonce.** `authorize_renewal` rejects any `nonce <=
-record.authorization_nonce` with `RenewalAuthorizationReplay` (175). A
+record.authorization_nonce` with `RenewalAuthorizationReplay` (159). A
 successful renewal *bumps* `record.authorization_nonce` past the nonce it just
 consumed, so the spent authorization can never satisfy
 `auth.nonce == record.authorization_nonce` again. Re-granting resets the record
@@ -156,7 +156,7 @@ can ever be authorized is `record.next_renewal_timestamp`, so
 
 **No pre-authorization.** `authorize_renewal` requires
 `period_id == record.next_renewal_timestamp` (`RenewalAuthorizationMissing`,
-176), so a consumer cannot pre-sign a future period. A captured *future*
+160), so a consumer cannot pre-sign a future period. A captured *future*
 authorization is structurally useless.
 
 ## Reason codes
@@ -170,15 +170,15 @@ authorization is structurally useless.
 | `NoData` | 8 | the period is identified by its due timestamp and has not arrived yet (nothing to renew *yet*) |
 | `SubscriptionExpired` | 18 | the current subscription expiry has already lapsed |
 | `NoActiveSubscription` | 138 | the consumer has no subscription expiry at all |
-| `RenewalAuthorizationReplay` | 175 | the authorization was already consumed, its nonce is stale, or the period is spent |
-| `RenewalAuthorizationMissing` | 176 | no single-use authorization exists for the period currently due |
-| `AutoRenewalNotEnabled` | 177 | no standing record, or it has been revoked with `disable_auto_renewal` |
-| `AutoRenewalCancelled` | 178 | the subscription was cancelled; the right is void permanently |
-| `AutoRenewalAllowanceExceeded` | 179 | `periods_authorized` is exhausted, or the live SAC allowance is below the authorized amount |
+| `RenewalAuthorizationReplay` | 159 | the authorization was already consumed, its nonce is stale, or the period is spent |
+| `RenewalAuthorizationMissing` | 160 | no single-use authorization exists for the period currently due |
+| `AutoRenewalNotEnabled` | 161 | no standing record, or it has been revoked with `disable_auto_renewal` |
+| `AutoRenewalCancelled` | 162 | the subscription was cancelled; the right is void permanently |
+| `AutoRenewalAllowanceExceeded` | 163 | `periods_authorized` is exhausted, or the live SAC allowance is below the authorized amount |
 
 A not-yet-due period reports `NoData` (8) — distinct from every denial — unless
 the *preceding* period is already spent, in which case it reports
-`RenewalAuthorizationReplay` (175) because the attempt really is a second drain
+`RenewalAuthorizationReplay` (159) because the attempt really is a second drain
 attempt in an already-renewed cycle, not a merely premature one.
 
 `authorize_renewal`, `enable_auto_renewal` and `disable_auto_renewal` are all

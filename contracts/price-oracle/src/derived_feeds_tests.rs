@@ -543,7 +543,7 @@ fn test_zero_inverse_base_is_zero_denominator() {
     // A zero canonical base is accepted on write...
     client.set_derived_feed_base(&asset, &0i128, &T0);
     // ...and refused at derivation time.
-    expect_contract_err(client.try_get_inverse_feed(&asset), 184);
+    expect_contract_err(client.try_get_inverse_feed(&asset), 168);
 }
 
 /// A zero **quote** of a `Ratio` is refused with the same code.
@@ -557,7 +557,7 @@ fn test_zero_ratio_quote_is_zero_denominator() {
     client.set_derived_feed_base(&base, &(2 * SCALE), &T0);
     client.set_derived_feed_base(&quote, &0i128, &T0);
 
-    expect_contract_err(client.try_get_ratio_feed(&base, &quote), 184);
+    expect_contract_err(client.try_get_ratio_feed(&base, &quote), 168);
 }
 
 /// A zero **pivot** of a `Triangulation` is refused with the same code.
@@ -573,7 +573,7 @@ fn test_zero_triangulation_pivot_is_zero_denominator() {
     client.set_derived_feed_base(&pivot, &0i128, &T0);
     client.set_derived_feed_base(&quote, &(5 * SCALE), &T0);
 
-    expect_contract_err(client.try_get_triangulated_feed(&base, &pivot, &quote), 184);
+    expect_contract_err(client.try_get_triangulated_feed(&base, &pivot, &quote), 168);
 }
 
 /// A registered asset with neither a canonical base nor an aggregate is
@@ -587,8 +587,8 @@ fn test_registered_but_priceless_asset_is_unknown_pair() {
     let quote = register_test_asset(&e, &client);
     client.set_derived_feed_base(&base, &(2 * SCALE), &T0);
     // `quote` is registered but has no price at all.
-    expect_contract_err(client.try_get_ratio_feed(&base, &quote), 185);
-    expect_contract_err(client.try_get_inverse_feed(&quote), 185);
+    expect_contract_err(client.try_get_ratio_feed(&base, &quote), 169);
+    expect_contract_err(client.try_get_inverse_feed(&quote), 169);
 }
 
 /// The zero-denominator and unknown-pair rejections are genuinely *different*
@@ -596,8 +596,8 @@ fn test_registered_but_priceless_asset_is_unknown_pair() {
 /// tracked here".
 #[test]
 fn test_zero_denominator_and_unknown_pair_codes_are_distinct() {
-    assert_eq!(EC::DerivedFeedZeroDenominator as u32, 184);
-    assert_eq!(EC::UnknownDerivedPair as u32, 185);
+    assert_eq!(EC::DerivedFeedZeroDenominator as u32, 168);
+    assert_eq!(EC::UnknownDerivedPair as u32, 169);
     assert_ne!(
         EC::DerivedFeedZeroDenominator as u32,
         EC::UnknownDerivedPair as u32
@@ -615,8 +615,8 @@ fn test_zero_denominator_and_unknown_pair_codes_are_distinct() {
 
     let zero = format!("{:?}", client.try_get_inverse_feed(&known));
     let missing = format!("{:?}", client.try_get_inverse_feed(&priceless));
-    assert!(zero.contains("#184"), "got {}", zero);
-    assert!(missing.contains("#185"), "got {}", missing);
+    assert!(zero.contains("#168"), "got {}", zero);
+    assert!(missing.contains("#169"), "got {}", missing);
 }
 
 /// An unregistered asset is a *different* failure again — the registry check
@@ -634,7 +634,7 @@ fn test_unregistered_asset_is_asset_not_registered() {
 // 4. No derivation cycle is possible
 // ===========================================================================
 
-/// A self-pair `a / a` is refused with [`EC::DerivedFeedCycle`] (#186).
+/// A self-pair `a / a` is refused with [`EC::DerivedFeedCycle`] (#170).
 ///
 /// A self-pair is reported as a **cycle**, not as an unknown pair: both legs
 /// resolve to a perfectly well-known price, so what is degenerate is the
@@ -647,11 +647,11 @@ fn test_self_ratio_is_rejected_as_cycle() {
     let a = register_test_asset(&e, &client);
     client.set_derived_feed_base(&a, &(3 * SCALE), &T0);
 
-    expect_contract_err(client.try_get_ratio_feed(&a, &a), 186);
+    expect_contract_err(client.try_get_ratio_feed(&a, &a), 170);
     // The same request through the generic dispatcher agrees.
     expect_contract_err(
         client.try_compute_derived_feed(&DerivedFeedKind::Ratio, &a, &a, &None),
-        186,
+        170,
     );
 }
 
@@ -668,13 +668,13 @@ fn test_degenerate_triangulations_are_rejected_as_cycles() {
     client.set_derived_feed_base(&b, &(5 * SCALE), &T0);
 
     // base == pivot
-    expect_contract_err(client.try_get_triangulated_feed(&a, &a, &b), 186);
+    expect_contract_err(client.try_get_triangulated_feed(&a, &a, &b), 170);
     // base == quote
-    expect_contract_err(client.try_get_triangulated_feed(&a, &b, &a), 186);
+    expect_contract_err(client.try_get_triangulated_feed(&a, &b, &a), 170);
     // pivot == quote
-    expect_contract_err(client.try_get_triangulated_feed(&a, &b, &b), 186);
+    expect_contract_err(client.try_get_triangulated_feed(&a, &b, &b), 170);
     // all three equal
-    expect_contract_err(client.try_get_triangulated_feed(&a, &a, &a), 186);
+    expect_contract_err(client.try_get_triangulated_feed(&a, &a, &a), 170);
 }
 
 /// The *structural* guarantee behind the cycle check: a derived feed can never
@@ -719,7 +719,7 @@ fn test_derived_feed_can_never_be_used_as_an_input() {
 }
 
 /// The depth bound is explicit in code and reachable through the
-/// `assert_depth` helper, so [`EC::DerivedFeedDepthExceeded`] (#187) is a real
+/// `assert_depth` helper, so [`EC::DerivedFeedDepthExceeded`] (#171) is a real
 /// error and not dead code. The live path calls `assert_depth(env, 1)`, which
 /// is trivially within the bound.
 ///
@@ -746,7 +746,7 @@ fn test_depth_bound_is_one_and_enforced() {
         derived_feeds::assert_depth(&e, over)
     }));
     assert!(result.is_err(), "depth {} must be refused", over);
-    assert_eq!(EC::DerivedFeedDepthExceeded as u32, 187);
+    assert_eq!(EC::DerivedFeedDepthExceeded as u32, 171);
 }
 
 // ===========================================================================

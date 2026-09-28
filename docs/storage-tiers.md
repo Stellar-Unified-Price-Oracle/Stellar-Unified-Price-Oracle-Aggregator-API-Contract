@@ -113,7 +113,7 @@ a distinct second party and a timelock:
    `TIER_DOWNGRADE_REQUIRED_APPROVALS` (1) approvals are in, the timelock starts
    and `StorageTierChangedEvent { action: 2 }` is emitted.
 3. After the timelock matures, `admin -> execute_storage_tier_downgrade(asset)`.
-   Any earlier attempt fails with `StorageTierDowngradeNotReady` (#172) even
+   Any earlier attempt fails with `StorageTierDowngradeNotReady` (#156) even
    though the request is fully approved. On success
    `StorageTierChangedEvent { action: 3 }` is emitted and the request is
    consumed (so it cannot be replayed).
@@ -176,9 +176,9 @@ from_tier: u32, to_tier: u32, entries_migrated: u32, actor: Address, ledger: u32
 
 | Code | Name | Raised when |
 |---|---|---|
-| 172 | `StorageTierDowngradeNotReady` | a downgrade is attempted with no request, an unapproved request, or a timelock that has not matured; also `propose` on a non-persistent asset or with a request already pending |
-| 173 | `UnknownStorageTier` | reserved for unrecognised on-chain tier discriminants |
-| 174 | `StorageTierMigrationFailed` | reserved for a migration that could not complete |
+| 156 | `StorageTierDowngradeNotReady` | a downgrade is attempted with no request, an unapproved request, or a timelock that has not matured; also `propose` on a non-persistent asset or with a request already pending |
+| 157 | `UnknownStorageTier` | reserved for unrecognised on-chain tier discriminants |
+| 158 | `StorageTierMigrationFailed` | reserved for a migration that could not complete |
 | 0 | `NotAuthorized` | caller is not the admin, or tried to approve their own downgrade proposal |
 | 10 | `InvalidConfiguration` | the same party approved a downgrade twice |
 | 2 | `AssetNotRegistered` | the asset is not registered |
@@ -189,7 +189,7 @@ from_tier: u32, to_tier: u32, entries_migrated: u32, actor: Address, ledger: u32
 
 - the default tier is temporary and the guarantee is discoverable;
 - an upgrade applies immediately and emits the documented event shape;
-- a downgrade with no approval is rejected with `#172`, and the tier is
+- a downgrade with no approval is rejected with `#156`, and the tier is
   unchanged;
 - the full adversarial downgrade sequence (propose → admin self-approve refused
   → execute before maturity refused → distinct party approves → execute one

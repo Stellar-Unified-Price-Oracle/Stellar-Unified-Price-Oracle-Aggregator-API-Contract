@@ -69,7 +69,7 @@ All derivation is `i128` arithmetic on values scaled by `scale = 10^decimals`.
 
 Every intermediate product is formed in **`u128`**, not `i128`. This is not
 defensive decoration: `p * 10^decimals` overflows `i128` for any price above
-roughly `186.0` at 18 decimals, which is an ordinary price for most assets, so
+roughly `170.0` at 18 decimals, which is an ordinary price for most assets, so
 a narrow intermediate would reject perfectly valid derivations with
 `InvalidConfiguration`. A quotient that genuinely does not fit `i128` is
 refused rather than wrapped.
@@ -92,10 +92,10 @@ anything else would let a stale leg hide behind a fresh one.
 
 | Condition | Error |
 |---|---|
-| any division input is `0` | `DerivedFeedZeroDenominator` (184) |
-| a requested pair/triplet has no price | `UnknownDerivedPair` (185) |
-| a repeated leg collapses the derivation (`a/a`, or any repeated triangulation leg) | `DerivedFeedCycle` (186) |
-| depth bound would be exceeded | `DerivedFeedDepthExceeded` (187) |
+| any division input is `0` | `DerivedFeedZeroDenominator` (168) |
+| a requested pair/triplet has no price | `UnknownDerivedPair` (169) |
+| a repeated leg collapses the derivation (`a/a`, or any repeated triangulation leg) | `DerivedFeedCycle` (170) |
+| depth bound would be exceeded | `DerivedFeedDepthExceeded` (171) |
 | a `pivot` is supplied for a non-triangulation, or omitted for one | `InvalidConfiguration` |
 | the asset is not registered | `AssetNotRegistered` |
 

@@ -723,7 +723,7 @@ fn captured_authorization_cannot_be_reissued_after_it_is_spent() {
 }
 
 #[test]
-#[should_panic(expected = "Error(Contract, #175)")]
+#[should_panic(expected = "Error(Contract, #159)")]
 fn authorize_renewal_rejects_a_nonce_that_is_not_strictly_increasing() {
     let e = Env::default();
     let (client, consumer, tok) = setup_with_allowance(&e);
@@ -734,7 +734,7 @@ fn authorize_renewal_rejects_a_nonce_that_is_not_strictly_increasing() {
 }
 
 #[test]
-#[should_panic(expected = "Error(Contract, #176)")]
+#[should_panic(expected = "Error(Contract, #160)")]
 fn authorize_renewal_rejects_a_future_period_id() {
     let e = Env::default();
     let (client, consumer, tok) = setup_with_allowance(&e);
@@ -745,7 +745,7 @@ fn authorize_renewal_rejects_a_future_period_id() {
 }
 
 #[test]
-#[should_panic(expected = "Error(Contract, #178)")]
+#[should_panic(expected = "Error(Contract, #162)")]
 fn authorize_renewal_is_refused_after_cancellation() {
     let e = Env::default();
     let (client, consumer, tok) = setup_with_allowance(&e);
@@ -759,7 +759,7 @@ fn authorize_renewal_is_refused_after_cancellation() {
 }
 
 #[test]
-#[should_panic(expected = "Error(Contract, #177)")]
+#[should_panic(expected = "Error(Contract, #161)")]
 fn authorize_renewal_is_refused_without_a_record() {
     let e = Env::default();
     let (client, consumer, _tok) = setup_with_allowance(&e);
@@ -885,13 +885,13 @@ fn attempt_events_carry_success_and_the_documented_error_discriminants() {
     // The host scopes diagnostics to one top-level invocation, so the events of
     // each attempt are captured immediately after that attempt.
 
-    // Failure 1: no authorization for the due period -> 176.
+    // Failure 1: no authorization for the due period -> 160.
     grant_renewal(&client, &consumer, &tok, MAX_PER_PERIOD, 3);
     let missing = client.try_auto_renew(&consumer);
     let missing_events = contract_events(&e, &client);
     assert_eq!(missing.reason, EC::RenewalAuthorizationMissing as u32);
 
-    // Failure 2: cancelled -> 178.
+    // Failure 2: cancelled -> 162.
     let other = Address::generate(&e);
     mint_token(&e, &tok, &other, START_BALANCE);
     client.subscribe(&other, &DURATION);
@@ -909,8 +909,8 @@ fn attempt_events_carry_success_and_the_documented_error_discriminants() {
 
     // At least one success and two distinct failure reasons, each carrying the
     // documented `ErrorCode` discriminant.
-    assert_eq!(attempt_reasons(&missing_events), vec![(false, 176u32)]);
-    assert_eq!(attempt_reasons(&cancelled_events), vec![(false, 178u32)]);
+    assert_eq!(attempt_reasons(&missing_events), vec![(false, 160u32)]);
+    assert_eq!(attempt_reasons(&cancelled_events), vec![(false, 162u32)]);
     assert_eq!(attempt_reasons(&success_events), vec![(true, 0u32)]);
 
     // The success event also carries the amount, the period and the new expiry.
@@ -921,7 +921,7 @@ fn attempt_events_carry_success_and_the_documented_error_discriminants() {
     // A failure event reports amount 0, the real period id and the reason.
     assert_eq!(
         attempt_details(&missing_events),
-        vec![(0, 176u32, period_id, 0u64)]
+        vec![(0, 160u32, period_id, 0u64)]
     );
 }
 

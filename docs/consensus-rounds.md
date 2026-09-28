@@ -212,7 +212,7 @@ All violations raise `InvalidConfiguration`.
 
 | Code | Meaning |
 |---|---|
-| `RoundNotFound` (180) | the round is not the asset's current round, or has no vote to report against |
-| `RoundExpired` (181) | the round's deadline has passed; no further observations, and it is abandonable |
-| `RoundEvidenceReplay` (182) | the observation was already consumed by an earlier round |
-| `RoundEquivocation` (183) | a second, different observation inside one round |
+| `RoundNotFound` (164) | the round is not the asset's current round, or has no vote to report against |
+| `RoundExpired` (165) | the round's deadline has passed; no further observations, and it is abandonable |
+| `RoundEvidenceReplay` (166) | the observation was already consumed by an earlier round |
+| `RoundEquivocation` (167) | a second, different observation inside one round |

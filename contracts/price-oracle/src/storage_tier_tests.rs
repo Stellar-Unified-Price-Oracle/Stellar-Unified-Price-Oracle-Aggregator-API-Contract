@@ -226,7 +226,7 @@ fn test_set_tier_unauthorized() {
 // ─────────────────────────────────────────────────────────────────────────────
 
 /// The admin alone cannot downgrade: `set_asset_storage_tier(.., Temporary)` is
-/// refused with `StorageTierDowngradeNotReady` (#172).
+/// refused with `StorageTierDowngradeNotReady` (#156).
 #[test]
 fn test_downgrade_without_approval_is_rejected() {
     let e = Env::default();
@@ -236,7 +236,7 @@ fn test_downgrade_without_approval_is_rejected() {
 
     expect_contract_err(
         client.try_set_asset_storage_tier(&asset, &HistoryStorageTier::Temporary),
-        172,
+        156,
     );
 
     // Tier is untouched.

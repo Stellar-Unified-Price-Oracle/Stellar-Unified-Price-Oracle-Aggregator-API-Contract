@@ -32,6 +32,10 @@ mod alerts;
 mod amm;
 mod asset_inactivity;
 mod assets;
+mod auto_renewal;
+mod consensus_rounds;
+mod derived_feeds;
+mod storage_tier;
 // The core module is always compiled (it has no Env deps).
 // When the `fuzz` feature is enabled it is also re-exported so that the
 // fuzz crate can call `price_oracle::core_pricing::*` directly.
@@ -48,9 +52,12 @@ mod blue_green;
 mod config_history;
 mod contribution_quality;
 mod correlation;
+mod coverage;
 mod cross_reference;
 mod deadline_rebate;
+mod degradation;
 mod dex;
+mod drift;
 mod emergency_pause;
 mod errors;
 #[cfg(feature = "fuzz")]
@@ -61,6 +68,7 @@ pub(crate) mod storage;
 mod event_indexing;
 mod events;
 mod exotic_pricing;
+mod explanation;
 mod export_history;
 mod fee_market;
 mod finality;
@@ -125,6 +133,13 @@ mod verification;
 mod whitelisting;
 mod wormhole_relay;
 mod zk_verify;
+
+// ── Data-quality modules (#491 outlier filter, #492 latency analytics,
+// #493 provenance, #494 disagreement index) ──
+mod disagreement;
+mod latency;
+mod outlier_filter;
+mod provenance;
 
 // =============================================================================
 // #283 — Stellar DID Integration
@@ -307,21 +322,7 @@ mod delta_encoding_storage_tests;
 mod wasm_binary_size_tests;
 
 #[cfg(test)]
-mod auto_renewal_tests;
-#[cfg(test)]
-mod consensus_rounds_tests;
-#[cfg(test)]
-mod derived_feeds_tests;
-#[cfg(test)]
-mod storage_tier_tests;
-
-// #246/#289/#397/#478 — storage tiers, auto-renewal, consensus rounds and
-// derived feeds.
-pub use types::{
-    AutoRenewRecord, ConfirmedPrice, DerivedFeed, DerivedFeedInput, DerivedFeedKind,
-    HistoryStorageTier, RenewalAttempt, RenewalAuthorization, RoundConfig, RoundStatus, RoundTally,
-    StorageTierDowngradeRequest, StorageTierInfo,
-};
+mod issues_491_492_493_494_tests;
 
 pub use types::{
     AdminOpLimit, AdminOperationType, AggregatePrice, AggregationMethod, AggregationRound,
@@ -1716,6 +1717,176 @@ impl PriceOracleContract {
 
     pub fn get_last_diversity_breach_ledger(env: Env) -> Option<u32> {
         source_diversity::get_last_diversity_breach_ledger(&env)
+    }
+
+    // --- #495: Degraded-mode serving analytics ---
+
+    /// Sets the degraded-read instrumentation configuration. Admin-only.
+    pub fn set_degradation_config(env: Env, config: DegradationConfig) {
+        reentrancy::enter(&env);
+        degradation::set_config(&env, config);
+        reentrancy::exit(&env);
+    }
+
+    pub fn get_degradation_config(env: Env) -> DegradationConfig {
+        degradation::get_config(&env)
+    }
+
+    /// Degradation counts for `asset` over the current rolling window.
+    pub fn get_degradation_stats(env: Env, asset: Address) -> DegradationStats {
+        degradation::get_stats(&env, &asset)
+    }
+
+    /// Degradation counts for `asset` over an explicit (possibly older) window.
+    pub fn get_degradation_window_stats(env: Env, asset: Address, window: u32) -> DegradationStats {
+        degradation::get_window_stats(&env, &asset, window)
+    }
+
+    // --- #496: Anomaly explanation reports ---
+
+    /// Sets the bounded retention (ring size) for explanation logs. Admin-only.
+    pub fn set_anomaly_retention(env: Env, retention: u32) {
+        reentrancy::enter(&env);
+        explanation::set_retention(&env, retention);
+        reentrancy::exit(&env);
+    }
+
+    pub fn get_anomaly_retention(env: Env) -> u32 {
+        explanation::get_retention(&env)
+    }
+
+    /// Explanations addressed to `source` for `asset` (oldest first).
+    pub fn get_flag_explanations(
+        env: Env,
+        asset: Address,
+        source: Address,
+    ) -> Vec<AnomalyExplanation> {
+        explanation::get_for_source(&env, &asset, &source)
+    }
+
+    /// Explains what would happen to a submission, without changing state.
+    ///
+    /// A rejecting path reverts, so it cannot leave a durable record behind.
+    /// This pure view evaluates the same rules in the same order and returns
+    /// the explanation the submission would get, or `None` if it would be
+    /// accepted. `rule_id` identifies the rule, `observed` / `reference` /
+    /// `threshold` are the values it compared, and `rejected` says whether the
+    /// submission would be refused outright.
+    pub fn explain_submission(
+        env: Env,
+        source: Address,
+        asset: Address,
+        price: i128,
+        timestamp: u64,
+    ) -> Option<AnomalyExplanation> {
+        explanation::explain_submission(&env, &source, &asset, price, timestamp)
+    }
+
+    /// The most recent explanation addressed to `source` for `asset`.
+    pub fn get_latest_flag_explanation(
+        env: Env,
+        asset: Address,
+        source: Address,
+    ) -> Option<AnomalyExplanation> {
+        explanation::latest_for_source(&env, &asset, &source)
+    }
+
+    /// Aggregate-level explanations for `asset` — the operator view.
+    pub fn get_aggregate_flag_explanations(env: Env, asset: Address) -> Vec<AnomalyExplanation> {
+        explanation::get_for_asset(&env, &asset)
+    }
+
+    // --- #497: Oracle-vs-benchmark drift detection ---
+
+    /// Sets the drift alert thresholds. Admin-only.
+    pub fn set_drift_thresholds(
+        env: Env,
+        min_samples: u32,
+        bias_threshold_bps: i128,
+        max_alignment_secs: u64,
+    ) {
+        reentrancy::enter(&env);
+        drift::set_thresholds(
+            &env,
+            drift::DriftThresholds {
+                min_samples,
+                bias_threshold_bps,
+                max_alignment_secs,
+            },
+        );
+        reentrancy::exit(&env);
+    }
+
+    pub fn get_drift_thresholds(env: Env) -> (u32, i128, u64) {
+        let t = drift::get_thresholds(&env);
+        (t.min_samples, t.bias_threshold_bps, t.max_alignment_secs)
+    }
+
+    /// Records one time-aligned oracle-vs-benchmark comparison.
+    ///
+    /// Permissionless: a benchmark feed is untrusted input, and the recorded
+    /// sample has no effect on any on-chain price.
+    pub fn record_drift_sample(
+        env: Env,
+        asset: Address,
+        oracle_price: i128,
+        oracle_timestamp: u64,
+        benchmark_price: i128,
+        benchmark_timestamp: u64,
+    ) -> Option<i128> {
+        reentrancy::enter(&env);
+        let bias = drift::record_sample(
+            &env,
+            &asset,
+            oracle_price,
+            oracle_timestamp,
+            benchmark_price,
+            benchmark_timestamp,
+        );
+        reentrancy::exit(&env);
+        bias
+    }
+
+    /// Long-horizon drift metrics for `asset`. Pure read; never mutates prices.
+    pub fn get_drift_report(env: Env, asset: Address) -> DriftReport {
+        drift::get_report(&env, &asset)
+    }
+
+    /// Clears the drift window and misaligned counter for `asset`. Admin-only.
+    pub fn reset_drift_window(env: Env, asset: Address) {
+        reentrancy::enter(&env);
+        drift::reset_window(&env, asset);
+        reentrancy::exit(&env);
+    }
+
+    // --- #498: Source coverage gap analysis ---
+
+    /// Sets the coverage thresholds. Admin-only.
+    pub fn set_coverage_thresholds(env: Env, min_independent_sources: u32, window_ledgers: u32) {
+        reentrancy::enter(&env);
+        coverage::set_thresholds(
+            &env,
+            coverage::CoverageThresholds {
+                min_independent_sources,
+                window_ledgers,
+            },
+        );
+        reentrancy::exit(&env);
+    }
+
+    pub fn get_coverage_thresholds(env: Env) -> (u32, u32) {
+        let t = coverage::get_thresholds(&env);
+        (t.min_independent_sources, t.window_ledgers)
+    }
+
+    /// Independence and temporal coverage report for `asset`. Read-only.
+    pub fn get_coverage_report(env: Env, asset: Address) -> CoverageReport {
+        coverage::get_report(&env, &asset)
+    }
+
+    /// Assets whose independent coverage is below the threshold. Read-only.
+    pub fn get_coverage_gap_list(env: Env) -> Vec<Address> {
+        coverage::get_gap_list(&env)
     }
 
     // --- #209: Source Heartbeat Liveness Bond ---
@@ -5989,6 +6160,7 @@ impl PriceOracleContract {
     ) -> Option<TwapResult> {
         prices::get_twap_ex(&env, Asset::Stellar(asset), window_ledgers, method)
     }
+
     // =========================================================================
     // #246 — Configurable history storage tier
     // =========================================================================
@@ -6237,6 +6409,18 @@ impl PriceOracleContract {
         derived_feeds::compute_derived_feed(&env, kind, base, quote, pivot)
     }
 }
+
+#[cfg(test)]
+mod storage_tier_tests;
+
+#[cfg(test)]
+mod auto_renewal_tests;
+
+#[cfg(test)]
+mod consensus_rounds_tests;
+
+#[cfg(test)]
+mod derived_feeds_tests;
 
 #[cfg(test)]
 mod test_helpers;
