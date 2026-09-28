@@ -291,24 +291,31 @@ mod delta_encoding_storage_tests;
 #[cfg(test)]
 mod wasm_binary_size_tests;
 
+#[cfg(test)]
+mod storage_round_trip_tests;
+
 pub use types::{
     AdminOpLimit, AdminOperationType, AggregatePrice, AggregationMethod, AggregationRound,
     AlertSubscription, AmmPool, AmmWeightConfig, Asset, AssetDecimalConfig, AssetMetadata,
     AssetMetadataUpdate, AssetPricingConfig, AssetProofRequirement, AssetType, AuditEntry,
     BatchItem, BatchOperation, BatchSimulationResult, BftAggregationMethod, BridgeOracleConfig,
-    BridgedPrice, CallbackRegistration, Challenge, CompactionMetadata, ConfigSnapshot,
+    BridgedPrice, CallbackRegistration, Challenge, CompactionMetadata, ConfidenceBand,
+    ConfigSnapshot,
     ConsumerAccessMode, ConsumerInfo, ConsumerTier, ContractMetadata, ContribQualityRecord,
     CorrelationBand, CorrelationPair, CrossChainPriceEntry, CrossChainPricePayload,
     CrossChainRelayConfig, CrossReferenceResult, DataKey, DecentralizationReport, DemeritConfig,
     DiversityThresholds,
     DeviationReport, DexPrice, DisqualificationStatus, EcosystemMetadata, EmergencyPause,
-    ErrorCode, ExportedEntry, ExportedHistorySnapshot, ExternalDataProof, FeeMarketSubmission,
-    FeedMetadata, FinalityStatus, FinalizedPrice, ForeignAssetMapping, FrozenPrice, GasRecord,
+    EffectivePolicy, ErrorCode, ExportedEntry, ExportedHistorySnapshot, ExternalDataProof,
+    FeeMarketSubmission,
+    FeedMetadata, FinalityStatus, FinalizedPrice, ForeignAssetMapping, FreshnessCurve, FrozenPrice,
+    GasRecord,
     Groth16Proof, Groth16VerifyingKey, GuardianRecovery, HealthReport, MigrationState,
     MigrationStatus, MultiSigOperation, NotificationPreference, Operation, OperationKind,
     OperationPriority, OperationSimulationResult, OperationStatus, OperationTemplate,
     OperationType, OptimisticProposal, OptimisticProposalStatus, OracleSources, PendingBatch,
-    PendingFeeSubmissions, PendingFinalityEntry, PendingOperation, PriceBounds, PriceCommit,
+    PendingFeeSubmissions, PendingFinalityEntry, PendingOperation, PolicyOverride, PriceBounds,
+    PriceCommit,
     PriceData, PriceEntry, PriceEventPayload, PriceHistoryEntry, PriceOverrideEntry, PriceProof,
     ReferenceOracleEntry, RelayedSubmission, RelayerAssetStat, RelayerDashboard,
     RelayerFailureReason, RelayerInfo, Role, SimulationWarning, SoroswapPool, SourceDemeritState,
@@ -318,8 +325,8 @@ pub use types::{
     StateAnalysis, StateChannel, StateDiff, StateDiffEntry, StateDump, StellarHeader,
     StorageBatchRequest, StorageBatchResult, StorageBudget, StorageTtlEntry, SubscriptionExpiry,
     SubscriptionPayment, SubscriptionPlan, SubscriptionPlans, TemplateStep, TotalStorageBudget,
-    TwapMethod, VersionedAggregatePrice, WormholeGuardianSet, WormholePricePayload, WormholeVaa,
-    ZkPriceAttestation,
+    TwapMethod, TwapResult, VersionedAggregatePrice, WeightedAggregate, WormholeGuardianSet,
+    WormholePricePayload, WormholeVaa, ZkPriceAttestation,
 };
 
 use soroban_sdk::{
