@@ -149,6 +149,26 @@ Totals: 494 endpoints — admin: 183, caller: 49, contract-self: 1, public: 10, 
 | `get_diversity_thresholds` | `public-read` |
 | `check_diversity_alert` | `public-read` |
 | `get_last_diversity_breach_ledger` | `public-read` |
+
+| `set_degradation_config` | `admin` |
+| `get_degradation_config` | `public-read` |
+| `get_degradation_stats` | `public-read` |
+| `get_degradation_window_stats` | `public-read` |
+| `set_anomaly_retention` | `admin` |
+| `get_anomaly_retention` | `public-read` |
+| `get_flag_explanations` | `public-read` |
+| `explain_submission` | `public-read` |
+| `get_latest_flag_explanation` | `public-read` |
+| `get_aggregate_flag_explanations` | `public-read` |
+| `set_drift_thresholds` | `admin` |
+| `get_drift_thresholds` | `public-read` |
+| `record_drift_sample` | `public` |
+| `get_drift_report` | `public-read` |
+| `reset_drift_window` | `admin` |
+| `set_coverage_thresholds` | `admin` |
+| `get_coverage_thresholds` | `public-read` |
+| `get_coverage_report` | `public-read` |
+| `get_coverage_gap_list` | `public-read` |
 | `set_source_bond` | `admin` |
 | `get_source_bond` | `public-read` |
 | `deposit_source_bond` | `caller:source` |

@@ -811,6 +811,57 @@ pub enum DataKey {
     /// Minimum distinct observations a TWAP window must contain (u32).
     TwapMinCardinality,
 
+    /// Governor authorization epoch (u32); bumping it revokes every op grant.
+    GovernorEpoch,
+    /// Epoch (u32) at which a governance operation name was granted.
+    GovernorOpGrant(String),
+    /// Per-asset aggregation policy override (`PolicyOverride`).
+    AssetPolicy(Address),
+    /// Per-class aggregation policy override (`PolicyOverride`).
+    ClassPolicy(u32),
+    /// Asset class id an asset belongs to (u32).
+    AssetClassId(Address),
+    /// Per-asset freshness weighting curve (`FreshnessCurve`).
+    FreshnessCurve(Address),
+    /// Minimum distinct observations a TWAP window must contain (u32).
+    TwapMinCardinality,
+
+    // -------------------------------------------------------------------------
+    // #495: Degraded-mode serving analytics
+    // -------------------------------------------------------------------------
+    /// Instrumentation switch + sampling/window configuration.
+    DegradationConfig,
+    /// Per-(asset, window) serving counters, one slot per [`DegradationState`].
+    DegradationCounters(Address, u32),
+
+    // -------------------------------------------------------------------------
+    // #496: Anomaly explanation reports
+    // -------------------------------------------------------------------------
+    /// Bounded ring of per-source flag explanations for an asset.
+    AnomalyLog(Address, Address),
+    /// Bounded ring of aggregate-level flag explanations for an asset.
+    AggregateAnomalyLog(Address),
+    /// Maximum retained explanations per log (ring size).
+    AnomalyRetention,
+
+    // -------------------------------------------------------------------------
+    // #497: Oracle-vs-benchmark drift detection
+    // -------------------------------------------------------------------------
+    /// Rolling, bounded window of time-aligned signed bias samples (bps).
+    DriftWindow(Address),
+    /// Count of samples discarded for exceeding the snapshot alignment tolerance.
+    DriftMisaligned(Address),
+    /// Drift alert thresholds.
+    DriftThresholds,
+    /// Ledger of the last emitted drift alert, per asset (alert de-duplication).
+    DriftLastAlertLedger(Address),
+
+    // -------------------------------------------------------------------------
+    // #498: Source coverage gap analysis
+    // -------------------------------------------------------------------------
+    /// Coverage thresholds (minimum independent sources per asset).
+    CoverageThresholds,
+
     // -------------------------------------------------------------------------
     // #399: Source diversity — effective independence thresholds
     // -------------------------------------------------------------------------
