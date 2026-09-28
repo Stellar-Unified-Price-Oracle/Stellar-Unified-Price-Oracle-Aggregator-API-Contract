@@ -294,6 +294,9 @@ mod wasm_binary_size_tests;
 #[cfg(test)]
 mod storage_round_trip_tests;
 
+#[cfg(test)]
+mod ttl_boundary_tests;
+
 pub use types::{
     AdminOpLimit, AdminOperationType, AggregatePrice, AggregationMethod, AggregationRound,
     AlertSubscription, AmmPool, AmmWeightConfig, Asset, AssetDecimalConfig, AssetMetadata,
