@@ -24,6 +24,7 @@ use soroban_sdk::contracterror;
 /// | 116–118 | Cross-chain asset registry |
 /// | 119–121 | Axelar GMP integration |
 /// | 122–125 | LayerZero integration |
+/// | 156–158 | Per-asset policy / TWAP cardinality / relayer bond lock |
 #[contracterror]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ErrorCode {

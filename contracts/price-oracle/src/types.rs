@@ -796,6 +796,20 @@ pub enum DataKey {
     ExternalGovernor,
     /// Allow-list flag for a governance operation name (bool).
     GovernorAllowedOp(String),
+    /// Governor authorization epoch (u32); bumping it revokes every op grant.
+    GovernorEpoch,
+    /// Epoch (u32) at which a governance operation name was granted.
+    GovernorOpGrant(String),
+    /// Per-asset aggregation policy override (`PolicyOverride`).
+    AssetPolicy(Address),
+    /// Per-class aggregation policy override (`PolicyOverride`).
+    ClassPolicy(u32),
+    /// Asset class id an asset belongs to (u32).
+    AssetClassId(Address),
+    /// Per-asset freshness weighting curve (`FreshnessCurve`).
+    FreshnessCurve(Address),
+    /// Minimum distinct observations a TWAP window must contain (u32).
+    TwapMinCardinality,
 
     // -------------------------------------------------------------------------
     // #399: Source diversity — effective independence thresholds
@@ -3131,4 +3145,32 @@ pub struct TwapResult {
     pub max_weight_bps: u32,
     /// True when the whole window rests on a single observation.
     pub concentrated: bool,
+}
+
+/// Pairwise source disagreement index for one asset at one ledger (#494).
+///
+/// Scale-invariant by construction: every deviation is divided by the
+/// median price, so an index computed on 8-decimal prices equals the index
+/// computed on the same prices scaled to 18 decimals. See
+/// `docs/disagreement-index.md` for interpretation.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct DisagreementIndex {
+    pub asset: Address,
+    pub ledger: u32,
+    /// Median of all pairwise relative deviations, in bps. `0` when fewer
+    /// than two sources contributed.
+    pub index_bps: u32,
+    /// Largest pairwise relative deviation, in bps. This is what separates
+    /// a lone dissenter (index low, `max_bps` high) from a broad split
+    /// (both high).
+    pub max_bps: u32,
+    /// Rolling median of the last [`crate::disagreement::BASELINE_WINDOW`]
+    /// index values, in bps; the value the current index is compared to.
+    pub baseline_bps: u32,
+    /// `index_bps > baseline_bps * 2` (and `baseline_bps > 0`).
+    pub above_baseline: bool,
+    pub num_sources: u32,
+    /// `num_sources < 3`: the index rests on at most one pair.
+    pub low_sample: bool,
 }

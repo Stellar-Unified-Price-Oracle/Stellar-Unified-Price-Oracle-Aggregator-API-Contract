@@ -568,6 +568,11 @@ fn aggregate_asset(env: &Env, asset: &Address, current_ledger: u32, decimals: u3
     let mut valid_prices: Vec<i128> = Vec::new(env);
     let mut valid_volumes: Vec<i128> = Vec::new(env);
     let mut valid_weights: Vec<u32> = Vec::new(env);
+    // #491/#493: kept parallel to `valid_prices` so the robust pre-filter
+    // and the provenance record can name the source and submission ledger
+    // behind each surviving price.
+    let mut valid_sources: Vec<soroban_sdk::Address> = Vec::new(env);
+    let mut valid_sub_ledgers: Vec<u32> = Vec::new(env);
     let curve = crate::freshness_weight::get_curve(env, asset);
     let mut latest_timestamp: u64 = 0;
     let mut contributing_sources: u32 = 0;
@@ -657,21 +662,47 @@ fn aggregate_asset(env: &Env, asset: &Address, current_ledger: u32, decimals: u3
                 &entry_data,
                 &curve,
             ));
+            valid_sources.push_back(src);
+            valid_sub_ledgers.push_back(entry_data.last_updated);
             contributing_sources += 1;
         }
     }
 
-    if policy.max_deviation_bps > 0 {
-        let (p, v, w) = crate::policy::filter_deviation(
-            env,
-            &valid_prices,
-            &valid_volumes,
-            &valid_weights,
-            policy.max_deviation_bps,
-        );
+    // #491: robust pre-filter (MAD / IQR) runs *before* the deviation filter
+    // so a gross outlier is removed by a method that is itself robust to it.
+    // Both filters are expressed as index masks so sources and submission
+    // ledgers stay aligned with the surviving prices.
+    let outlier_mask =
+        crate::outlier_filter::filter_round(env, asset, &valid_prices, &valid_sources);
+    let deviation_mask = if policy.max_deviation_bps > 0 {
+        crate::policy::deviation_mask(&valid_prices, policy.max_deviation_bps)
+    } else {
+        Vec::new(env)
+    };
+
+    if policy.max_deviation_bps > 0 || !crate::outlier_filter::get_exclusions(env, asset).is_empty()
+    {
+        let mut p = Vec::new(env);
+        let mut v = Vec::new(env);
+        let mut w = Vec::new(env);
+        let mut s = Vec::new(env);
+        let mut l = Vec::new(env);
+        for i in 0..valid_prices.len() {
+            let keep = outlier_mask.get_unchecked(i)
+                && (deviation_mask.is_empty() || deviation_mask.get_unchecked(i));
+            if keep {
+                p.push_back(valid_prices.get_unchecked(i));
+                v.push_back(valid_volumes.get(i).unwrap_or(0));
+                w.push_back(valid_weights.get(i).unwrap_or(1));
+                s.push_back(valid_sources.get_unchecked(i));
+                l.push_back(valid_sub_ledgers.get_unchecked(i));
+            }
+        }
         valid_prices = p;
         valid_volumes = v;
         valid_weights = w;
+        valid_sources = s;
+        valid_sub_ledgers = l;
         contributing_sources = valid_prices.len();
     }
 
@@ -1113,6 +1144,12 @@ pub fn submit_price(
     {
         if timestamp < prev.timestamp {
             panic_with_error!(env, ErrorCode::InvalidTimestamp);
+        }
+        // #492: a submission replaced here, before any aggregate counted it,
+        // is a never-counted submission. Recording it is what distinguishes
+        // a source that is never counted from one that is merely slow.
+        if prev.last_updated > crate::latency::last_aggregate_ledger(env, &asset) {
+            crate::latency::record_never_counted(env, &source, &asset, prev.last_updated);
         }
     }
 

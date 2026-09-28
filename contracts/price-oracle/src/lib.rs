@@ -120,6 +120,13 @@ mod whitelisting;
 mod wormhole_relay;
 mod zk_verify;
 
+// ── Data-quality modules (#491 outlier filter, #492 latency analytics,
+// #493 provenance, #494 disagreement index) ──
+mod disagreement;
+mod latency;
+mod outlier_filter;
+mod provenance;
+
 // =============================================================================
 // #283 — Stellar DID Integration
 // =============================================================================
@@ -299,6 +306,9 @@ mod delta_encoding_storage_tests;
 
 #[cfg(test)]
 mod wasm_binary_size_tests;
+
+#[cfg(test)]
+mod issues_491_492_493_494_tests;
 
 pub use types::{
     AdminOpLimit, AdminOperationType, AggregatePrice, AggregationMethod, AggregationRound,
