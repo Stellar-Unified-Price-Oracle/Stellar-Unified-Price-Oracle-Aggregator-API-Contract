@@ -181,3 +181,32 @@ jobs:
           path: |
             fuzz/artifacts/
             fuzz/corpus/
+
+  # #519: hermetic integration harness. One command, no network, deterministic
+  # across repeated runs. Runs on every PR so integration coverage no longer
+  # depends on a shared testnet.
+  hermetic-integration:
+    name: Hermetic integration harness
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@1.91.0
+        with:
+          targets: wasm32v1-none
+          components: rustfmt, clippy
+      - name: Cache dependencies
+        uses: Swatinem/rust-cache@v2
+      - name: Run harness (twice, verifying determinism)
+        run: ./scripts/hermetic-integration.sh
+      - name: Publish summary
+        if: always()
+        run: cat hermetic-artifacts/summary.md >> "$GITHUB_STEP_SUMMARY"
+      # Logs and Soroban ledger snapshots, so a failure can be diagnosed from
+      # CI without re-running locally.
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: hermetic-integration-artifacts
+          path: hermetic-artifacts/

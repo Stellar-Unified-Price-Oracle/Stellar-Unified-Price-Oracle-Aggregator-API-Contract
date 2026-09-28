@@ -66,7 +66,7 @@ Ten sources, cosmetic geo spread, one shared domain:
 - `infra_hhi = upstream_hhi = owner_hhi = 10000`
 - `largest_domain_size = 10`, `is_low_diversity = true`
 - `check_diversity_alert()` returns `true` and emits
-  `DiversityThresholdBreachedEvent{raw:10, effective:1, largest:10, …}`
+  `DiversityBreachEvent{raw:10, effective:1, largest:10, …}`
 
 Six genuinely independent sources (distinct infra/upstream/owner each) score
 `raw = effective = 6`, `largest_domain_size = 1`, no alert.
@@ -74,7 +74,7 @@ Six genuinely independent sources (distinct infra/upstream/owner each) score
 ## Alerting
 
 - On-chain: `check_diversity_alert() -> bool` emits
-  `DiversityThresholdBreachedEvent` on breach and stamps
+  `DiversityBreachEvent` on breach and stamps
   `DiversityLastBreachLedger` (see `get_last_diversity_breach_ledger`).
 - Off-chain (Prometheus): `scripts/metrics_exporter.py` exposes
   `oracle_diversity_effective`, `oracle_diversity_raw`,

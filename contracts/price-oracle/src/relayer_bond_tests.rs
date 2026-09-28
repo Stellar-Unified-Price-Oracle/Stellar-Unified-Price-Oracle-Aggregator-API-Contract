@@ -187,7 +187,7 @@ fn test_record_relayer_failure_increments_count() {
     assert_eq!(client.get_relayer_failure_count(&relayer), 2u32);
 }
 
-// RelayerFailureThresholdNotReached = 107
+// RelayerFailureThresholdMiss = 107
 #[test]
 #[should_panic(expected = "Error(Contract, #107)")]
 fn test_slash_relayer_below_threshold_panics_without_force() {

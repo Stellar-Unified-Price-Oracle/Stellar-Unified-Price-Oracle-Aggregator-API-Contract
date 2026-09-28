@@ -108,6 +108,7 @@ mod subscription;
 mod confidence_band;
 mod consumer_auth;
 // #305 — Price update subscription registry (wired in from disk).
+mod influence_cap;
 mod price_update_subscription;
 mod timelock;
 mod triggers;
@@ -116,9 +117,15 @@ mod types;
 mod vdf_sampler;
 mod verification;
 mod whitelisting;
-mod influence_cap;
 mod wormhole_relay;
 mod zk_verify;
+
+// ── Data-quality modules (#491 outlier filter, #492 latency analytics,
+// #493 provenance, #494 disagreement index) ──
+mod disagreement;
+mod latency;
+mod outlier_filter;
+mod provenance;
 
 // =============================================================================
 // #283 — Stellar DID Integration
@@ -173,6 +180,15 @@ mod external_governance;
 // Per-asset aggregation policy and freshness-weighted median.
 mod freshness_weight;
 mod policy;
+
+// #483: recompute the aggregate when the source set changes.
+mod recompute;
+// #484: two-tier (soft clamp / hard reject) price bounds.
+mod price_bounds;
+// #485: quorum-within-window deferred publication for illiquid assets.
+mod deferral;
+// #486: authorized price corrections with an immutable revision chain.
+mod corrections;
 
 #[cfg(test)]
 mod circuit_breaker_tests;
@@ -291,6 +307,9 @@ mod delta_encoding_storage_tests;
 #[cfg(test)]
 mod wasm_binary_size_tests;
 
+#[cfg(test)]
+mod issues_491_492_493_494_tests;
+
 pub use types::{
     AdminOpLimit, AdminOperationType, AggregatePrice, AggregationMethod, AggregationRound,
     AlertSubscription, AmmPool, AmmWeightConfig, Asset, AssetDecimalConfig, AssetMetadata,
@@ -300,26 +319,25 @@ pub use types::{
     ConsumerAccessMode, ConsumerInfo, ConsumerTier, ContractMetadata, ContribQualityRecord,
     CorrelationBand, CorrelationPair, CrossChainPriceEntry, CrossChainPricePayload,
     CrossChainRelayConfig, CrossReferenceResult, DataKey, DecentralizationReport, DemeritConfig,
-    DiversityThresholds,
-    DeviationReport, DexPrice, DisqualificationStatus, EcosystemMetadata, EmergencyPause,
-    ErrorCode, ExportedEntry, ExportedHistorySnapshot, ExternalDataProof, FeeMarketSubmission,
-    FeedMetadata, FinalityStatus, FinalizedPrice, ForeignAssetMapping, FrozenPrice, GasRecord,
-    Groth16Proof, Groth16VerifyingKey, GuardianRecovery, HealthReport, MigrationState,
-    MigrationStatus, MultiSigOperation, NotificationPreference, Operation, OperationKind,
-    OperationPriority, OperationSimulationResult, OperationStatus, OperationTemplate,
-    OperationType, OptimisticProposal, OptimisticProposalStatus, OracleSources, PendingBatch,
-    PendingFeeSubmissions, PendingFinalityEntry, PendingOperation, PriceBounds, PriceCommit,
-    PriceData, PriceEntry, PriceEventPayload, PriceHistoryEntry, PriceOverrideEntry, PriceProof,
+    DeviationReport, DexPrice, DisqualificationStatus, DiversityThresholds, EcosystemMetadata,
+    EffectivePolicy, EmergencyPause, ErrorCode, ExportedEntry, ExportedHistorySnapshot,
+    ExternalDataProof, FeeMarketSubmission, FeedMetadata, FinalityStatus, FinalizedPrice,
+    ForeignAssetMapping, FreshnessCurve, FrozenPrice, GasRecord, Groth16Proof, Groth16VerifyingKey,
+    GuardianRecovery, HealthReport, MigrationState, MigrationStatus, MultiSigOperation,
+    NotificationPreference, Operation, OperationKind, OperationPriority, OperationSimulationResult,
+    OperationStatus, OperationTemplate, OperationType, OptimisticProposal,
+    OptimisticProposalStatus, OracleSources, PendingBatch, PendingFeeSubmissions,
+    PendingFinalityEntry, PendingOperation, PolicyOverride, PriceBounds, PriceCommit, PriceData,
+    PriceEntry, PriceEventPayload, PriceHistoryEntry, PriceOverrideEntry, PriceProof,
     ReferenceOracleEntry, RelayedSubmission, RelayerAssetStat, RelayerDashboard,
     RelayerFailureReason, RelayerInfo, Role, SimulationWarning, SoroswapPool, SourceDemeritState,
     SourceDidLink, SourceDiversityReport, SourceGeoMetadata, SourceGovernance, SourceHealthStatus,
-    SourceProposal,
-    SourceRelayerDelegation, SourceRotationSchedule, SourceStakeRecord, SourceVerification,
-    StateAnalysis, StateChannel, StateDiff, StateDiffEntry, StateDump, StellarHeader,
-    StorageBatchRequest, StorageBatchResult, StorageBudget, StorageTtlEntry, SubscriptionExpiry,
-    SubscriptionPayment, SubscriptionPlan, SubscriptionPlans, TemplateStep, TotalStorageBudget,
-    TwapMethod, VersionedAggregatePrice, WormholeGuardianSet, WormholePricePayload, WormholeVaa,
-    ZkPriceAttestation,
+    SourceProposal, SourceRelayerDelegation, SourceRotationSchedule, SourceStakeRecord,
+    SourceVerification, StateAnalysis, StateChannel, StateDiff, StateDiffEntry, StateDump,
+    StellarHeader, StorageBatchRequest, StorageBatchResult, StorageBudget, StorageTtlEntry,
+    SubscriptionExpiry, SubscriptionPayment, SubscriptionPlan, SubscriptionPlans, TemplateStep,
+    TotalStorageBudget, TwapMethod, TwapResult, VersionedAggregatePrice, WeightedAggregate,
+    WormholeGuardianSet, WormholePricePayload, WormholeVaa, ZkPriceAttestation,
 };
 
 use soroban_sdk::{
@@ -1666,17 +1684,9 @@ impl PriceOracleContract {
         reentrancy::exit(&env);
     }
 
-    pub fn set_diversity_thresholds(
-        env: Env,
-        min_effective_sources: u32,
-        max_hhi_per_axis: u32,
-    ) {
+    pub fn set_diversity_thresholds(env: Env, min_effective_sources: u32, max_hhi_per_axis: u32) {
         reentrancy::enter(&env);
-        source_diversity::set_diversity_thresholds(
-            &env,
-            min_effective_sources,
-            max_hhi_per_axis,
-        );
+        source_diversity::set_diversity_thresholds(&env, min_effective_sources, max_hhi_per_axis);
         reentrancy::exit(&env);
     }
 
@@ -3608,7 +3618,7 @@ impl PriceOracleContract {
     /// # Errors
     ///
     /// * [`ErrorCode::NotAuthorized`] — caller is not the current admin.
-    /// * [`ErrorCode::RelayerFailureThresholdNotReached`] — not forced, and below the
+    /// * [`ErrorCode::RelayerFailureThresholdMiss`] — not forced, and below the
     ///   slash-eligibility threshold.
     pub fn slash_relayer(env: Env, relayer: Address, force: bool) {
         relayer_bonds::slash_relayer(&env, relayer, force);
@@ -5793,6 +5803,155 @@ impl PriceOracleContract {
         confidence_band::get_confidence_band(&env, &asset)
     }
 
+    // ── #483 Aggregate recomputation on source-set change ───────────────────
+
+    /// Removes several oracle sources in one transaction, recomputing the
+    /// affected aggregates at the end (#483).
+    ///
+    /// The result is identical to removing them one at a time: recomputation
+    /// is a pure function of the surviving source set.
+    pub fn remove_sources(env: Env, sources: soroban_sdk::Vec<Address>) {
+        reentrancy::enter(&env);
+        sources::remove_sources(&env, sources);
+        reentrancy::exit(&env);
+    }
+
+    /// Re-derives the aggregate of `asset` from the current source set (#483).
+    ///
+    /// Permissionless: anyone may trigger a recomputation, but it can only
+    /// ever reproduce what the next submission would publish, so it grants no
+    /// authority over the value.
+    pub fn recompute_asset_price(env: Env, asset: Address) {
+        reentrancy::enter(&env);
+        prices::recompute_asset(&env, &asset);
+        reentrancy::exit(&env);
+    }
+
+    /// Returns whether `source` is currently excluded from aggregation
+    /// because it is marked inactive or disqualified (#483).
+    pub fn is_source_excluded(env: Env, source: Address) -> bool {
+        recompute::is_excluded(&env, &source)
+    }
+
+    /// Returns the assets whose aggregates a change to `source` would
+    /// re-derive (#483).
+    pub fn get_recompute_affected_assets(env: Env, source: Address) -> soroban_sdk::Vec<Address> {
+        recompute::affected_assets(&env, &source)
+    }
+
+    // ── #484 Two-tier price bounds ──────────────────────────────────────────
+
+    /// Sets the soft/hard price bounds for `asset` (#484).
+    ///
+    /// Ordering is validated on write: `0 < hard_min <= soft_min <=
+    /// soft_max <= hard_max`. A value outside the soft band is clamped and
+    /// flagged; a value outside the hard band is rejected and not published.
+    pub fn set_price_bounds_tier(env: Env, asset: Address, tier: types::BoundsTier) {
+        price_bounds::set_bounds(&env, asset, tier);
+    }
+
+    /// Returns the soft/hard bounds configured for `asset`, if any (#484).
+    pub fn get_price_bounds_tier(env: Env, asset: Address) -> Option<types::BoundsTier> {
+        price_bounds::get_bounds(&env, &asset)
+    }
+
+    /// Clears the soft/hard bounds for `asset` (#484).
+    pub fn clear_price_bounds_tier(env: Env, asset: Address) {
+        price_bounds::clear_bounds(&env, asset);
+    }
+
+    /// Returns the last bound decision for `asset` — raw value, published
+    /// value, `clamped` / `rejected` flags and the reason code (#484).
+    ///
+    /// Consumers must read this whenever they publish or use an aggregate for
+    /// an asset with bounds configured; see `docs/price-bounds-tiers.md`.
+    pub fn get_price_bound_status(env: Env, asset: Address) -> Option<types::BoundStatus> {
+        price_bounds::get_status(&env, &asset)
+    }
+
+    // ── #485 Deferred / quorum-within-window aggregation ────────────────────
+
+    /// Sets the deferral policy for `asset` (#485).
+    ///
+    /// Bounds: `1 <= quorum <= 64`, `1 <= window_secs <= 86_400` and
+    /// `window_secs <= max_defer_secs <= 604_800`. Until `quorum` sources
+    /// submit inside the window the asset is explicitly `Deferred`, and past
+    /// `max_defer_secs` it becomes `Stale`.
+    pub fn set_deferral_policy(env: Env, asset: Address, policy: types::DeferralPolicy) {
+        deferral::set_policy(&env, asset, policy);
+    }
+
+    /// Returns the deferral policy for `asset`, if any (#485).
+    pub fn get_deferral_policy(env: Env, asset: Address) -> Option<types::DeferralPolicy> {
+        deferral::get_policy(&env, &asset)
+    }
+
+    /// Removes the deferral policy for `asset`, restoring the default
+    /// publication trigger (#485).
+    pub fn clear_deferral_policy(env: Env, asset: Address) {
+        deferral::clear_policy(&env, asset);
+    }
+
+    /// Returns the publication state of `asset` — `Absent`, `Deferred`,
+    /// `Published` or `Stale` — together with the missing-source count
+    /// (#485). `None` when the asset never opted into deferral.
+    pub fn get_publication_status(env: Env, asset: Address) -> Option<types::PublicationStatus> {
+        deferral::get_status(&env, &asset)
+    }
+
+    // ── #486 Price corrections with a revision audit trail ──────────────────
+
+    /// Sets the correction limits: which assets may be corrected, how long a
+    /// published aggregate stays correctable, and how many corrections an
+    /// asset may accumulate (#486). Admin only; clamped to the hard maxima.
+    pub fn set_correction_scope(env: Env, scope: corrections::CorrectionScope) {
+        corrections::set_correction_scope(&env, scope);
+    }
+
+    /// Returns the correction limits currently in force (#486).
+    pub fn get_correction_scope(env: Env) -> corrections::CorrectionScope {
+        corrections::get_correction_scope(&env)
+    }
+
+    /// Corrects the published aggregate for `asset` to `new_price` and returns
+    /// the index of the new revision (#486).
+    ///
+    /// Admin-only, and bounded on asset scope, age and count. A non-empty
+    /// `reason` is mandatory. The original publication is preserved and the
+    /// full chain stays queryable via `get_price_revisions`.
+    pub fn correct_price(env: Env, asset: Address, new_price: i128, reason: String) -> u32 {
+        reentrancy::enter(&env);
+        let index = corrections::correct_price(&env, asset, new_price, reason);
+        reentrancy::exit(&env);
+        index
+    }
+
+    /// Returns the full revision chain for `asset`, oldest first (#486).
+    pub fn get_price_revisions(env: Env, asset: Address) -> soroban_sdk::Vec<types::PriceRevision> {
+        corrections::get_revisions(&env, &asset)
+    }
+
+    /// Returns revision `index` of `asset`'s chain, or `None` when the chain
+    /// is shorter (#486).
+    pub fn get_price_revision(
+        env: Env,
+        asset: Address,
+        index: u32,
+    ) -> Option<types::PriceRevision> {
+        corrections::get_revision(&env, &asset, index)
+    }
+
+    /// Returns the first-ever published value for `asset`, which corrections
+    /// never overwrite (#486).
+    pub fn get_original_price(env: Env, asset: Address) -> Option<i128> {
+        corrections::get_original_price(&env, &asset)
+    }
+
+    /// Returns the number of corrections applied to `asset` (#486).
+    pub fn get_correction_count(env: Env, asset: Address) -> u32 {
+        corrections::correction_count(&env, &asset)
+    }
+
     // ── TWAP observation cardinality ─────────────────────────────────────────
 
     /// Sets the minimum distinct observations a TWAP window needs (1..=64). Admin only.
@@ -5894,3 +6053,6 @@ mod event_integrity_tests;
 
 #[cfg(test)]
 mod invariant_harness_tests;
+
+#[cfg(test)]
+mod issues_483_486_tests;
