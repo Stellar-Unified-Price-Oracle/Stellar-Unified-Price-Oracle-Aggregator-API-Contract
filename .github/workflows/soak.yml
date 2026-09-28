@@ -1,0 +1,78 @@
+name: Soak
+
+# #523: sustained soak rig — realistic + adversarial mix, with latency, memory
+# and state-growth ceilings asserted. See docs/soak-rig.md.
+on:
+  pull_request:
+    paths:
+      - "services/soak/**"
+      - "docs/soak-rig.md"
+      - ".github/workflows/soak.yml"
+  schedule:
+    # Nightly, off the hour on the hour boundary to avoid the top-of-hour
+    # scheduling stampede that also holds :00 cron minutes.
+    - cron: "37 3 * * *"
+  workflow_dispatch:
+    inputs:
+      rounds:
+        description: "Rounds to soak"
+        default: "20000"
+
+concurrency:
+  group: soak-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  soak:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install pytest
+
+      - name: Rig unit tests
+        run: python -m pytest services/soak -q
+
+      - name: Leak drill (a deliberately leaky model must be detected)
+        # Non-zero here means the rig failed to notice unbounded growth, which
+        # is itself the regression worth failing on.
+        run: |
+          set -euo pipefail
+          python -m services.soak.rig --rounds 1500 --model leaky \
+            --expect-breach --report leak-drill.md \
+            | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: Soak run
+        env:
+          ROUNDS: ${{ inputs.rounds || '20000' }}
+        run: |
+          set -euo pipefail
+          python -m services.soak.rig --rounds "$ROUNDS" \
+            --json soak.json --report soak-report.md --prometheus soak.prom \
+            | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: Publish metrics to Prometheus pushgateway
+        if: github.event_name == 'schedule'
+        continue-on-error: true
+        env:
+          SOAK_PROMETHEUS_PUSH_URL: ${{ secrets.SOAK_PROMETHEUS_PUSH_URL }}
+          RUN_ID: ${{ github.run_id }}-${{ github.run_attempt }}
+        run: |
+          set -euo pipefail
+          [ -n "$SOAK_PROMETHEUS_PUSH_URL" ] || { echo "no push URL; skipping"; exit 0; }
+          curl -fsS --data-binary @soak.prom \
+            "$SOAK_PROMETHEUS_PUSH_URL/metrics/job/soak/run/$RUN_ID"
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: soak-report-${{ github.run_id }}
+          path: |
+            soak.json
+            soak-report.md
+            soak.prom
+            leak-drill.md
+          retention-days: 90
