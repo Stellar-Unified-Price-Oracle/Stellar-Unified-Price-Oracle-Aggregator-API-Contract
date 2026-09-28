@@ -32,6 +32,10 @@ mod alerts;
 mod amm;
 mod asset_inactivity;
 mod assets;
+mod auto_renewal;
+mod consensus_rounds;
+mod derived_feeds;
+mod storage_tier;
 // The core module is always compiled (it has no Env deps).
 // When the `fuzz` feature is enabled it is also re-exported so that the
 // fuzz crate can call `price_oracle::core_pricing::*` directly.
@@ -48,9 +52,12 @@ mod blue_green;
 mod config_history;
 mod contribution_quality;
 mod correlation;
+mod coverage;
 mod cross_reference;
 mod deadline_rebate;
+mod degradation;
 mod dex;
+mod drift;
 mod emergency_pause;
 mod errors;
 #[cfg(feature = "fuzz")]
@@ -61,6 +68,7 @@ pub(crate) mod storage;
 mod event_indexing;
 mod events;
 mod exotic_pricing;
+mod explanation;
 mod export_history;
 mod fee_market;
 mod finality;
@@ -120,6 +128,13 @@ mod whitelisting;
 mod wormhole_relay;
 mod zk_verify;
 
+// ── Data-quality modules (#491 outlier filter, #492 latency analytics,
+// #493 provenance, #494 disagreement index) ──
+mod disagreement;
+mod latency;
+mod outlier_filter;
+mod provenance;
+
 // =============================================================================
 // #283 — Stellar DID Integration
 // =============================================================================
@@ -173,6 +188,15 @@ mod external_governance;
 // Per-asset aggregation policy and freshness-weighted median.
 mod freshness_weight;
 mod policy;
+
+// #483: recompute the aggregate when the source set changes.
+mod recompute;
+// #484: two-tier (soft clamp / hard reject) price bounds.
+mod price_bounds;
+// #485: quorum-within-window deferred publication for illiquid assets.
+mod deferral;
+// #486: authorized price corrections with an immutable revision chain.
+mod corrections;
 
 #[cfg(test)]
 mod circuit_breaker_tests;
@@ -308,6 +332,9 @@ mod attack_regression_tests;
 
 #[cfg(test)]
 mod wasm_binary_size_tests;
+
+#[cfg(test)]
+mod issues_491_492_493_494_tests;
 
 pub use types::{
     AdminOpLimit, AdminOperationType, AggregatePrice, AggregationMethod, AggregationRound,
@@ -1702,6 +1729,176 @@ impl PriceOracleContract {
 
     pub fn get_last_diversity_breach_ledger(env: Env) -> Option<u32> {
         source_diversity::get_last_diversity_breach_ledger(&env)
+    }
+
+    // --- #495: Degraded-mode serving analytics ---
+
+    /// Sets the degraded-read instrumentation configuration. Admin-only.
+    pub fn set_degradation_config(env: Env, config: DegradationConfig) {
+        reentrancy::enter(&env);
+        degradation::set_config(&env, config);
+        reentrancy::exit(&env);
+    }
+
+    pub fn get_degradation_config(env: Env) -> DegradationConfig {
+        degradation::get_config(&env)
+    }
+
+    /// Degradation counts for `asset` over the current rolling window.
+    pub fn get_degradation_stats(env: Env, asset: Address) -> DegradationStats {
+        degradation::get_stats(&env, &asset)
+    }
+
+    /// Degradation counts for `asset` over an explicit (possibly older) window.
+    pub fn get_degradation_window_stats(env: Env, asset: Address, window: u32) -> DegradationStats {
+        degradation::get_window_stats(&env, &asset, window)
+    }
+
+    // --- #496: Anomaly explanation reports ---
+
+    /// Sets the bounded retention (ring size) for explanation logs. Admin-only.
+    pub fn set_anomaly_retention(env: Env, retention: u32) {
+        reentrancy::enter(&env);
+        explanation::set_retention(&env, retention);
+        reentrancy::exit(&env);
+    }
+
+    pub fn get_anomaly_retention(env: Env) -> u32 {
+        explanation::get_retention(&env)
+    }
+
+    /// Explanations addressed to `source` for `asset` (oldest first).
+    pub fn get_flag_explanations(
+        env: Env,
+        asset: Address,
+        source: Address,
+    ) -> Vec<AnomalyExplanation> {
+        explanation::get_for_source(&env, &asset, &source)
+    }
+
+    /// Explains what would happen to a submission, without changing state.
+    ///
+    /// A rejecting path reverts, so it cannot leave a durable record behind.
+    /// This pure view evaluates the same rules in the same order and returns
+    /// the explanation the submission would get, or `None` if it would be
+    /// accepted. `rule_id` identifies the rule, `observed` / `reference` /
+    /// `threshold` are the values it compared, and `rejected` says whether the
+    /// submission would be refused outright.
+    pub fn explain_submission(
+        env: Env,
+        source: Address,
+        asset: Address,
+        price: i128,
+        timestamp: u64,
+    ) -> Option<AnomalyExplanation> {
+        explanation::explain_submission(&env, &source, &asset, price, timestamp)
+    }
+
+    /// The most recent explanation addressed to `source` for `asset`.
+    pub fn get_latest_flag_explanation(
+        env: Env,
+        asset: Address,
+        source: Address,
+    ) -> Option<AnomalyExplanation> {
+        explanation::latest_for_source(&env, &asset, &source)
+    }
+
+    /// Aggregate-level explanations for `asset` — the operator view.
+    pub fn get_aggregate_flag_explanations(env: Env, asset: Address) -> Vec<AnomalyExplanation> {
+        explanation::get_for_asset(&env, &asset)
+    }
+
+    // --- #497: Oracle-vs-benchmark drift detection ---
+
+    /// Sets the drift alert thresholds. Admin-only.
+    pub fn set_drift_thresholds(
+        env: Env,
+        min_samples: u32,
+        bias_threshold_bps: i128,
+        max_alignment_secs: u64,
+    ) {
+        reentrancy::enter(&env);
+        drift::set_thresholds(
+            &env,
+            drift::DriftThresholds {
+                min_samples,
+                bias_threshold_bps,
+                max_alignment_secs,
+            },
+        );
+        reentrancy::exit(&env);
+    }
+
+    pub fn get_drift_thresholds(env: Env) -> (u32, i128, u64) {
+        let t = drift::get_thresholds(&env);
+        (t.min_samples, t.bias_threshold_bps, t.max_alignment_secs)
+    }
+
+    /// Records one time-aligned oracle-vs-benchmark comparison.
+    ///
+    /// Permissionless: a benchmark feed is untrusted input, and the recorded
+    /// sample has no effect on any on-chain price.
+    pub fn record_drift_sample(
+        env: Env,
+        asset: Address,
+        oracle_price: i128,
+        oracle_timestamp: u64,
+        benchmark_price: i128,
+        benchmark_timestamp: u64,
+    ) -> Option<i128> {
+        reentrancy::enter(&env);
+        let bias = drift::record_sample(
+            &env,
+            &asset,
+            oracle_price,
+            oracle_timestamp,
+            benchmark_price,
+            benchmark_timestamp,
+        );
+        reentrancy::exit(&env);
+        bias
+    }
+
+    /// Long-horizon drift metrics for `asset`. Pure read; never mutates prices.
+    pub fn get_drift_report(env: Env, asset: Address) -> DriftReport {
+        drift::get_report(&env, &asset)
+    }
+
+    /// Clears the drift window and misaligned counter for `asset`. Admin-only.
+    pub fn reset_drift_window(env: Env, asset: Address) {
+        reentrancy::enter(&env);
+        drift::reset_window(&env, asset);
+        reentrancy::exit(&env);
+    }
+
+    // --- #498: Source coverage gap analysis ---
+
+    /// Sets the coverage thresholds. Admin-only.
+    pub fn set_coverage_thresholds(env: Env, min_independent_sources: u32, window_ledgers: u32) {
+        reentrancy::enter(&env);
+        coverage::set_thresholds(
+            &env,
+            coverage::CoverageThresholds {
+                min_independent_sources,
+                window_ledgers,
+            },
+        );
+        reentrancy::exit(&env);
+    }
+
+    pub fn get_coverage_thresholds(env: Env) -> (u32, u32) {
+        let t = coverage::get_thresholds(&env);
+        (t.min_independent_sources, t.window_ledgers)
+    }
+
+    /// Independence and temporal coverage report for `asset`. Read-only.
+    pub fn get_coverage_report(env: Env, asset: Address) -> CoverageReport {
+        coverage::get_report(&env, &asset)
+    }
+
+    /// Assets whose independent coverage is below the threshold. Read-only.
+    pub fn get_coverage_gap_list(env: Env) -> Vec<Address> {
+        coverage::get_gap_list(&env)
     }
 
     // --- #209: Source Heartbeat Liveness Bond ---
@@ -3617,7 +3814,7 @@ impl PriceOracleContract {
     /// # Errors
     ///
     /// * [`ErrorCode::NotAuthorized`] — caller is not the current admin.
-    /// * [`ErrorCode::RelayerFailureThresholdNotReached`] — not forced, and below the
+    /// * [`ErrorCode::RelayerFailureThresholdMiss`] — not forced, and below the
     ///   slash-eligibility threshold.
     pub fn slash_relayer(env: Env, relayer: Address, force: bool) {
         relayer_bonds::slash_relayer(&env, relayer, force);
@@ -5802,6 +5999,155 @@ impl PriceOracleContract {
         confidence_band::get_confidence_band(&env, &asset)
     }
 
+    // ── #483 Aggregate recomputation on source-set change ───────────────────
+
+    /// Removes several oracle sources in one transaction, recomputing the
+    /// affected aggregates at the end (#483).
+    ///
+    /// The result is identical to removing them one at a time: recomputation
+    /// is a pure function of the surviving source set.
+    pub fn remove_sources(env: Env, sources: soroban_sdk::Vec<Address>) {
+        reentrancy::enter(&env);
+        sources::remove_sources(&env, sources);
+        reentrancy::exit(&env);
+    }
+
+    /// Re-derives the aggregate of `asset` from the current source set (#483).
+    ///
+    /// Permissionless: anyone may trigger a recomputation, but it can only
+    /// ever reproduce what the next submission would publish, so it grants no
+    /// authority over the value.
+    pub fn recompute_asset_price(env: Env, asset: Address) {
+        reentrancy::enter(&env);
+        prices::recompute_asset(&env, &asset);
+        reentrancy::exit(&env);
+    }
+
+    /// Returns whether `source` is currently excluded from aggregation
+    /// because it is marked inactive or disqualified (#483).
+    pub fn is_source_excluded(env: Env, source: Address) -> bool {
+        recompute::is_excluded(&env, &source)
+    }
+
+    /// Returns the assets whose aggregates a change to `source` would
+    /// re-derive (#483).
+    pub fn get_recompute_affected_assets(env: Env, source: Address) -> soroban_sdk::Vec<Address> {
+        recompute::affected_assets(&env, &source)
+    }
+
+    // ── #484 Two-tier price bounds ──────────────────────────────────────────
+
+    /// Sets the soft/hard price bounds for `asset` (#484).
+    ///
+    /// Ordering is validated on write: `0 < hard_min <= soft_min <=
+    /// soft_max <= hard_max`. A value outside the soft band is clamped and
+    /// flagged; a value outside the hard band is rejected and not published.
+    pub fn set_price_bounds_tier(env: Env, asset: Address, tier: types::BoundsTier) {
+        price_bounds::set_bounds(&env, asset, tier);
+    }
+
+    /// Returns the soft/hard bounds configured for `asset`, if any (#484).
+    pub fn get_price_bounds_tier(env: Env, asset: Address) -> Option<types::BoundsTier> {
+        price_bounds::get_bounds(&env, &asset)
+    }
+
+    /// Clears the soft/hard bounds for `asset` (#484).
+    pub fn clear_price_bounds_tier(env: Env, asset: Address) {
+        price_bounds::clear_bounds(&env, asset);
+    }
+
+    /// Returns the last bound decision for `asset` — raw value, published
+    /// value, `clamped` / `rejected` flags and the reason code (#484).
+    ///
+    /// Consumers must read this whenever they publish or use an aggregate for
+    /// an asset with bounds configured; see `docs/price-bounds-tiers.md`.
+    pub fn get_price_bound_status(env: Env, asset: Address) -> Option<types::BoundStatus> {
+        price_bounds::get_status(&env, &asset)
+    }
+
+    // ── #485 Deferred / quorum-within-window aggregation ────────────────────
+
+    /// Sets the deferral policy for `asset` (#485).
+    ///
+    /// Bounds: `1 <= quorum <= 64`, `1 <= window_secs <= 86_400` and
+    /// `window_secs <= max_defer_secs <= 604_800`. Until `quorum` sources
+    /// submit inside the window the asset is explicitly `Deferred`, and past
+    /// `max_defer_secs` it becomes `Stale`.
+    pub fn set_deferral_policy(env: Env, asset: Address, policy: types::DeferralPolicy) {
+        deferral::set_policy(&env, asset, policy);
+    }
+
+    /// Returns the deferral policy for `asset`, if any (#485).
+    pub fn get_deferral_policy(env: Env, asset: Address) -> Option<types::DeferralPolicy> {
+        deferral::get_policy(&env, &asset)
+    }
+
+    /// Removes the deferral policy for `asset`, restoring the default
+    /// publication trigger (#485).
+    pub fn clear_deferral_policy(env: Env, asset: Address) {
+        deferral::clear_policy(&env, asset);
+    }
+
+    /// Returns the publication state of `asset` — `Absent`, `Deferred`,
+    /// `Published` or `Stale` — together with the missing-source count
+    /// (#485). `None` when the asset never opted into deferral.
+    pub fn get_publication_status(env: Env, asset: Address) -> Option<types::PublicationStatus> {
+        deferral::get_status(&env, &asset)
+    }
+
+    // ── #486 Price corrections with a revision audit trail ──────────────────
+
+    /// Sets the correction limits: which assets may be corrected, how long a
+    /// published aggregate stays correctable, and how many corrections an
+    /// asset may accumulate (#486). Admin only; clamped to the hard maxima.
+    pub fn set_correction_scope(env: Env, scope: corrections::CorrectionScope) {
+        corrections::set_correction_scope(&env, scope);
+    }
+
+    /// Returns the correction limits currently in force (#486).
+    pub fn get_correction_scope(env: Env) -> corrections::CorrectionScope {
+        corrections::get_correction_scope(&env)
+    }
+
+    /// Corrects the published aggregate for `asset` to `new_price` and returns
+    /// the index of the new revision (#486).
+    ///
+    /// Admin-only, and bounded on asset scope, age and count. A non-empty
+    /// `reason` is mandatory. The original publication is preserved and the
+    /// full chain stays queryable via `get_price_revisions`.
+    pub fn correct_price(env: Env, asset: Address, new_price: i128, reason: String) -> u32 {
+        reentrancy::enter(&env);
+        let index = corrections::correct_price(&env, asset, new_price, reason);
+        reentrancy::exit(&env);
+        index
+    }
+
+    /// Returns the full revision chain for `asset`, oldest first (#486).
+    pub fn get_price_revisions(env: Env, asset: Address) -> soroban_sdk::Vec<types::PriceRevision> {
+        corrections::get_revisions(&env, &asset)
+    }
+
+    /// Returns revision `index` of `asset`'s chain, or `None` when the chain
+    /// is shorter (#486).
+    pub fn get_price_revision(
+        env: Env,
+        asset: Address,
+        index: u32,
+    ) -> Option<types::PriceRevision> {
+        corrections::get_revision(&env, &asset, index)
+    }
+
+    /// Returns the first-ever published value for `asset`, which corrections
+    /// never overwrite (#486).
+    pub fn get_original_price(env: Env, asset: Address) -> Option<i128> {
+        corrections::get_original_price(&env, &asset)
+    }
+
+    /// Returns the number of corrections applied to `asset` (#486).
+    pub fn get_correction_count(env: Env, asset: Address) -> u32 {
+        corrections::correction_count(&env, &asset)
+    }
+
     // ── TWAP observation cardinality ─────────────────────────────────────────
 
     /// Sets the minimum distinct observations a TWAP window needs (1..=64). Admin only.
@@ -5826,7 +6172,267 @@ impl PriceOracleContract {
     ) -> Option<TwapResult> {
         prices::get_twap_ex(&env, Asset::Stellar(asset), window_ledgers, method)
     }
+
+    // =========================================================================
+    // #246 — Configurable history storage tier
+    // =========================================================================
+
+    /// Admin endpoint selecting the storage tier an asset's price history uses.
+    ///
+    /// Upgrades (temporary → persistent) apply immediately. Downgrades
+    /// (persistent → temporary) are destructive — they let an asset's evidence
+    /// trail expire — so they require multi-party approval plus a timelock; see
+    /// `propose_storage_tier_downgrade`, `approve_storage_tier_downgrade` and
+    /// `execute_storage_tier_downgrade`.
+    ///
+    /// # Errors
+    /// * [`ErrorCode::AssetNotRegistered`] — `asset` is not registered.
+    /// * [`ErrorCode::NotAuthorized`] — caller is not the admin.
+    /// * [`ErrorCode::StorageTierDowngradeNotReady`] — a downgrade was attempted
+    ///   without a matured, fully approved request.
+    pub fn set_asset_storage_tier(env: Env, asset: Address, tier: HistoryStorageTier) {
+        storage_tier::set_asset_storage_tier(&env, asset, tier);
+    }
+
+    /// Returns the storage tier an asset's price history is written to.
+    pub fn get_asset_storage_tier(env: Env, asset: Address) -> HistoryStorageTier {
+        storage_tier::get_asset_storage_tier(&env, &asset)
+    }
+
+    /// Returns the discoverable retention guarantee for an asset's history tier.
+    pub fn get_storage_tier_info(env: Env, asset: Address) -> StorageTierInfo {
+        storage_tier::get_storage_tier_info(&env, &asset)
+    }
+
+    /// Proposes a persistent → temporary downgrade and returns the ledger at
+    /// which the approval window closes. Admin only.
+    pub fn propose_storage_tier_downgrade(env: Env, asset: Address) -> u32 {
+        storage_tier::propose_storage_tier_downgrade(&env, asset)
+    }
+
+    /// Records a second party's approval of a pending downgrade. `approver` must
+    /// authorize the call and must not be the proposing admin.
+    pub fn approve_storage_tier_downgrade(env: Env, asset: Address, approver: Address) {
+        storage_tier::approve_storage_tier_downgrade(&env, asset, approver);
+    }
+
+    /// Executes a fully approved, matured downgrade request. Admin only.
+    pub fn execute_storage_tier_downgrade(env: Env, asset: Address) {
+        storage_tier::execute_storage_tier_downgrade(&env, asset);
+    }
+
+    /// Copies an asset's retained history entries into `to_tier`, returning the
+    /// number of entries migrated. Admin only.
+    pub fn migrate_history_to_tier(env: Env, asset: Address, to_tier: HistoryStorageTier) -> u32 {
+        storage_tier::migrate_history_to_tier(&env, asset, to_tier)
+    }
+
+    /// Reads one history entry strictly from the asset's configured tier.
+    ///
+    /// Returns `None` when the entry is absent — including when a temporary-tier
+    /// entry has expired — and never falls back to the other tier, so a missing
+    /// entry can never be mistaken for a differently-stored one.
+    pub fn get_tiered_historical_price(
+        env: Env,
+        asset: Address,
+        ledger: u32,
+    ) -> Option<PriceHistoryEntry> {
+        storage_tier::read_history_entry(&env, &asset, ledger)
+    }
+
+    /// Reports whether a history entry exists in the asset's configured tier.
+    pub fn has_tiered_historical_price(env: Env, asset: Address, ledger: u32) -> bool {
+        storage_tier::read_history_entry(&env, &asset, ledger).is_some()
+    }
+
+    // =========================================================================
+    // #289 — Subscription auto-renewal
+    // =========================================================================
+
+    /// Grants a bounded standing authorization for the contract to renew a
+    /// subscription by pulling tokens. `consumer` must authorize the call.
+    pub fn enable_auto_renewal(
+        env: Env,
+        consumer: Address,
+        token: Address,
+        plan_duration: u32,
+        max_amount_per_period: i128,
+        periods_authorized: u32,
+    ) {
+        auto_renewal::enable_auto_renewal(
+            &env,
+            consumer,
+            token,
+            plan_duration,
+            max_amount_per_period,
+            periods_authorized,
+        );
+    }
+
+    /// Revokes a standing auto-renewal authorization. `consumer` must authorize.
+    pub fn disable_auto_renewal(env: Env, consumer: Address) {
+        auto_renewal::disable_auto_renewal(&env, consumer);
+    }
+
+    /// Issues a single-use authorization to renew one specific period.
+    /// `consumer` must authorize the call.
+    pub fn authorize_renewal(env: Env, consumer: Address, period_id: u64, nonce: u64) {
+        auto_renewal::authorize_renewal(&env, consumer, period_id, nonce);
+    }
+
+    /// Attempts one renewal on a consumer's behalf. Callable by any keeper and
+    /// never panics, so a failed renewal cannot lock a consumer out.
+    pub fn try_auto_renew(env: Env, consumer: Address) -> RenewalAttempt {
+        auto_renewal::try_auto_renew(&env, consumer)
+    }
+
+    /// Returns a consumer's standing auto-renewal authorization, if any.
+    pub fn get_auto_renewal_record(env: Env, consumer: Address) -> Option<AutoRenewRecord> {
+        auto_renewal::get_auto_renewal_record(&env, &consumer)
+    }
+
+    /// Returns the single-use renewal authorization for a period, if any.
+    pub fn get_renewal_authorization(
+        env: Env,
+        consumer: Address,
+        period_id: u64,
+    ) -> Option<RenewalAuthorization> {
+        auto_renewal::get_renewal_authorization(&env, &consumer, period_id)
+    }
+
+    // =========================================================================
+    // #397 — Multi-round price confirmation
+    // =========================================================================
+
+    /// Configures multi-round price confirmation for an asset. Admin only.
+    ///
+    /// `required_rounds == 1` restores the default single-round behaviour.
+    pub fn set_round_config(env: Env, asset: Address, config: RoundConfig) {
+        consensus_rounds::set_round_config(&env, asset, config);
+    }
+
+    /// Returns an asset's round configuration (default: single-round, disabled).
+    pub fn get_round_config(env: Env, asset: Address) -> RoundConfig {
+        consensus_rounds::get_round_config(&env, &asset)
+    }
+
+    /// Opens a new confirmation round and returns its identity. Any keeper may
+    /// call this; the round identity is derived from contract state, not input.
+    pub fn start_round(env: Env, asset: Address) -> u32 {
+        consensus_rounds::start_round(&env, asset)
+    }
+
+    /// Submits a source's observation into the asset's current round.
+    /// `source` must authorize the call.
+    pub fn submit_round_vote(
+        env: Env,
+        source: Address,
+        asset: Address,
+        round: u32,
+        price: i128,
+        timestamp: u64,
+    ) {
+        consensus_rounds::submit_round_vote(&env, source, asset, round, price, timestamp);
+    }
+
+    /// Finalizes a price once `required_rounds` consecutive, independent rounds
+    /// have agreed. Panics with [`ErrorCode::NoData`] when they have not.
+    pub fn finalize_confirmation(env: Env, asset: Address) -> ConfirmedPrice {
+        consensus_rounds::finalize_confirmation(&env, asset)
+    }
+
+    /// Returns the most recently confirmed price for an asset, if any.
+    pub fn get_confirmed_price(env: Env, asset: Address) -> Option<ConfirmedPrice> {
+        consensus_rounds::get_confirmed_price(&env, &asset)
+    }
+
+    /// Returns the current round's status, including its liveness deadline.
+    pub fn get_round_status(env: Env, asset: Address) -> RoundStatus {
+        consensus_rounds::get_round_status(&env, &asset)
+    }
+
+    /// Abandons a stalled round so a fresh one can start, returning the new round.
+    pub fn abandon_stalled_round(env: Env, asset: Address) -> u32 {
+        consensus_rounds::abandon_stalled_round(&env, asset)
+    }
+
+    /// Returns the tally recorded for a round that reached quorum, if any.
+    pub fn get_round_tally(env: Env, asset: Address, round: u32) -> Option<RoundTally> {
+        consensus_rounds::get_round_tally(&env, &asset, round)
+    }
+
+    /// Durably records an equivocation penalty against a source for one round.
+    ///
+    /// Permissionless — the evidence is on-chain, so anyone may report. This is
+    /// a separate call from `submit_round_vote` because the conflicting
+    /// submission panics, and a panicking call rolls back its own writes.
+    pub fn report_equivocation(env: Env, source: Address, asset: Address, round: u32) {
+        consensus_rounds::report_equivocation(&env, source, asset, round);
+    }
+
+    /// Returns a source's lifetime equivocation count for an asset.
+    pub fn get_equivocation_count(env: Env, source: Address, asset: Address) -> u32 {
+        consensus_rounds::get_equivocation_count(&env, &source, &asset)
+    }
+
+    /// Returns whether a source is barred from a round for equivocation.
+    pub fn is_barred_from_round(env: Env, source: Address, asset: Address, round: u32) -> bool {
+        consensus_rounds::is_barred_from_round(&env, &source, &asset, round)
+    }
+
+    // =========================================================================
+    // #478 — On-chain derived price feeds
+    // =========================================================================
+
+    /// Pins a canonical base price for an asset, used by the derivation engine
+    /// in preference to the live aggregate. Admin only.
+    pub fn set_derived_feed_base(env: Env, asset: Address, price: i128, timestamp: u64) {
+        derived_feeds::set_derived_feed_base(&env, asset, price, timestamp);
+    }
+
+    /// Returns the inverse feed `1 / asset`.
+    pub fn get_inverse_feed(env: Env, asset: Address) -> DerivedFeed {
+        derived_feeds::get_inverse_feed(&env, asset)
+    }
+
+    /// Returns the pairwise ratio feed `base / quote`.
+    pub fn get_ratio_feed(env: Env, base: Address, quote: Address) -> DerivedFeed {
+        derived_feeds::get_ratio_feed(&env, base, quote)
+    }
+
+    /// Returns the triangulated cross-rate `(base / pivot) * (pivot / quote)`.
+    pub fn get_triangulated_feed(
+        env: Env,
+        base: Address,
+        pivot: Address,
+        quote: Address,
+    ) -> DerivedFeed {
+        derived_feeds::get_triangulated_feed(&env, base, pivot, quote)
+    }
+
+    /// Computes a derived feed of any kind, with full provenance.
+    pub fn compute_derived_feed(
+        env: Env,
+        kind: DerivedFeedKind,
+        base: Address,
+        quote: Address,
+        pivot: Option<Address>,
+    ) -> DerivedFeed {
+        derived_feeds::compute_derived_feed(&env, kind, base, quote, pivot)
+    }
 }
+
+#[cfg(test)]
+mod storage_tier_tests;
+
+#[cfg(test)]
+mod auto_renewal_tests;
+
+#[cfg(test)]
+mod consensus_rounds_tests;
+
+#[cfg(test)]
+mod derived_feeds_tests;
 
 #[cfg(test)]
 mod test_helpers;
@@ -5903,3 +6509,6 @@ mod event_integrity_tests;
 
 #[cfg(test)]
 mod invariant_harness_tests;
+
+#[cfg(test)]
+mod issues_483_486_tests;

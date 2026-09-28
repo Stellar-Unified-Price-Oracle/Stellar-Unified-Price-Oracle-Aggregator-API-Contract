@@ -260,6 +260,10 @@ See [`docs/error-codes.md`](docs/error-codes.md) for the full registry with caus
 | [Integration Case Studies](docs/case-studies.md) | Lending, DEX and payments integrations with threat models, worked exploits and countermeasures |
 | [Seam Invariant Catalogue](docs/seam-invariants.md) | Cross-module invariants and the regression tests that enforce them |
 | [SLA](docs/SLA.md) | Service levels and the machine-enforceable clause map checked by `services/sla_monitor` |
+| [Runbook](docs/runbook.md) | Every paging alert mapped to meaning, first check, mitigation, escalation, resolution, owner and review cadence (#527) |
+| [Incident Management](docs/incident-management/README.md) | Blameless postmortem process, template, index and tracked action items (#528) |
+| [Backup and Restore](docs/backup-restore.md) | Off-chain state inventory, encrypted backups, point-in-time restore and reconciliation (#529) |
+| [Capacity Planning](docs/capacity-planning.md) | Ingest, storage and ledger-budget model with headroom targets and load shedding (#530) |
 
 ## Documentation
 

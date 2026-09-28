@@ -15,7 +15,7 @@ Authority values:
 | `contract-self` | Callable only with `current_contract_address` as the configured oracle (cross-contract self call). |
 | `public` | Permissionless by design (e.g. `initialize` guarded by `AlreadyInitialized`, keeper/crank functions, idempotent maintenance). Reviewed in #467: none of these write configuration, roles, or prices without a downstream check. |
 
-Totals: 476 endpoints — admin: 177, caller: 49, contract-self: 1, public: 9, public-read: 236, signature: 4
+Totals: 494 endpoints — admin: 183, caller: 49, contract-self: 1, public: 10, public-read: 247, signature: 4
 
 | Endpoint | Authority |
 |---|---|
@@ -149,6 +149,26 @@ Totals: 476 endpoints — admin: 177, caller: 49, contract-self: 1, public: 9, p
 | `get_diversity_thresholds` | `public-read` |
 | `check_diversity_alert` | `public-read` |
 | `get_last_diversity_breach_ledger` | `public-read` |
+
+| `set_degradation_config` | `admin` |
+| `get_degradation_config` | `public-read` |
+| `get_degradation_stats` | `public-read` |
+| `get_degradation_window_stats` | `public-read` |
+| `set_anomaly_retention` | `admin` |
+| `get_anomaly_retention` | `public-read` |
+| `get_flag_explanations` | `public-read` |
+| `explain_submission` | `public-read` |
+| `get_latest_flag_explanation` | `public-read` |
+| `get_aggregate_flag_explanations` | `public-read` |
+| `set_drift_thresholds` | `admin` |
+| `get_drift_thresholds` | `public-read` |
+| `record_drift_sample` | `public` |
+| `get_drift_report` | `public-read` |
+| `reset_drift_window` | `admin` |
+| `set_coverage_thresholds` | `admin` |
+| `get_coverage_thresholds` | `public-read` |
+| `get_coverage_report` | `public-read` |
+| `get_coverage_gap_list` | `public-read` |
 | `set_source_bond` | `admin` |
 | `get_source_bond` | `public-read` |
 | `deposit_source_bond` | `caller:source` |
@@ -495,3 +515,22 @@ Totals: 476 endpoints — admin: 177, caller: 49, contract-self: 1, public: 9, p
 | `set_twap_min_cardinality` | `admin` |
 | `get_twap_min_cardinality` | `public-read` |
 | `get_twap_ex` | `public-read` |
+| `remove_sources` | `admin` |
+| `recompute_asset_price` | `public` |
+| `is_source_excluded` | `public-read` |
+| `get_recompute_affected_assets` | `public-read` |
+| `set_price_bounds_tier` | `admin` |
+| `get_price_bounds_tier` | `public-read` |
+| `clear_price_bounds_tier` | `admin` |
+| `get_price_bound_status` | `public-read` |
+| `set_deferral_policy` | `admin` |
+| `get_deferral_policy` | `public-read` |
+| `clear_deferral_policy` | `admin` |
+| `get_publication_status` | `public-read` |
+| `set_correction_scope` | `admin` |
+| `get_correction_scope` | `public-read` |
+| `correct_price` | `admin` |
+| `get_price_revisions` | `public-read` |
+| `get_price_revision` | `public-read` |
+| `get_original_price` | `public-read` |
+| `get_correction_count` | `public-read` |

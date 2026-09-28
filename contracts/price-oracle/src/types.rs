@@ -811,6 +811,57 @@ pub enum DataKey {
     /// Minimum distinct observations a TWAP window must contain (u32).
     TwapMinCardinality,
 
+    /// Governor authorization epoch (u32); bumping it revokes every op grant.
+    GovernorEpoch,
+    /// Epoch (u32) at which a governance operation name was granted.
+    GovernorOpGrant(String),
+    /// Per-asset aggregation policy override (`PolicyOverride`).
+    AssetPolicy(Address),
+    /// Per-class aggregation policy override (`PolicyOverride`).
+    ClassPolicy(u32),
+    /// Asset class id an asset belongs to (u32).
+    AssetClassId(Address),
+    /// Per-asset freshness weighting curve (`FreshnessCurve`).
+    FreshnessCurve(Address),
+    /// Minimum distinct observations a TWAP window must contain (u32).
+    TwapMinCardinality,
+
+    // -------------------------------------------------------------------------
+    // #495: Degraded-mode serving analytics
+    // -------------------------------------------------------------------------
+    /// Instrumentation switch + sampling/window configuration.
+    DegradationConfig,
+    /// Per-(asset, window) serving counters, one slot per [`DegradationState`].
+    DegradationCounters(Address, u32),
+
+    // -------------------------------------------------------------------------
+    // #496: Anomaly explanation reports
+    // -------------------------------------------------------------------------
+    /// Bounded ring of per-source flag explanations for an asset.
+    AnomalyLog(Address, Address),
+    /// Bounded ring of aggregate-level flag explanations for an asset.
+    AggregateAnomalyLog(Address),
+    /// Maximum retained explanations per log (ring size).
+    AnomalyRetention,
+
+    // -------------------------------------------------------------------------
+    // #497: Oracle-vs-benchmark drift detection
+    // -------------------------------------------------------------------------
+    /// Rolling, bounded window of time-aligned signed bias samples (bps).
+    DriftWindow(Address),
+    /// Count of samples discarded for exceeding the snapshot alignment tolerance.
+    DriftMisaligned(Address),
+    /// Drift alert thresholds.
+    DriftThresholds,
+    /// Ledger of the last emitted drift alert, per asset (alert de-duplication).
+    DriftLastAlertLedger(Address),
+
+    // -------------------------------------------------------------------------
+    // #498: Source coverage gap analysis
+    // -------------------------------------------------------------------------
+    /// Coverage thresholds (minimum independent sources per asset).
+    CoverageThresholds,
+
     // -------------------------------------------------------------------------
     // #399: Source diversity — effective independence thresholds
     // -------------------------------------------------------------------------
@@ -818,6 +869,66 @@ pub enum DataKey {
     DiversityThresholds,
     /// Ledger of the last diversity-threshold breach (u32, for alert damping).
     DiversityLastBreachLedger,
+
+    // -------------------------------------------------------------------------
+    // #483: Aggregate recomputation on source-set change
+    // -------------------------------------------------------------------------
+    /// Ledger at which a forced aggregate recomputation last ran (u32).
+    LastForcedRecompute,
+
+    // -------------------------------------------------------------------------
+    // #484: Two-tier price bounds (soft clamp / hard reject)
+    // -------------------------------------------------------------------------
+    /// Soft/hard bound pair for an asset (BoundsTier).
+    AssetBoundsTier(Address),
+    /// Last bound decision published for an asset (BoundStatus).
+    AssetBoundStatus(Address),
+
+    // -------------------------------------------------------------------------
+    // #485: Deferred (quorum-within-window) aggregation
+    // -------------------------------------------------------------------------
+    /// Deferral policy for an asset (DeferralPolicy).
+    AssetDeferral(Address),
+    /// Publication state for a deferrable asset (PublicationStatus).
+    AssetPublicationState(Address),
+
+    // -------------------------------------------------------------------------
+    // #486: Auditable price corrections
+    // -------------------------------------------------------------------------
+    /// Immutable revision chain for an asset's published aggregate (Vec<PriceRevision>).
+    PriceRevisions(Address),
+    /// The first-ever published aggregate value, preserved across corrections.
+    PriceOriginal(Address),
+    /// Count of corrections applied, used to enforce the per-asset correction cap.
+    PriceCorrectionCount(Address),
+    /// Global correction limits (CorrectionScope).
+    CfgCorrectionScope,
+    /// Global publication-path guard flags (PublicationGuards). Read exactly
+    /// once per aggregation pass; when every bit is clear the whole optional
+    /// post-publication path is skipped, so an oracle that uses none of
+    /// #483/#484/#485 pays a single storage read for all of them.
+    PublicationGuards,
+
+    // -------------------------------------------------------------------------
+    // Restored variants referenced by the wired policy / governor / TWAP /
+    // freshness modules. These were referenced from `policy.rs`,
+    // `external_governance.rs`, `freshness_weight.rs` and `prices.rs` but were
+    // absent from the enum, so the crate could not compile.
+    // -------------------------------------------------------------------------
+    /// Per-asset aggregation policy override (Option<PolicyOverride>).
+    AssetPolicy(Address),
+    /// Aggregation policy override for an asset class (Option<PolicyOverride>).
+    ClassPolicy(u32),
+    /// Asset class an asset belongs to (u32).
+    AssetClassId(Address),
+    /// Freshness-weighting curve for an asset (FreshnessCurve).
+    FreshnessCurve(Address),
+    /// Current external-governor authorization epoch (u32).
+    GovernorEpoch,
+    /// Per-operation grant to the external governor (bool).
+    GovernorOpGrant(String),
+    /// Minimum distinct TWAP observations required (u32).
+    TwapMinCardinality,
 }
 
 /// A price submission from a single oracle source for a specific asset.
@@ -2929,6 +3040,149 @@ pub struct ConfidenceBand {
     pub low_confidence: bool,
 }
 
+/// Two-tier price bounds for an asset (#484).
+///
+/// Ordering is validated on write: `0 < hard_min <= soft_min` and
+/// `soft_max <= hard_max`. A value outside `[soft_min, soft_max]` is clamped
+/// and flagged; a value outside `[hard_min, hard_max]` is rejected outright.
+/// See `docs/price-bounds-tiers.md`.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct BoundsTier {
+    /// Soft lower bound: an aggregate below it is clamped up to it.
+    pub soft_min: i128,
+    /// Soft upper bound: an aggregate above it is clamped down to it.
+    pub soft_max: i128,
+    /// Hard lower bound: an aggregate below it is rejected, not published.
+    pub hard_min: i128,
+    /// Hard upper bound: an aggregate above it is rejected, not published.
+    pub hard_max: i128,
+}
+
+/// Consumer-visible outcome of the bound check for the latest aggregate (#484).
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct BoundStatus {
+    /// The raw, pre-clamp aggregate.
+    pub raw_price: i128,
+    /// The published value (clamped when `clamped` is true).
+    pub price: i128,
+    /// True when the published value was clamped to a soft bound.
+    pub clamped: bool,
+    /// True when the raw aggregate was outside the hard bounds and rejected.
+    pub rejected: bool,
+    /// Consumer-visible reason code (see `BoundReason`).
+    pub reason_code: u32,
+    /// Ledger at which the decision was taken.
+    pub ledger: u32,
+}
+
+/// Reason codes carried by [`BoundStatus::reason_code`] (#484).
+///
+/// `0` is the only value that means "in bounds"; every other value is a
+/// degradation or failure that a consumer is expected to handle explicitly.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[contracttype]
+pub enum BoundReason {
+    /// The aggregate lies inside the soft bounds.
+    InBounds = 0,
+    /// Clamped up to `soft_min`.
+    ClampedToSoftMin = 1,
+    /// Clamped down to `soft_max`.
+    ClampedToSoftMax = 2,
+    /// Rejected: below `hard_min`.
+    RejectedBelowHardMin = 3,
+    /// Rejected: above `hard_max`.
+    RejectedAboveHardMax = 4,
+}
+
+/// Quorum-within-window deferral policy for an asset (#485).
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct DeferralPolicy {
+    /// Submissions required inside the window before publication is allowed.
+    pub quorum: u32,
+    /// Length of the submission window, in seconds.
+    pub window_secs: u64,
+    /// Hard bound on how long publication may stay deferred, in seconds.
+    pub max_defer_secs: u64,
+}
+
+/// Publication lifecycle of a deferrable asset (#485).
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[contracttype]
+pub enum PublicationState {
+    /// No aggregate has ever been published for the asset.
+    Absent = 0,
+    /// Submissions exist but quorum has not been reached inside the window.
+    Deferred = 1,
+    /// A quorum-backed aggregate is live.
+    Published = 2,
+    /// Deferral outlived `max_defer_secs`; the asset is starved.
+    Stale = 3,
+}
+
+/// Deferral state exposed to consumers, with the missing-source count (#485).
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct PublicationStatus {
+    /// Current lifecycle state.
+    pub state: PublicationState,
+    /// Submissions counted inside the current window.
+    pub received: u32,
+    /// Submissions still required (`quorum.saturating_sub(received)`).
+    pub missing: u32,
+    /// Configured quorum.
+    pub quorum: u32,
+    /// Configured window, in seconds.
+    pub window_secs: u64,
+    /// Unix timestamp at which the current deferral began.
+    pub deferred_since: u64,
+    /// Configured deferral bound, in seconds.
+    pub max_defer_secs: u64,
+    /// Ledger at which the state was last written.
+    pub ledger: u32,
+}
+
+/// One immutable link in a published price's revision chain (#486).
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct PriceRevision {
+    /// Zero-based position in the chain; index 0 is the original publication.
+    pub index: u32,
+    /// The value published at this revision.
+    pub price: i128,
+    /// Unix timestamp of the publication.
+    pub timestamp: u64,
+    /// Ledger of the publication.
+    pub ledger: u32,
+    /// Address that produced this revision (the contract for the original).
+    pub actor: Address,
+    /// Mandatory human-readable reason (empty only for the original entry).
+    pub reason: String,
+    /// True when this entry was produced by `correct_price`.
+    pub corrected: bool,
+}
+
+/// Cheap global guard flags consulted once per aggregation pass.
+///
+/// Bundling the optional-feature checks behind one read keeps the default
+/// publication path flat: when no source is excluded and no asset has opted
+/// into bounds or deferral, every optional lookup below is skipped.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+#[contracttype]
+pub struct PublicationGuards {
+    /// At least one source is inactive or disqualified (#483).
+    pub any_source_excluded: bool,
+    /// At least one asset has soft/hard bounds configured (#484).
+    pub any_bounds_configured: bool,
+    /// At least one asset defers publication (#485).
+    pub any_deferral_configured: bool,
+    /// The admin has configured a correction scope (#486), so published
+    /// aggregates need their original value preserved.
+    pub any_corrections_enabled: bool,
+}
+
 /// TWAP value together with the observation statistics backing it.
 #[derive(Clone, Debug, Eq, PartialEq)]
 #[contracttype]
@@ -2942,4 +3196,32 @@ pub struct TwapResult {
     pub max_weight_bps: u32,
     /// True when the whole window rests on a single observation.
     pub concentrated: bool,
+}
+
+/// Pairwise source disagreement index for one asset at one ledger (#494).
+///
+/// Scale-invariant by construction: every deviation is divided by the
+/// median price, so an index computed on 8-decimal prices equals the index
+/// computed on the same prices scaled to 18 decimals. See
+/// `docs/disagreement-index.md` for interpretation.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct DisagreementIndex {
+    pub asset: Address,
+    pub ledger: u32,
+    /// Median of all pairwise relative deviations, in bps. `0` when fewer
+    /// than two sources contributed.
+    pub index_bps: u32,
+    /// Largest pairwise relative deviation, in bps. This is what separates
+    /// a lone dissenter (index low, `max_bps` high) from a broad split
+    /// (both high).
+    pub max_bps: u32,
+    /// Rolling median of the last [`crate::disagreement::BASELINE_WINDOW`]
+    /// index values, in bps; the value the current index is compared to.
+    pub baseline_bps: u32,
+    /// `index_bps > baseline_bps * 2` (and `baseline_bps > 0`).
+    pub above_baseline: bool,
+    pub num_sources: u32,
+    /// `num_sources < 3`: the index rests on at most one pair.
+    pub low_sample: bool,
 }
