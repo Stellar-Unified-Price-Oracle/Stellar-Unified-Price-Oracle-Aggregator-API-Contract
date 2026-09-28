@@ -1227,10 +1227,13 @@ fn test_submit_price_returns_early_when_sources_insufficient() {
     let stored = client.get_source_price(&asset, &source);
     assert_eq!(stored.price, 200i128);
     assert!(client.get_price(&asset, &0u64).is_none());
+    // #496 adds one more event on this path: the anomaly explanation for the
+    // below-quorum flag, which the `SourcesInsufficientEvent` alone never
+    // explained.
     assert_eq!(
         events.len(),
-        2,
-        "expected only price + insufficiency events"
+        3,
+        "expected only the price, insufficiency and explanation events"
     );
 }
 

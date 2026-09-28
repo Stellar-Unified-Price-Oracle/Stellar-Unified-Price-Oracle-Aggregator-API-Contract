@@ -2587,7 +2587,7 @@ pub struct SourceDiversityUpdatedEvent {
 /// Emitted when diversity thresholds are changed by the admin.
 #[contractevent]
 #[derive(Clone)]
-pub struct DiversityThresholdsChangedEvent {
+pub struct DivThreshChangedEvent {
     #[topic]
     pub admin: Address,
     pub min_effective_sources: u32,
@@ -2599,7 +2599,8 @@ pub struct DiversityThresholdsChangedEvent {
 /// the raw source count looks healthy (the Sybil / nominal-diversity trap).
 #[contractevent]
 #[derive(Clone)]
-pub struct DiversityThresholdBreachedEvent {
+pub struct DivThreshBreachedEvent {
+    #[topic]
     pub raw_count: u32,
     pub effective_independent_count: u32,
     pub largest_domain_size: u32,
@@ -2661,4 +2662,61 @@ pub struct InfluenceCapAppliedEvent {
     pub asset: Address,
     pub cap_bps: u32,
     pub influence_bps: soroban_sdk::Vec<u32>,
+}
+
+/// Emitted on a consumer read that was served a degraded value (#495).
+///
+/// `state` is the `DegradationState` discriminant: `0 = Fresh`, `1 = Stale`,
+/// `2 = Clamped`, `3 = LowConfidence`, `4 = Deferred`. Severe states
+/// (`Clamped`, `Deferred`) set `severe = true` and are never sampled; the others
+/// are emitted on a `1 / sample_every` slice, with `window` carried on every
+/// event so the per-window rate stays reconstructible off-chain.
+///
+/// Topics: `asset`
+#[contractevent]
+#[derive(Clone)]
+pub struct DegradedReadEvent {
+    #[topic]
+    pub asset: Address,
+    pub state: u32,
+    pub window: u32,
+    pub severe: bool,
+}
+
+/// Emitted for every flag raised by an anomaly rule, carrying the same inputs
+/// the stored `AnomalyExplanation` holds (#496). The event is emitted even when
+/// the bounded ring drops the record, so explanations remain reconstructible
+/// from the event stream alone.
+///
+/// Topics: `asset`, `subject`
+#[contractevent]
+#[derive(Clone)]
+pub struct AnomalyExplainedEvent {
+    #[topic]
+    pub asset: Address,
+    #[topic]
+    pub subject: Address,
+    pub rule_id: u32,
+    pub rule: Symbol,
+    pub observed: i128,
+    pub reference: i128,
+    pub threshold: i128,
+    pub rejected: bool,
+}
+
+/// Emitted for every oracle-vs-benchmark comparison (#497).
+///
+/// `aligned = false` means the two snapshots were further apart than the
+/// configured tolerance; `bias_bps` is then `0` and the sample was counted in
+/// `misaligned_skipped` rather than folded into the drift window. `bias_bps` is
+/// signed: positive means the oracle priced above the benchmark.
+///
+/// Topics: `asset`
+#[contractevent]
+#[derive(Clone)]
+pub struct DriftSampleRecordedEvent {
+    #[topic]
+    pub asset: Address,
+    pub bias_bps: i128,
+    pub aligned: bool,
 }

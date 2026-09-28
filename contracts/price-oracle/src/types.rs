@@ -797,6 +797,57 @@ pub enum DataKey {
     /// Allow-list flag for a governance operation name (bool).
     GovernorAllowedOp(String),
 
+    /// Governor authorization epoch (u32); bumping it revokes every op grant.
+    GovernorEpoch,
+    /// Epoch (u32) at which a governance operation name was granted.
+    GovernorOpGrant(String),
+    /// Per-asset aggregation policy override (`PolicyOverride`).
+    AssetPolicy(Address),
+    /// Per-class aggregation policy override (`PolicyOverride`).
+    ClassPolicy(u32),
+    /// Asset class id an asset belongs to (u32).
+    AssetClassId(Address),
+    /// Per-asset freshness weighting curve (`FreshnessCurve`).
+    FreshnessCurve(Address),
+    /// Minimum distinct observations a TWAP window must contain (u32).
+    TwapMinCardinality,
+
+    // -------------------------------------------------------------------------
+    // #495: Degraded-mode serving analytics
+    // -------------------------------------------------------------------------
+    /// Instrumentation switch + sampling/window configuration.
+    DegradationConfig,
+    /// Per-(asset, window) serving counters, one slot per [`DegradationState`].
+    DegradationCounters(Address, u32),
+
+    // -------------------------------------------------------------------------
+    // #496: Anomaly explanation reports
+    // -------------------------------------------------------------------------
+    /// Bounded ring of per-source flag explanations for an asset.
+    AnomalyLog(Address, Address),
+    /// Bounded ring of aggregate-level flag explanations for an asset.
+    AggregateAnomalyLog(Address),
+    /// Maximum retained explanations per log (ring size).
+    AnomalyRetention,
+
+    // -------------------------------------------------------------------------
+    // #497: Oracle-vs-benchmark drift detection
+    // -------------------------------------------------------------------------
+    /// Rolling, bounded window of time-aligned signed bias samples (bps).
+    DriftWindow(Address),
+    /// Count of samples discarded for exceeding the snapshot alignment tolerance.
+    DriftMisaligned(Address),
+    /// Drift alert thresholds.
+    DriftThresholds,
+    /// Ledger of the last emitted drift alert, per asset (alert de-duplication).
+    DriftLastAlertLedger(Address),
+
+    // -------------------------------------------------------------------------
+    // #498: Source coverage gap analysis
+    // -------------------------------------------------------------------------
+    /// Coverage thresholds (minimum independent sources per asset).
+    CoverageThresholds,
+
     // -------------------------------------------------------------------------
     // #399: Source diversity — effective independence thresholds
     // -------------------------------------------------------------------------
@@ -2928,4 +2979,232 @@ pub struct TwapResult {
     pub max_weight_bps: u32,
     /// True when the whole window rests on a single observation.
     pub concentrated: bool,
+}
+
+/// #495 — Instrumented switch and reporting shape for degraded-mode serving.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct DegradationConfig {
+    /// When false, no degraded read is counted or emitted (zero read overhead).
+    pub enabled: bool,
+    /// Length of one rolling window in ledgers. `0` accumulates everything into
+    /// the single window `0`.
+    pub window_ledgers: u32,
+    /// Emit a `DegradedReadEvent` for every Nth counted degradation. `0` or `1`
+    /// emits every one. Severe states are NEVER sampled.
+    pub sample_every: u32,
+    /// When false, no window counter is written (events only).
+    pub count_windows: bool,
+}
+
+/// #495 — Why a consumer read was degraded. The variants form a strict
+/// precedence order (`degradation::classify` returns the first match), so
+/// every degraded read is attributed to exactly one reason.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, PartialOrd, Ord)]
+#[contracttype]
+pub enum DegradationState {
+    /// Served a value unchanged and inside every configured bound.
+    Fresh = 0,
+    /// The value was older than the caller's `max_age` or the asset resolution.
+    Stale = 1,
+    /// The value was pinned by a freeze or admin override rather than by the
+    /// median of live submissions.
+    Clamped = 2,
+    /// The value was derived from fewer sources than `min_sources_required`.
+    LowConfidence = 3,
+    /// A fallback (TWAP / last raw aggregate) was served because the live
+    /// aggregation path was unavailable (circuit breaker tripped).
+    Deferred = 4,
+}
+
+impl DegradationState {
+    /// All states, in precedence order.
+    pub const ALL: [DegradationState; 5] = [
+        DegradationState::Fresh,
+        DegradationState::Stale,
+        DegradationState::Clamped,
+        DegradationState::LowConfidence,
+        DegradationState::Deferred,
+    ];
+
+    /// Whether a read in this state is degraded at all.
+    pub fn is_degraded(self) -> bool {
+        self != DegradationState::Fresh
+    }
+
+    /// Rare-but-severe states. Sampling must never hide these, so they are
+    /// always counted and always emitted.
+    pub fn is_severe(self) -> bool {
+        matches!(self, DegradationState::Clamped | DegradationState::Deferred)
+    }
+}
+
+/// #495 — Degradation counts for one asset over a rolling window.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct DegradationStats {
+    /// Window index these counts belong to (`sequence / window_ledgers`).
+    pub window: u32,
+    /// Total degraded reads counted in the window, all states.
+    pub total_degraded: u32,
+    /// Per-state counts, indexed by the `DegradationState` discriminant
+    /// (`0 = Fresh` … `4 = Deferred`).
+    pub by_state: soroban_sdk::Vec<u32>,
+    /// Counts of severe (`Clamped` + `Deferred`) reads — never sampled.
+    pub severe: u32,
+    /// Individual per-state events emitted, including sampled-out reads.
+    /// Off-chain aggregators reconstruct the true rate from these.
+    pub emitted_events: u32,
+}
+
+/// #496 — Why a submission or aggregate was flagged.
+///
+/// A flag without an explanation is unactionable, so every flagging path
+/// produces one of these. An explanation is a pure function of the rule inputs,
+/// so identical inputs always yield an identical explanation.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct AnomalyExplanation {
+    /// Stable rule identifier (see [`AnomalyRule`]); never reused.
+    pub rule_id: u32,
+    /// Short human-readable rule name (e.g. `"bounds"`).
+    pub rule: soroban_sdk::Symbol,
+    /// Address the explanation is about (the source for submission-level
+    /// flags; the asset for aggregate-level flags).
+    pub subject: Address,
+    /// The asset whose price was flagged.
+    pub asset: Address,
+    /// Ledger in which the flag was raised.
+    pub ledger: u32,
+    /// The value the rule compared (e.g. the submitted price, or the aggregate).
+    pub observed: i128,
+    /// The reference the rule compared against (e.g. the prior price, or a bound).
+    pub reference: i128,
+    /// The threshold that was breached, in the rule's own units.
+    pub threshold: i128,
+    /// `true` when the submission was rejected outright, `false` when it was
+    /// flagged but still accepted.
+    pub rejected: bool,
+}
+
+/// #496 — The flagging rules. Ids are stable and never reused.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[contracttype]
+pub enum AnomalyRule {
+    /// Submitted price outside the asset's configured `[min_price, max_price]`.
+    PriceOutOfBounds = 1,
+    /// Submitted price was zero or negative.
+    NonPositivePrice = 2,
+    /// Submitted timestamp is further than `timestamp_threshold` ahead of the
+    /// ledger clock.
+    FutureTimestamp = 3,
+    /// Submission is older than the source's previous submission for the asset.
+    StaleSubmission = 4,
+    /// Submission would move the aggregate by more than
+    /// `max_change_bps_per_ledger`.
+    ChangeRateBreach = 5,
+    /// The price ratio against a configured correlation pair fell outside its
+    /// band.
+    CorrelationBand = 6,
+    /// Fewer sources contributed than `min_sources_required`, so the aggregate
+    /// was served below quorum.
+    InsufficientSources = 7,
+    /// The interquartile confidence band collapsed (too few distinct prices).
+    LowConfidenceBand = 8,
+}
+
+impl AnomalyRule {
+    /// Short stable name used in explanations and events.
+    pub fn name(self) -> soroban_sdk::Symbol {
+        match self {
+            AnomalyRule::PriceOutOfBounds => soroban_sdk::symbol_short!("bounds"),
+            AnomalyRule::NonPositivePrice => soroban_sdk::symbol_short!("nonpos"),
+            AnomalyRule::FutureTimestamp => soroban_sdk::symbol_short!("future"),
+            AnomalyRule::StaleSubmission => soroban_sdk::symbol_short!("stale"),
+            AnomalyRule::ChangeRateBreach => soroban_sdk::symbol_short!("chgrate"),
+            AnomalyRule::CorrelationBand => soroban_sdk::symbol_short!("corr"),
+            AnomalyRule::InsufficientSources => soroban_sdk::symbol_short!("quorum"),
+            AnomalyRule::LowConfidenceBand => soroban_sdk::symbol_short!("lowconf"),
+        }
+    }
+
+    /// Every rule, for exhaustive per-path tests and retention sweeps.
+    pub const ALL: [AnomalyRule; 8] = [
+        AnomalyRule::PriceOutOfBounds,
+        AnomalyRule::NonPositivePrice,
+        AnomalyRule::FutureTimestamp,
+        AnomalyRule::StaleSubmission,
+        AnomalyRule::ChangeRateBreach,
+        AnomalyRule::CorrelationBand,
+        AnomalyRule::InsufficientSources,
+        AnomalyRule::LowConfidenceBand,
+    ];
+
+    /// Whether the rule rejects the submission outright, as opposed to flagging
+    /// it while still accepting the price. Drives `AnomalyExplanation::rejected`.
+    pub fn is_rejecting(self) -> bool {
+        matches!(
+            self,
+            AnomalyRule::PriceOutOfBounds
+                | AnomalyRule::NonPositivePrice
+                | AnomalyRule::FutureTimestamp
+                | AnomalyRule::StaleSubmission
+                | AnomalyRule::ChangeRateBreach
+        )
+    }
+}
+
+/// #497 — Long-horizon oracle-vs-benchmark drift metrics for one asset.
+///
+/// Divergence is a signal, not proof: the benchmark may be wrong too. These
+/// metrics are read-only reporting and never mutate an on-chain price.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct DriftReport {
+    /// Time-aligned samples currently in the rolling window.
+    pub samples: u32,
+    /// Samples discarded because the two snapshots were further apart than
+    /// `max_alignment_secs` (see `docs/drift-detection.md`).
+    pub misaligned_skipped: u32,
+    /// Signed mean bias of the oracle against the benchmark, in bps. Positive
+    /// means the oracle prices above the benchmark.
+    pub mean_bias_bps: i128,
+    /// Largest absolute single-sample divergence in the window, in bps.
+    pub max_abs_divergence_bps: i128,
+    /// Share of samples that individually breach `bias_threshold_bps` on the
+    /// same side as the mean, in bps (0–10000). This is what separates
+    /// sustained directional drift from a transient large divergence.
+    pub directional_consistency_bps: u32,
+    /// `true` when the window shows a sustained directional bias beyond
+    /// `bias_threshold_bps`.
+    pub sustained_drift: bool,
+    /// Threshold used for `sustained_drift`.
+    pub bias_threshold_bps: i128,
+    /// Minimum samples required before drift may be declared.
+    pub min_samples: u32,
+}
+
+/// #498 — Coverage of one asset, by independence and by time.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct CoverageReport {
+    /// Raw number of registered sources admitted for the asset.
+    pub registered_sources: u32,
+    /// Distinct `(infra, upstream, owner)` failure domains among them — the
+    /// same independence definition as `source_diversity` (#399).
+    pub independent_domains: u32,
+    /// Required number of independent domains for this asset.
+    pub min_independent_required: u32,
+    /// `independent_domains < min_independent_required`, i.e. the asset cannot
+    /// meet quorum even if every registered source agrees.
+    pub below_independence_threshold: bool,
+    /// Windows observed for this asset so far.
+    pub windows_observed: u32,
+    /// Windows in which participation fell below the independence threshold.
+    pub low_participation_windows: u32,
+    /// Fewest distinct sources seen in any observed window.
+    pub min_window_participation: u32,
+    /// Advisory admission recommendations (never enforced — see
+    /// `docs/source-coverage.md`).
+    pub recommendations: soroban_sdk::Vec<soroban_sdk::String>,
 }

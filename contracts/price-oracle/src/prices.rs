@@ -9,6 +9,7 @@ use crate::admin::{
 use crate::assets::{
     get_price_bounds, is_asset_paused, is_circuit_breaker_tripped, trip_circuit_breaker,
 };
+use crate::degradation;
 use crate::events::{
     AggregationTriggeredEvent, EventLimitWarningEvent, HistoryPerAssetPrunedEvent,
     HistoryPrunedEvent, PriceAggregatedEvent, PriceOverrideExpiredEvent, PriceOverrideRemovedEvent,
@@ -23,9 +24,9 @@ use crate::storage::{
     read_oracle_sources, sort_prices, LEDGER_BUMP, LEDGER_THRESHOLD,
 };
 use crate::types::{
-    AggregatePrice, Asset, BftAggregationMethod, CompactionMetadata, DataKey, ErrorCode,
-    OracleSources, PriceData, PriceEntry, PriceHistoryEntry, PriceOverrideEntry, TwapMethod,
-    TwapResult,
+    AggregatePrice, AnomalyRule, Asset, BftAggregationMethod, CompactionMetadata, DataKey,
+    ErrorCode, OracleSources, PriceData, PriceEntry, PriceHistoryEntry, PriceOverrideEntry,
+    TwapMethod, TwapResult,
 };
 // Issue #290 — record submission against schedule (liveness check)
 use crate::scheduling;
@@ -260,6 +261,8 @@ fn validate_price_submission(
     }
 
     if is_asset_paused(env, asset) || is_circuit_breaker_tripped(env, asset) {
+        // Not an anomaly: a paused asset or a tripped breaker is an operational
+        // state rather than a rule violation, so it is not one of #496's rules.
         panic_with_error!(env, ErrorCode::AssetPaused);
     }
 
@@ -485,6 +488,17 @@ fn maybe_aggregate_after_submission(env: &Env, asset: &Address, current_ledger: 
         return true;
     }
 
+    // #496: falling below quorum is the flag, and both counts are already in
+    // hand, so the explanation is free on this path.
+    crate::explanation::record_aggregate(
+        env,
+        AnomalyRule::InsufficientSources,
+        asset,
+        contributing_sources as i128,
+        min_required as i128,
+        min_required as i128,
+    );
+
     SourcesInsufficientEvent {
         asset: asset.clone(),
         current_source_count: contributing_sources,
@@ -667,9 +681,22 @@ fn aggregate_asset(env: &Env, asset: &Address, current_ledger: u32, decimals: u3
             crate::events::ConfidenceBandEvent {
                 asset: asset.clone(),
                 price: median_price,
-                band,
+                band: band.clone(),
             }
             .publish(env);
+
+            // #496: a collapsed band is a flag on the aggregate, not on any one
+            // source, so it is explained against the asset.
+            if band.low_confidence {
+                crate::explanation::record_aggregate(
+                    env,
+                    AnomalyRule::LowConfidenceBand,
+                    asset,
+                    band.upper - band.lower,
+                    0,
+                    min_required as i128,
+                );
+            }
         }
 
         let agg_key = DataKey::Aggregate(asset.clone());
@@ -1330,15 +1357,30 @@ pub fn get_price(env: &Env, asset: Address, max_age: u64) -> Option<AggregatePri
     //  3) Aggregate branch:
     //       DataKey::Aggregate(asset)
     //       - resolution gating reads per-asset resolution via get_asset_resolution(env, asset)
+    //
+    // #495: every return path attributes the read to exactly one degradation
+    // state (see `degradation::classify`). A path that serves nothing because
+    // the value is stale is recorded as `Stale` too: the consumer did not get
+    // a usable value, which is precisely what the degradation rate measures.
     // ─────────────────────────────────────────────────────────────────────────────
 
     check_registered_asset(env, &asset);
     let current_ledger = env.ledger().sequence();
     let ledger_time = env.ledger().timestamp();
+    let min_sources = crate::policy::effective_policy(env, &asset).min_sources;
 
     // A freeze (#223) takes priority over overrides and the live aggregate: it
     // locks the price in place regardless of any other activity.
     if let Some(frozen) = crate::freeze::get_frozen_price(env, asset.clone()) {
+        // A frozen value is `Clamped`; it is `Stale` when it has also aged past
+        // the asset resolution, since staleness is what the caller must act on.
+        let resolution = get_asset_resolution(env, asset.clone()) as u64;
+        let is_stale = resolution > 0 && frozen.timestamp.saturating_add(resolution) < ledger_time;
+        degradation::record_read(
+            env,
+            &asset,
+            degradation::classify(is_stale, true, false, 0, min_sources, false),
+        );
         return Some(AggregatePrice {
             price: frozen.price,
             timestamp: frozen.timestamp,
@@ -1363,6 +1405,11 @@ pub fn get_price(env: &Env, asset: Address, max_age: u64) -> Option<AggregatePri
 
             // Only needed when override is active.
             let decimals = get_decimals(env);
+            degradation::record_read(
+                env,
+                &asset,
+                degradation::classify(false, false, true, 0, min_sources, false),
+            );
             return Some(AggregatePrice {
                 price: ovr.price,
                 timestamp: ledger_time,
@@ -1384,10 +1431,20 @@ pub fn get_price(env: &Env, asset: Address, max_age: u64) -> Option<AggregatePri
     }
 
     if is_circuit_breaker_tripped(env, &asset) {
-        return compute_twap_fallback(env, &asset).or_else(|| {
+        let fallback = compute_twap_fallback(env, &asset).or_else(|| {
             let key = DataKey::Aggregate(asset.clone());
             env.storage().persistent().get(&key)
         });
+        // The fallback carries no source count, so quorum is not the operative
+        // fact here: the live aggregation path being unavailable is. Passing
+        // `min_sources` as the contributing count lets the precedence walk fall
+        // through to `Deferred` instead of mislabelling it `LowConfidence`.
+        degradation::record_read(
+            env,
+            &asset,
+            degradation::classify(false, false, false, min_sources, min_sources, true),
+        );
+        return fallback;
     }
 
     let key = DataKey::Aggregate(asset.clone());
@@ -1405,6 +1462,11 @@ pub fn get_price(env: &Env, asset: Address, max_age: u64) -> Option<AggregatePri
             current_ledger,
         }
         .publish(env);
+        degradation::record_read(
+            env,
+            &asset,
+            degradation::classify(true, false, false, result.num_sources, min_sources, false),
+        );
         return None;
     }
 
@@ -1417,12 +1479,22 @@ pub fn get_price(env: &Env, asset: Address, max_age: u64) -> Option<AggregatePri
             current_ledger,
         }
         .publish(env);
+        degradation::record_read(
+            env,
+            &asset,
+            degradation::classify(true, false, false, result.num_sources, min_sources, false),
+        );
         return None;
     }
 
     env.storage()
         .persistent()
         .extend_ttl(&key, LEDGER_THRESHOLD, LEDGER_BUMP);
+    degradation::record_read(
+        env,
+        &asset,
+        degradation::classify_aggregate(&result, min_sources),
+    );
     Some(result)
 }
 
