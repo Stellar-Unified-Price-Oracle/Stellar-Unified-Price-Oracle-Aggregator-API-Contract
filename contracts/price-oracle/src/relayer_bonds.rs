@@ -210,7 +210,7 @@ pub fn get_relayer_failure_count(env: &Env, relayer: Address) -> u32 {
 /// # Errors
 ///
 /// * [`ErrorCode::NotAuthorized`] — caller is not the current admin.
-/// * [`ErrorCode::RelayerFailureThresholdNotReached`] — not forced, and the relayer's
+/// * [`ErrorCode::RelayerFailureThresholdMiss`] — not forced, and the relayer's
 ///   failure count is below the slash-eligibility threshold.
 pub fn slash_relayer(env: &Env, relayer: Address, force: bool) {
     let admin = get_admin(env);
@@ -220,7 +220,7 @@ pub fn slash_relayer(env: &Env, relayer: Address, force: bool) {
         let threshold = get_relayer_failure_threshold(env);
         let count = get_relayer_failure_count(env, relayer.clone());
         if count < threshold {
-            panic_with_error!(env, ErrorCode::RelayerFailureThresholdNotReached);
+            panic_with_error!(env, ErrorCode::RelayerFailureThresholdMiss);
         }
     }
 
