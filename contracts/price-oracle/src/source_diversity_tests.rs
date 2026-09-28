@@ -46,9 +46,7 @@ fn test_diversity_correlated_set_scores_low_while_raw_stays_high() {
     let regions = [
         "US", "EU", "AP", "SA", "AF", "US2", "EU2", "AP2", "SA2", "AF2",
     ];
-    let jurisdictions = [
-        "US", "DE", "SG", "BR", "NG", "US", "FR", "JP", "AR", "KE",
-    ];
+    let jurisdictions = ["US", "DE", "SG", "BR", "NG", "US", "FR", "JP", "AR", "KE"];
     for i in 0..10 {
         let name = std::format!("Sybil{}", i);
         let src = register_test_source(&e, &client, &name);
@@ -96,7 +94,12 @@ fn test_diversity_independent_set_scores_high() {
         "do-sgp1",
     ];
     let upstreams = [
-        "coinbase", "kraken", "binance", "bitstamp", "self-operated", "chainlink",
+        "coinbase",
+        "kraken",
+        "binance",
+        "bitstamp",
+        "self-operated",
+        "chainlink",
     ];
     let owners = ["op-a", "op-b", "op-c", "op-d", "op-e", "op-f"];
     for i in 0..6 {
@@ -170,8 +173,12 @@ fn test_diversity_threshold_validation() {
     e.mock_all_auths();
     let (client, _admin) = setup_contract(&e);
     // Zero minimum and over-range HHI must be rejected.
-    assert!(client.try_set_diversity_thresholds(&0u32, &5000u32).is_err());
-    assert!(client.try_set_diversity_thresholds(&3u32, &10001u32).is_err());
+    assert!(client
+        .try_set_diversity_thresholds(&0u32, &5000u32)
+        .is_err());
+    assert!(client
+        .try_set_diversity_thresholds(&3u32, &10001u32)
+        .is_err());
     assert!(client.try_set_diversity_thresholds(&3u32, &0u32).is_err());
 }
 
