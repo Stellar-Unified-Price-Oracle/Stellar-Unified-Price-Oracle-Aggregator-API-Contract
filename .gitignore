@@ -9,6 +9,14 @@
 test_snapshots/
 **/test_snapshots/
 
+# Hermetic integration harness output (#519)
+hermetic-artifacts/
+
+# cargo-mutants output (#412/#520)
+mutants-critical/
+mutants-general/
+mutants-per-module/
+
 # Kiro AI agent state
 .kiro/
 

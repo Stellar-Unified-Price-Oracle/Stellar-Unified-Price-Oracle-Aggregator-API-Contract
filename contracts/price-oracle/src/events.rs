@@ -1,5 +1,7 @@
 use soroban_sdk::{contractevent, Address, Bytes, BytesN, String, Symbol};
 
+use crate::types::OutlierConfig;
+
 /// Publishes a generic admin-action audit event.
 ///
 /// Used by every admin-mutating function to emit a consistent on-chain audit trail.
@@ -2585,9 +2587,12 @@ pub struct SourceDiversityUpdatedEvent {
 }
 
 /// Emitted when diversity thresholds are changed by the admin.
+///
+/// Named `DiversityThresholdSetEvent` (not `...ThresholdsChangedEvent`) because
+/// the snake-cased event symbol must fit `ScSymbol`'s 32-byte limit.
 #[contractevent]
 #[derive(Clone)]
-pub struct DiversityThresholdsEvent {
+pub struct DiversityThresholdSetEvent {
     #[topic]
     pub admin: Address,
     pub min_effective_sources: u32,
@@ -2597,9 +2602,12 @@ pub struct DiversityThresholdsEvent {
 /// Emitted when the active source set breaches diversity thresholds:
 /// effective count below minimum OR any axis HHI above maximum — even when
 /// the raw source count looks healthy (the Sybil / nominal-diversity trap).
-#[contractevent]
+///
+/// Named explicitly for the same 32-character `ScSymbol` reason as
+/// `DiversityThresholdsChangedEvent` above.
+#[contractevent(topics = ["diversity_thr_breached"])]
 #[derive(Clone)]
-pub struct DiversityBreachedEvent {
+pub struct DiversityBreachEvent {
     pub raw_count: u32,
     pub effective_independent_count: u32,
     pub largest_domain_size: u32,
@@ -2663,142 +2671,104 @@ pub struct InfluenceCapAppliedEvent {
     pub influence_bps: soroban_sdk::Vec<u32>,
 }
 
-// ---------------------------------------------------------------------------
-// #246 — Configurable history storage tier
-// ---------------------------------------------------------------------------
-
-/// Emitted whenever an asset's price-history storage tier is proposed, approved
-/// or executed. `actor` is the address whose authorization drove the change, so
-/// a coerced-admin downgrade stays attributable on-chain (#246).
+/// Emitted for every price the robust pre-filter removed before
+/// aggregation (#491). The full set for a round is also queryable via
+/// `get_outlier_exclusions`. Enough detail is included to reproduce the
+/// decision off-chain.
 ///
 /// Topics: `asset`
 #[contractevent]
 #[derive(Clone)]
-pub struct StorageTierChangedEvent {
+pub struct OutlierExcludedEvent {
     #[topic]
     pub asset: Address,
-    /// 0 = temporary, 1 = persistent.
-    pub old_tier: u32,
-    /// 0 = temporary, 1 = persistent.
-    pub new_tier: u32,
-    /// 0 = applied immediately, 1 = proposal, 2 = approval, 3 = execution.
-    pub action: u32,
-    pub actor: Address,
-    pub ledger: u32,
-}
-
-/// Emitted when existing history entries are copied from one storage tier to the
-/// other, reporting how many entries were migrated (#246).
-///
-/// Topics: `asset`
-#[contractevent]
-#[derive(Clone)]
-pub struct StorageTierMigratedEvent {
-    #[topic]
-    pub asset: Address,
-    /// 0 = temporary, 1 = persistent.
-    pub from_tier: u32,
-    /// 0 = temporary, 1 = persistent.
-    pub to_tier: u32,
-    pub entries_migrated: u32,
-    pub actor: Address,
-    pub ledger: u32,
-}
-
-// ---------------------------------------------------------------------------
-// #289 — Subscription auto-renewal
-// ---------------------------------------------------------------------------
-
-/// Emitted for every auto-renewal attempt, successful or not. `success` is
-/// `false` whenever `reason` is non-zero, so a consumer can always tell an
-/// attempted drain from a real renewal (#289).
-///
-/// Topics: `consumer`
-#[contractevent]
-#[derive(Clone)]
-pub struct AutoRenewalAttemptEvent {
-    #[topic]
-    pub consumer: Address,
-    pub success: bool,
-    pub amount: i128,
-    /// 0 = renewed; otherwise the [`crate::types::ErrorCode`] discriminant that
-    /// made the attempt fail.
-    pub reason: u32,
-    pub period_id: u64,
-    pub expiry: u64,
-}
-
-/// Emitted when a consumer grants, revokes or cancels a standing auto-renewal
-/// authorization (#289).
-///
-/// Topics: `consumer`
-#[contractevent]
-#[derive(Clone)]
-pub struct AutoRenewalAuthorizationEvent {
-    #[topic]
-    pub consumer: Address,
-    /// 0 = granted, 1 = revoked, 2 = cancelled with the subscription.
-    pub action: u32,
-    pub max_amount_per_period: i128,
-    pub plan_duration: u32,
-}
-
-// ---------------------------------------------------------------------------
-// #397 — Multi-round price confirmation
-// ---------------------------------------------------------------------------
-
-/// Emitted when a round records its quorum tally (the median that round agreed
-/// on) and when a confirmation run finalizes (#397).
-///
-/// Topics: `asset`
-#[contractevent]
-#[derive(Clone)]
-pub struct ConsensusRoundEvent {
-    #[topic]
-    pub asset: Address,
-    pub round: u32,
-    /// 0 = quorum reached, 1 = confirmation finalized, 2 = round abandoned.
-    pub kind: u32,
-    pub median: i128,
-    pub votes: u32,
-}
-
-/// Emitted when a participant submits conflicting observations inside one round.
-/// The second observation is rejected and the source is barred from the round
-/// for its remainder (#397).
-///
-/// Topics: `asset`, `source`
-#[contractevent]
-#[derive(Clone)]
-pub struct RoundEquivocationEvent {
-    #[topic]
-    pub asset: Address,
-    #[topic]
+    /// 1 = MAD, 2 = IQR; 0 when the scale collapsed and the absolute
+    /// floor was used instead.
+    pub detector: u32,
     pub source: Address,
-    pub round: u32,
-    pub kept_price: i128,
-    pub rejected_price: i128,
-    pub lifetime_count: u32,
+    pub price: i128,
+    pub score_bps: u32,
+    pub sensitivity_bps: u32,
+    pub center: i128,
+    pub scale: i128,
+    /// Prices that survived filtering.
+    pub num_retained: u32,
 }
 
-// ---------------------------------------------------------------------------
-// #478 — Derived price feeds
-// ---------------------------------------------------------------------------
-
-/// Emitted whenever a derived feed is computed, carrying the staleness of the
-/// stalest input so a consumer can audit the derivation off-chain (#478).
+/// Emitted when an asset's outlier pre-filter configuration changes (#491).
 ///
-/// Topics: `base`, `quote`
+/// Topics: `asset`
 #[contractevent]
 #[derive(Clone)]
-pub struct DerivedFeedComputedEvent {
+pub struct OutlierConfigChangedEvent {
     #[topic]
-    pub base: Address,
+    pub asset: Address,
+    pub old: Option<OutlierConfig>,
+    pub new: Option<OutlierConfig>,
+}
+
+/// Emitted once per counted submission when an aggregate is published,
+/// carrying the submission-to-inclusion latency in ledgers (#492).
+///
+/// A submission that was superseded before it could be counted emits
+/// `SubmissionNeverCountedEvent` instead.
+///
+/// Topics: `asset`
+#[contractevent]
+#[derive(Clone)]
+pub struct SubmissionLatencyEvent {
     #[topic]
-    pub quote: Address,
-    /// 0 = inverse, 1 = ratio, 2 = triangulation.
-    pub kind: u32,
+    pub asset: Address,
+    pub source: Address,
+    pub submission_ledger: u32,
+    pub inclusion_ledger: u32,
+    pub latency_ledgers: u32,
+    pub deferral_ledgers: u32,
+}
+
+/// Emitted when a source's submission is replaced before any aggregate
+/// counted it (#492). Distinguishes a never-counted submission (silent
+/// participation loss) from a merely slow one.
+///
+/// Topics: `asset`
+#[contractevent]
+#[derive(Clone)]
+pub struct SubmissionNeverCountedEvent {
+    #[topic]
+    pub asset: Address,
+    pub source: Address,
+    pub submission_ledger: u32,
+}
+
+/// Emitted with every published aggregate: the provenance identifier of
+/// the record naming its contributing submissions (#493). Fetch the full
+/// record with `get_provenance`.
+///
+/// Topics: `asset`
+#[contractevent]
+#[derive(Clone)]
+pub struct ProvenanceRecordedEvent {
+    #[topic]
+    pub asset: Address,
+    pub ledger: u32,
     pub price: i128,
-    /// Worst-case (maximum) staleness across the inputs, in seconds.
-    pub staleness_secs: u64,
+    pub provenance_id: soroban_sdk::BytesN<32>,
+    pub num_sources: u32,
+}
+
+/// Emitted with every published aggregate: the pairwise disagreement index
+/// of the counted submissions and its rolling baseline (#494).
+///
+/// Topics: `asset`
+#[contractevent]
+#[derive(Clone)]
+pub struct DisagreementIndexEvent {
+    #[topic]
+    pub asset: Address,
+    pub index_bps: u32,
+    pub max_bps: u32,
+    pub baseline_bps: u32,
+    pub above_baseline: bool,
+    pub num_sources: u32,
+    pub low_sample: bool,
 }

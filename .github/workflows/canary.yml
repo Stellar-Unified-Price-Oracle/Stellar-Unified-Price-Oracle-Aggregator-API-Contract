@@ -32,6 +32,13 @@ jobs:
     environment: testnet
     outputs:
       green_contract: ${{ steps.deploy.outputs.green }}
+    permissions:
+      contents: read
+      # Short-lived, OIDC-federated credentials instead of a stored secret
+      # (#524). The trust policy pinning this workflow, repository, ref and
+      # environment is encoded in services/ci_policy/policy.py and audited by
+      # `make ci-audit`; see docs/secretless-ci.md.
+      id-token: write
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@1.91.0
@@ -41,14 +48,50 @@ jobs:
         run: |
           curl -fsSL https://github.com/stellar/stellar-cli/releases/download/v26.1.0/stellar-cli-26.1.0-x86_64-unknown-linux-gnu.tar.gz \
             | tar -xz -C /usr/local/bin
-          echo "${{ secrets.CANARY_SECRET_KEY }}" | stellar keys add canary --secret-key
+      - name: Exchange OIDC token for a short-lived deploy signer
+        id: creds
+        env:
+          # The role *identifier* is not a secret; the role itself and its trust
+          # policy live in the cloud account.
+          DEPLOY_ROLE: ${{ vars.TESTNET_DEPLOY_ROLE_ARN }}
+          DEPLOY_KEY_NAME: ${{ vars.TESTNET_DEPLOY_KEY_NAME }}
+        run: |
+          set -euo pipefail
+          eval "$(./scripts/federated-deploy-credentials.sh write-key \
+            --role "$DEPLOY_ROLE" --key-name "$DEPLOY_KEY_NAME")"
+          echo "key_file=$FEDERATED_KEY_FILE" >> "$GITHUB_OUTPUT"
       - name: Build and deploy green
         id: deploy
+        env:
+          # Empty HOME-scoped identity dir; the key is read from the
+          # short-lived file, never from a repository secret.
+          STELLAR_KEY_FILE: ${{ steps.creds.outputs.key_file }}
         run: |
+          set -euo pipefail
           make build
+          stellar keys add canary --secret-key "$(cat "$STELLAR_KEY_FILE")" >/dev/null
           GREEN=$(stellar contract deploy --wasm target/wasm32v1-none/release/price_oracle.wasm \
             --source canary --network testnet)
           echo "green=$GREEN" >> "$GITHUB_OUTPUT"
+      - name: Record deployment attribution
+        if: always() && steps.deploy.outputs.green != ''
+        env:
+          GREEN: ${{ steps.deploy.outputs.green }}
+          DEPLOY_ROLE: ${{ vars.TESTNET_DEPLOY_ROLE_ARN }}
+        run: |
+          set -euo pipefail
+          python -m services.ci_policy.attest \
+            --repository "${{ github.repository }}" \
+            --commit "${{ github.sha }}" \
+            --workflow-ref "${{ github.workflow_ref }}" \
+            --run-id "${{ github.run_id }}" \
+            --run-attempt "${{ github.run_attempt }}" \
+            --environment testnet \
+            --role "$DEPLOY_ROLE" \
+            --artifact "${{ hashFiles('target/wasm32v1-none/release/price_oracle.wasm') }}" \
+            --actor "${{ github.actor }}" \
+            --out deployment-attestation.json
+          cat deployment-attestation.json >> "$GITHUB_STEP_SUMMARY"
       - name: Compare per-asset output (rollback on divergence)
         env:
           CANARY_BPS: ${{ inputs.canary_bps }}
