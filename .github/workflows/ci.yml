@@ -88,6 +88,36 @@ jobs:
       - name: Run SLA monitor tests
         run: python -m pytest services/sla_monitor -q
 
+  ops-harnesses:
+    name: Ops harnesses (soak #523, secretless CI #524, provenance #525, failover #526)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install pytest
+
+      - name: Off-chain service and ops-harness tests
+        run: python -m pytest services -q
+
+      - name: OIDC trust policy and secret audit
+        # Fails if a long-lived deploy credential reappears, or if a trust
+        # policy stops pinning repository / workflow_ref / environment.
+        run: make ci-audit
+
+      - name: Multi-region failover drill
+        # Kills a region mid-run; fails on any double submission.
+        run: make failover-drill
+
+      - name: Soak rig (short run)
+        run: make soak ROUNDS=2000
+
+      - name: Soak leak drill
+        # A deliberately leaky state model MUST breach a threshold; a zero exit
+        # here means the rig stopped detecting unbounded growth.
+        run: make leak-drill
+
   fuzz:
     name: Coverage-guided fuzzing (1M iterations)
     runs-on: ubuntu-latest

@@ -142,3 +142,61 @@ groups:
           sla_class: governance
         annotations:
           summary: "Elevated rate of unauthorized calls against {{ $labels.contract_id }}"
+
+  # ─── Multi-region ingest redundancy (#526) ─────────────────────────────────
+  # Emitted by services/ingest_failover/router.py (see docs/multi-region-ingest.md).
+  - name: oracle-ingest-regions
+    rules:
+      - alert: IngestRegionDegraded
+        expr: ingest_region_up == 0
+        for: 1m
+        labels:
+          severity: warning
+          sla_class: P2
+        annotations:
+          summary: "Ingest region {{ $labels.region }} is failing health checks and has been taken out of rotation"
+          runbook: "Check the region's RPC endpoint and ingest worker; failover should already have moved traffic (docs/multi-region-ingest.md §6)"
+
+      - alert: IngestRegionFailover
+        expr: increase(ingest_failovers_total[5m]) > 0
+        labels:
+          severity: warning
+          sla_class: P2
+        annotations:
+          summary: "Ingest traffic failed over from {{ $labels.from }} to {{ $labels.to }}"
+          runbook: "Confirm {{ $labels.from }} is genuinely down and not flapping; check the cooldown window (docs/multi-region-ingest.md §3)"
+
+      - alert: IngestFailoverFlapping
+        # More than three failovers in 15m means regions are flapping, which
+        # costs latency and risks exhausting the pool.
+        expr: count_over_time(ingest_failovers_total[15m]) > 3
+        for: 5m
+        labels:
+          severity: critical
+          sla_class: P1
+        annotations:
+          summary: "Ingest is flapping between regions (>3 failovers in 15m)"
+          runbook: "Investigate regional network health; consider raising the cooldown to damp oscillation (docs/multi-region-ingest.md §3)"
+
+      - alert: IngestAllRegionsDown
+        # Every region out: the oracle cannot submit at all.
+        expr: sum(ingest_region_up) == 0
+        for: 30s
+        labels:
+          severity: critical
+          sla_class: P0
+        annotations:
+          summary: "All ingest regions are down — the oracle cannot submit prices (SLA §5 P0)"
+          runbook: "Page on-call; 30m first response target per SLA §5 P0. Prices will breach the freshness target"
+
+      - alert: IngestAmbiguousSubmissionsQuarantined
+        # Quarantined keys mean a write had an unknown outcome and was not
+        # retried; reconciliation must resolve them or a round is lost.
+        expr: ingest_quarantined_submissions > 0
+        for: 5m
+        labels:
+          severity: warning
+          sla_class: P2
+        annotations:
+          summary: "{{ $value }} submission(s) quarantined after an ambiguous ingest outcome"
+          runbook: "Run reconciliation against the chain to determine whether the writes landed (docs/multi-region-ingest.md §5)"

@@ -256,6 +256,10 @@ See [`docs/error-codes.md`](docs/error-codes.md) for the full registry with caus
 | [Integration Case Studies](docs/case-studies.md) | Lending, DEX and payments integrations with threat models, worked exploits and countermeasures |
 | [Seam Invariant Catalogue](docs/seam-invariants.md) | Cross-module invariants and the regression tests that enforce them |
 | [SLA](docs/SLA.md) | Service levels and the machine-enforceable clause map checked by `services/sla_monitor` |
+| [Soak Rig](docs/soak-rig.md) | Sustained adversarial-mix soak with latency, memory and state-growth ceilings (#523) |
+| [Secretless CI](docs/secretless-ci.md) | OIDC-federated deploy credentials, scoped trust policy and break-glass path (#524) |
+| [Release Provenance](docs/release-provenance.md) | Signed artifacts with SLSA/in-toto provenance and third-party verification (#525) |
+| [Multi-Region Ingest](docs/multi-region-ingest.md) | Regional ingest redundancy, health-checked failover and the split-brain guard (#526) |
 
 ## Documentation
 
