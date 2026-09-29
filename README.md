@@ -248,6 +248,10 @@ See [`docs/error-codes.md`](docs/error-codes.md) for the full registry with caus
 | [Deployment Record](docs/deployment.md) | Contract addresses, initialization parameters, admin addresses, deployment checklist |
 | [Security Audit Checklist](docs/security-audit-checklist.md) | Pre-audit review items: access control, input validation, arithmetic safety, storage safety, upgrade mechanism, event integrity, known patterns |
 | [Monitoring Dashboard](docs/monitoring/README.md) | Grafana dashboard setup and metrics reference |
+| [Quickstart Templates](examples/README.md) | CI-tested web (SEP-40), Python bot and indexer templates |
+| [Interface Package](docs/interface-versioning.md) | Versioned `@stellar-unified-price-oracle/interface` npm package, semver rules, deprecation policy |
+| [Error Registry](docs/errors/REGISTRY.md) | Every error code with meaning, cause and remediation ([JSON](docs/errors/registry.json)) |
+| [Migration Guides](docs/migrations/README.md) | Per-version guides for breaking changes and deprecation windows |
 
 ## Documentation
 

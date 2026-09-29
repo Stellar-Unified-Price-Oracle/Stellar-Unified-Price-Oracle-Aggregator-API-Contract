@@ -1,5 +1,7 @@
 # Error Code Registry
 
+> The authoritative, generated registry (with remediation for every code) is [errors/REGISTRY.md](errors/REGISTRY.md) / [errors/registry.json](errors/registry.json).
+
 All contract errors are defined in `contracts/price-oracle/src/errors.rs` as the `ErrorCode` enum.
 Each variant is a `u32` discriminant embedded in the Soroban host error returned to the caller.
 

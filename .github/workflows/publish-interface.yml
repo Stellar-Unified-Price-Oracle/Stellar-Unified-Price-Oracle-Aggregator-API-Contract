@@ -1,0 +1,39 @@
+name: Publish interface package
+
+on:
+  push:
+    tags: ["interface-v*"]
+
+permissions:
+  contents: read
+  id-token: write # npm provenance
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32v1-none
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          registry-url: https://registry.npmjs.org
+      - name: Tag matches package version
+        run: test "interface-v$(node -p 'require("./interface/package.json").version')" = "${GITHUB_REF_NAME}"
+      - run: python3 scripts/devx/gen_interface.py --check
+        env:
+          BASE_REF: HEAD
+      - run: python3 scripts/devx/gen_error_registry.py --check
+      - name: Build WASM and record hash
+        run: |
+          cargo build -p price-oracle --target wasm32v1-none --release
+          HASH=$(sha256sum target/wasm32v1-none/release/price_oracle.wasm | cut -d' ' -f1)
+          node -e 'const f="interface/versions.json",v=require("./"+f),p=require("./interface/package.json").version;v[p].wasm_hash=process.argv[1];require("fs").writeFileSync(f,JSON.stringify(v,null,2)+"\n")' "$HASH"
+          echo "wasm_hash=$HASH" >> "$GITHUB_STEP_SUMMARY"
+      - name: Publish with provenance
+        working-directory: interface
+        run: npm publish --provenance --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

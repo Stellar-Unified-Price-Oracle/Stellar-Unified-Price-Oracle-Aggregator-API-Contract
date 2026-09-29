@@ -27,3 +27,7 @@
 - [ ] I have updated the README if needed
 - [ ] Events are emitted for state-changing operations
 - [ ] Authorization checks are in place for admin-only functions
+
+## Interface changes
+- [ ] Ran `scripts/devx/gen_interface.py` and `scripts/devx/gen_error_registry.py`
+- [ ] Breaking change? Bumped `interface/package.json` and added a guide in `docs/migrations/`
