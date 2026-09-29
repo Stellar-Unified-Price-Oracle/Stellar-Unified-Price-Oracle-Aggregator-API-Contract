@@ -197,6 +197,16 @@ mod price_bounds;
 mod deferral;
 // #486: authorized price corrections with an immutable revision chain.
 mod corrections;
+// #398: pre-aggregation data-quality pipeline.
+mod dq_pipeline;
+// #400: blackout / quiet-period windows.
+mod blackout;
+// #401: cross-source comparison dashboard data.
+mod source_comparison;
+// #402: source onboarding / offboarding lifecycle.
+#[cfg(test)]
+mod issues_398_400_401_402_tests;
+mod source_lifecycle;
 
 #[cfg(test)]
 mod circuit_breaker_tests;
@@ -1850,6 +1860,114 @@ impl PriceOracleContract {
     pub fn reset_drift_window(env: Env, asset: Address) {
         reentrancy::enter(&env);
         drift::reset_window(&env, asset);
+        reentrancy::exit(&env);
+    }
+
+    // --- #398: Pre-aggregation data-quality pipeline ---
+
+    /// Sets the per-asset DQ thresholds. Admin-only.
+    pub fn set_dq_config(env: Env, asset: Address, config: dq_pipeline::DqConfig) {
+        reentrancy::enter(&env);
+        dq_pipeline::set_config(&env, asset, config);
+        reentrancy::exit(&env);
+    }
+
+    /// Removes the DQ thresholds for `asset`. Admin-only.
+    pub fn clear_dq_config(env: Env, asset: Address) {
+        reentrancy::enter(&env);
+        dq_pipeline::clear_config(&env, asset);
+        reentrancy::exit(&env);
+    }
+
+    pub fn get_dq_config(env: Env, asset: Address) -> Option<dq_pipeline::DqConfig> {
+        dq_pipeline::get_config(&env, &asset)
+    }
+
+    pub fn get_dq_anchor(env: Env, asset: Address) -> Option<dq_pipeline::DqAnchor> {
+        dq_pipeline::get_anchor(&env, &asset)
+    }
+
+    // --- #400: Blackout / quiet-period windows ---
+
+    /// Schedules a blackout window `[start, end)` for `asset`. Admin-only.
+    pub fn schedule_blackout(env: Env, asset: Address, start: u64, end: u64) {
+        reentrancy::enter(&env);
+        blackout::schedule(&env, asset, start, end);
+        reentrancy::exit(&env);
+    }
+
+    /// Extends the pending or active window for `asset`. Admin-only.
+    pub fn extend_blackout(env: Env, asset: Address, new_end: u64) {
+        reentrancy::enter(&env);
+        blackout::extend(&env, asset, new_end);
+        reentrancy::exit(&env);
+    }
+
+    /// Cancels the pending or active window for `asset`. Admin-only.
+    pub fn cancel_blackout(env: Env, asset: Address) {
+        reentrancy::enter(&env);
+        blackout::cancel(&env, asset);
+        reentrancy::exit(&env);
+    }
+
+    /// Records a volatility signal; opens a window at quorum.
+    pub fn signal_volatility(env: Env, source: Address, asset: Address) -> bool {
+        reentrancy::enter(&env);
+        let opened = blackout::signal_volatility(&env, source, asset);
+        reentrancy::exit(&env);
+        opened
+    }
+
+    pub fn set_volatility_quorum(env: Env, quorum: u32) {
+        blackout::set_volatility_quorum(&env, quorum);
+    }
+
+    pub fn get_blackout(env: Env, asset: Address) -> Option<blackout::BlackoutWindow> {
+        blackout::get_window(&env, &asset)
+    }
+
+    // --- #401: Cross-source comparison dashboard ---
+
+    /// Enables or disables per-round comparison indexing for `asset`. Admin-only.
+    pub fn set_source_comparison(env: Env, asset: Address, enabled: bool) {
+        source_comparison::set_enabled(&env, asset, enabled);
+    }
+
+    /// Deviation, collusion, influence and exclusion report for `asset`.
+    pub fn get_source_comparison(env: Env, asset: Address) -> source_comparison::ComparisonReport {
+        source_comparison::report(&env, &asset)
+    }
+
+    // --- #402: Source onboarding / offboarding lifecycle ---
+
+    pub fn set_lifecycle_config(env: Env, config: source_lifecycle::LifecycleConfig) {
+        source_lifecycle::set_config(&env, config);
+    }
+
+    /// Registers `source` bound to `identity` and starts probation. Admin-only.
+    pub fn onboard_source(env: Env, source: Address, name: String, identity: BytesN<32>) {
+        reentrancy::enter(&env);
+        source_lifecycle::onboard(&env, source, name, identity);
+        reentrancy::exit(&env);
+    }
+
+    /// Lifts probation once the probation period and bond steps pass.
+    pub fn graduate_source(env: Env, source: Address) {
+        source_lifecycle::graduate(&env, source);
+    }
+
+    pub fn get_onboarding_checklist(
+        env: Env,
+        source: Address,
+    ) -> source_lifecycle::OnboardingChecklist {
+        source_lifecycle::checklist(&env, &source)
+    }
+
+    /// Atomically offboards `source`, slashing its bond when `evidence_asset`
+    /// proves malfeasance. Admin-only.
+    pub fn offboard_source(env: Env, source: Address, evidence_asset: Option<Address>) {
+        reentrancy::enter(&env);
+        source_lifecycle::offboard(&env, source, evidence_asset);
         reentrancy::exit(&env);
     }
 

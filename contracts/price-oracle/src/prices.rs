@@ -608,6 +608,15 @@ fn aggregate_asset(env: &Env, asset: &Address, current_ledger: u32, decimals: u3
     // per-source / per-asset paths need to run at all.
     let guards = crate::price_bounds::guards(env);
     let filter_excluded = guards.any_source_excluded;
+    // #398: per-asset DQ screening context (None when not configured).
+    let dq_round = crate::dq_pipeline::begin(env, asset);
+    // #402: probation sources share a hard cap of counted values per round.
+    let probation_guard = crate::source_lifecycle::any_probation(env);
+    let mut probation_counted: u32 = 0;
+    // #401: admitted (source, value) pairs, indexed only when enabled.
+    let comparison = crate::source_comparison::is_enabled(env, asset);
+    let mut admitted_sources: Vec<Address> = Vec::new(env);
+    let mut admitted_prices: Vec<i128> = Vec::new(env);
 
     for i in 0..selected_count {
         let src = selected_sources.get_unchecked(i);
@@ -653,6 +662,10 @@ fn aggregate_asset(env: &Env, asset: &Address, current_ledger: u32, decimals: u3
             if crate::correlation::is_correlation_flagged(env, &src, asset) {
                 continue;
             }
+            if comparison {
+                admitted_sources.push_back(src.clone());
+                admitted_prices.push_back(entry_data.price);
+            }
             env.storage()
                 .persistent()
                 .extend_ttl(&sub_key, LEDGER_THRESHOLD, LEDGER_BUMP);
@@ -665,6 +678,17 @@ fn aggregate_asset(env: &Env, asset: &Address, current_ledger: u32, decimals: u3
                     > policy.freshness_secs
             {
                 continue;
+            }
+            if let Some(round) = dq_round.as_ref() {
+                if !crate::dq_pipeline::screen(env, round, asset, &src, &entry_data) {
+                    continue;
+                }
+            }
+            if probation_guard && crate::source_lifecycle::on_probation(env, &src) {
+                if probation_counted >= crate::source_lifecycle::PROBATION_MAX_COUNTED {
+                    continue;
+                }
+                probation_counted += 1;
             }
             if entry_data.timestamp > latest_timestamp {
                 latest_timestamp = entry_data.timestamp;
@@ -724,7 +748,9 @@ fn aggregate_asset(env: &Env, asset: &Address, current_ledger: u32, decimals: u3
     // reached inside its window. Until then the asset is explicitly `Deferred`
     // (and, past `max_defer_secs`, `Stale`) and the previously published
     // aggregate is left untouched — deferral never publishes a thin result.
-    let deferred = !crate::deferral::should_publish(env, asset, guards);
+    // #400: an active blackout window withholds publication outright.
+    let deferred = crate::blackout::suppresses(env, asset)
+        || !crate::deferral::should_publish(env, asset, guards);
 
     if !deferred && contributing_sources >= min_required && !valid_prices.is_empty() {
         // The labelled block lets a hard-bound rejection (#484) abort the
@@ -820,6 +846,16 @@ fn aggregate_asset(env: &Env, asset: &Address, current_ledger: u32, decimals: u3
                 LEDGER_THRESHOLD,
                 LEDGER_BUMP,
             );
+            if comparison {
+                crate::source_comparison::record(
+                    env,
+                    asset,
+                    median_price,
+                    &admitted_sources,
+                    &admitted_prices,
+                    &valid_sources,
+                );
+            }
 
             // Record gas usage for this aggregation run.
             let before_cpu = crate::gas_metering::cpu_usage(env);

@@ -360,4 +360,7 @@ pub enum ErrorCode {
     RelayerBondLocked = 164,
     /// The TWAP window holds fewer distinct observations than the floor.
     TwapInsufficientObservations = 165,
+    /// The source address or identity fingerprint was offboarded and may not
+    /// be registered again (#402).
+    IdentityRevoked = 166,
 }
