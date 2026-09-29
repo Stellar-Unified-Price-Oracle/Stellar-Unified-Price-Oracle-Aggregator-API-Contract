@@ -210,3 +210,16 @@ jobs:
         with:
           name: hermetic-integration-artifacts
           path: hermetic-artifacts/
+
+  sdk-drift:
+    name: SDK bindings drift check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install pytest
+      - name: Fail if generated bindings drift from the contract ABI
+        run: python -m sdk.codegen.generate --check
+      - run: python -m pytest sdk/codegen services/operator_dashboard services/dr_gameday -q

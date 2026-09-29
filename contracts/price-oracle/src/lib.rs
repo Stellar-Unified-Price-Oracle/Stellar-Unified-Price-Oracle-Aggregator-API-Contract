@@ -195,6 +195,7 @@ mod recompute;
 mod price_bounds;
 // #485: quorum-within-window deferred publication for illiquid assets.
 mod deferral;
+mod staged_rollout;
 // #486: authorized price corrections with an immutable revision chain.
 mod corrections;
 
@@ -6075,6 +6076,48 @@ impl PriceOracleContract {
     /// (#485). `None` when the asset never opted into deferral.
     pub fn get_publication_status(env: Env, asset: Address) -> Option<types::PublicationStatus> {
         deferral::get_status(&env, &asset)
+    }
+
+    // ── #531 Staged percentage config rollout ─────────────────────────────
+
+    /// Starts a staged rollout of `candidate` to `percent` of assets (#531).
+    pub fn start_config_rollout(
+        env: Env,
+        candidate: staged_rollout::StagedConfig,
+        percent: u32,
+        gate: staged_rollout::HealthGate,
+    ) {
+        staged_rollout::start(&env, candidate, percent, gate);
+    }
+
+    /// Widens the active rollout to `percent` of assets (#531).
+    pub fn advance_config_rollout(env: Env, percent: u32) {
+        staged_rollout::advance(&env, percent);
+    }
+
+    /// Promotes the rollout candidate to the baseline (#531).
+    pub fn complete_config_rollout(env: Env) {
+        staged_rollout::complete(&env);
+    }
+
+    /// Rolls the active rollout back to the baseline (#531).
+    pub fn rollback_config_rollout(env: Env) {
+        staged_rollout::rollback(&env);
+    }
+
+    /// Records a health sample; returns `true` if it triggered rollback (#531).
+    pub fn report_rollout_health(env: Env, healthy: bool) -> bool {
+        staged_rollout::report_health(&env, healthy)
+    }
+
+    /// Configuration in force for `asset` under any active rollout (#531).
+    pub fn get_effective_config(env: Env, asset: Address) -> staged_rollout::StagedConfig {
+        staged_rollout::effective_config(&env, &asset)
+    }
+
+    /// The active rollout, if any (#531).
+    pub fn get_config_rollout(env: Env) -> Option<staged_rollout::Rollout> {
+        staged_rollout::active(&env)
     }
 
     // ── #486 Price corrections with a revision audit trail ──────────────────

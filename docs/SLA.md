@@ -184,3 +184,19 @@ freshness gauge stays green. Clauses §3 and §9.1 catch this: the aggregate is
 recomputed from raw inputs (bit-exact with `core_pricing::median_core`) and compared
 with an independent reference set. `test_minority_manipulation_fires_with_full_uptime`
 demonstrates the monitor firing while uptime is 100 %.
+
+---
+
+## 10. Disaster-Recovery Targets (RTO / RPO)
+
+Measured, not estimated: `services/dr_gameday` drills each scenario weekly
+(`.github/workflows/dr-gameday.yml`) in an isolated sandbox and fails the run
+when a measured value exceeds its target. Keep this table in sync with
+`SLA_TARGETS` in `services/dr_gameday/gameday.py`.
+
+| Scenario | RTO target | RPO target |
+|----------|-----------|------------|
+| `region_loss` | 900 s | 0 ledgers |
+| `key_unavailability` | 3600 s | 0 ledgers |
+| `migration_failure` | 1800 s | 0 ledgers |
+| `index_corruption` | 7200 s | 120 ledgers |
