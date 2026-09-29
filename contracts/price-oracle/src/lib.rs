@@ -77,8 +77,10 @@ mod flash_swing;
 mod freeze;
 mod gas_metering;
 mod health;
+// #506 — canonicalization & validation for every string/bytes parameter.
 mod history;
 mod incremental_aggregate;
+mod input_validation;
 mod metadata;
 mod migration;
 mod multisig;
@@ -222,6 +224,12 @@ mod override_tests;
 #[cfg(test)]
 mod prop_tests;
 
+// #505 — independent reference implementation + differential suite against it.
+#[cfg(test)]
+mod reference_diff_tests;
+#[cfg(test)]
+mod reference_pricing;
+
 // =============================================================================
 // #370 — Governance Analytics Dashboard Tests
 // =============================================================================
@@ -254,6 +262,14 @@ mod optimistic_oracle_tests;
 
 #[cfg(test)]
 mod string_boundary_tests;
+
+// #504 — the endpoint fuzz-surface manifest must match lib.rs.
+#[cfg(test)]
+mod fuzz_coverage_tests;
+
+// #506 — canonicalization & validation audit (completeness, boundary, adversarial).
+#[cfg(test)]
+mod input_validation_tests;
 
 #[cfg(test)]
 mod challenger_tests;
@@ -319,33 +335,173 @@ mod wasm_binary_size_tests;
 mod issues_491_492_493_494_tests;
 
 pub use types::{
-    AdminOpLimit, AdminOperationType, AggregatePrice, AggregationMethod, AggregationRound,
-    AlertSubscription, AmmPool, AmmWeightConfig, Asset, AssetDecimalConfig, AssetMetadata,
-    AssetMetadataUpdate, AssetPricingConfig, AssetProofRequirement, AssetType, AuditEntry,
-    BatchItem, BatchOperation, BatchSimulationResult, BftAggregationMethod, BridgeOracleConfig,
-    BridgedPrice, CallbackRegistration, Challenge, CompactionMetadata, ConfigSnapshot,
-    ConsumerAccessMode, ConsumerInfo, ConsumerTier, ContractMetadata, ContribQualityRecord,
-    CorrelationBand, CorrelationPair, CrossChainPriceEntry, CrossChainPricePayload,
-    CrossChainRelayConfig, CrossReferenceResult, DataKey, DecentralizationReport, DemeritConfig,
-    DeviationReport, DexPrice, DisqualificationStatus, DiversityThresholds, EcosystemMetadata,
-    EffectivePolicy, EmergencyPause, ErrorCode, ExportedEntry, ExportedHistorySnapshot,
-    ExternalDataProof, FeeMarketSubmission, FeedMetadata, FinalityStatus, FinalizedPrice,
-    ForeignAssetMapping, FreshnessCurve, FrozenPrice, GasRecord, Groth16Proof, Groth16VerifyingKey,
-    GuardianRecovery, HealthReport, MigrationState, MigrationStatus, MultiSigOperation,
-    NotificationPreference, Operation, OperationKind, OperationPriority, OperationSimulationResult,
-    OperationStatus, OperationTemplate, OperationType, OptimisticProposal,
-    OptimisticProposalStatus, OracleSources, PendingBatch, PendingFeeSubmissions,
-    PendingFinalityEntry, PendingOperation, PolicyOverride, PriceBounds, PriceCommit, PriceData,
-    PriceEntry, PriceEventPayload, PriceHistoryEntry, PriceOverrideEntry, PriceProof,
-    ReferenceOracleEntry, RelayedSubmission, RelayerAssetStat, RelayerDashboard,
-    RelayerFailureReason, RelayerInfo, Role, SimulationWarning, SoroswapPool, SourceDemeritState,
-    SourceDidLink, SourceDiversityReport, SourceGeoMetadata, SourceGovernance, SourceHealthStatus,
-    SourceProposal, SourceRelayerDelegation, SourceRotationSchedule, SourceStakeRecord,
-    SourceVerification, StateAnalysis, StateChannel, StateDiff, StateDiffEntry, StateDump,
-    StellarHeader, StorageBatchRequest, StorageBatchResult, StorageBudget, StorageTtlEntry,
-    SubscriptionExpiry, SubscriptionPayment, SubscriptionPlan, SubscriptionPlans, TemplateStep,
-    TotalStorageBudget, TwapMethod, TwapResult, VersionedAggregatePrice, WeightedAggregate,
-    WormholeGuardianSet, WormholePricePayload, WormholeVaa, ZkPriceAttestation,
+    AdminOpLimit,
+    AdminOperationType,
+    AggregatePrice,
+    AggregationMethod,
+    AggregationRound,
+    AlertSubscription,
+    AmmPool,
+    AmmWeightConfig,
+    // Re-exports required by the `#[contractimpl]` entrypoints below (#246
+    // storage tier, #289 auto-renewal, #397 consensus rounds, #478 derived
+    // feeds, #495–#498 data-quality reporting).
+    AnomalyExplanation,
+    AnomalyRule,
+    Asset,
+    AssetDecimalConfig,
+    AssetMetadata,
+    AssetMetadataUpdate,
+    AssetPricingConfig,
+    AssetProofRequirement,
+    AssetType,
+    AuditEntry,
+    AutoRenewRecord,
+    BatchItem,
+    BatchOperation,
+    BatchSimulationResult,
+    BftAggregationMethod,
+    BridgeOracleConfig,
+    BridgedPrice,
+    CallbackRegistration,
+    Challenge,
+    CompactionMetadata,
+    ConfigSnapshot,
+    ConfirmedPrice,
+    ConsumerAccessMode,
+    ConsumerInfo,
+    ConsumerTier,
+    ContractMetadata,
+    ContribQualityRecord,
+    CorrelationBand,
+    CorrelationPair,
+    CoverageReport,
+    CrossChainPriceEntry,
+    CrossChainPricePayload,
+    CrossChainRelayConfig,
+    CrossReferenceResult,
+    DataKey,
+    DecentralizationReport,
+    DegradationConfig,
+    DegradationState,
+    DegradationStats,
+    DemeritConfig,
+    DerivedFeed,
+    DerivedFeedInput,
+    DerivedFeedKind,
+    DeviationReport,
+    DexPrice,
+    DisagreementIndex,
+    DisagreementRecord,
+    DisqualificationStatus,
+    DiversityThresholds,
+    DriftReport,
+    EcosystemMetadata,
+    EffectivePolicy,
+    EmergencyPause,
+    ErrorCode,
+    ExportedEntry,
+    ExportedHistorySnapshot,
+    ExternalDataProof,
+    FeeMarketSubmission,
+    FeedMetadata,
+    FinalityStatus,
+    FinalizedPrice,
+    ForeignAssetMapping,
+    FreshnessCurve,
+    FrozenPrice,
+    GasRecord,
+    Groth16Proof,
+    Groth16VerifyingKey,
+    GuardianRecovery,
+    HealthReport,
+    HistoryStorageTier,
+    LatencyReport,
+    LatencySample,
+    MigrationState,
+    MigrationStatus,
+    MultiSigOperation,
+    NotificationPreference,
+    Operation,
+    OperationKind,
+    OperationPriority,
+    OperationSimulationResult,
+    OperationStatus,
+    OperationTemplate,
+    OperationType,
+    OptimisticProposal,
+    OptimisticProposalStatus,
+    OracleSources,
+    OutlierConfig,
+    OutlierExclusion,
+    PendingBatch,
+    PendingFeeSubmissions,
+    PendingFinalityEntry,
+    PendingOperation,
+    PolicyOverride,
+    PriceBounds,
+    PriceCommit,
+    PriceData,
+    PriceEntry,
+    PriceEventPayload,
+    PriceHistoryEntry,
+    PriceOverrideEntry,
+    PriceProof,
+    ProvenanceEntry,
+    ProvenanceHead,
+    ProvenanceRecord,
+    ReferenceOracleEntry,
+    RelayedSubmission,
+    RelayerAssetStat,
+    RelayerDashboard,
+    RelayerFailureReason,
+    RelayerInfo,
+    RenewalAttempt,
+    RenewalAuthorization,
+    Role,
+    RoundConfig,
+    RoundStatus,
+    RoundTally,
+    RoundVote,
+    SimulationWarning,
+    SoroswapPool,
+    SourceDemeritState,
+    SourceDidLink,
+    SourceDiversityReport,
+    SourceGeoMetadata,
+    SourceGovernance,
+    SourceHealthStatus,
+    SourceProposal,
+    SourceRelayerDelegation,
+    SourceRotationSchedule,
+    SourceStakeRecord,
+    SourceVerification,
+    StateAnalysis,
+    StateChannel,
+    StateDiff,
+    StateDiffEntry,
+    StateDump,
+    StellarHeader,
+    StorageBatchRequest,
+    StorageBatchResult,
+    StorageBudget,
+    StorageTierDowngradeRequest,
+    StorageTierInfo,
+    StorageTtlEntry,
+    SubscriptionExpiry,
+    SubscriptionPayment,
+    SubscriptionPlan,
+    SubscriptionPlans,
+    TemplateStep,
+    TotalStorageBudget,
+    TwapMethod,
+    TwapResult,
+    VersionedAggregatePrice,
+    WeightedAggregate,
+    WormholeGuardianSet,
+    WormholePricePayload,
+    WormholeVaa,
+    ZkPriceAttestation,
 };
 
 use soroban_sdk::{
@@ -611,6 +767,12 @@ impl PriceOracleContract {
         asset: Address,
         hypothetical_prices: Vec<(Address, i128)>,
     ) -> Option<i128> {
+        crate::input_validation::validate_list_len(
+            &env,
+            "simulate_aggregation",
+            "hypothetical_prices",
+            hypothetical_prices.len(),
+        );
         prices::simulate_aggregation(&env, asset, hypothetical_prices)
     }
 
@@ -620,6 +782,12 @@ impl PriceOracleContract {
         root: BytesN<32>,
         proofs: Vec<prices::MerkleProof>,
     ) {
+        crate::input_validation::validate_list_len(
+            &env,
+            "submit_price_merkle",
+            "proofs",
+            proofs.len(),
+        );
         prices::submit_price_merkle(&env, source, root, proofs);
     }
 
@@ -1301,6 +1469,12 @@ impl PriceOracleContract {
     /// Returns the unique batch ID. Each `BatchOperation` carries an `op_type` (0–7) and
     /// encoded `data` matching the same format as `propose_operation`.
     pub fn propose_batch(env: Env, operations: Vec<BatchOperation>) -> u32 {
+        crate::input_validation::validate_list_len(
+            &env,
+            "propose_batch",
+            "operations",
+            operations.len(),
+        );
         timelock::propose_batch(&env, operations)
     }
 
@@ -1326,6 +1500,12 @@ impl PriceOracleContract {
     /// A [`BatchSimulationResult`] with per-operation results, warning counts, and an
     /// `all_succeed` flag indicating whether the full batch is safe to submit.
     pub fn simulate_batch(env: Env, operations: Vec<BatchOperation>) -> BatchSimulationResult {
+        crate::input_validation::validate_list_len(
+            &env,
+            "simulate_batch",
+            "operations",
+            operations.len(),
+        );
         simulate_batch::simulate_batch(&env, operations)
     }
 
@@ -1446,6 +1626,12 @@ impl PriceOracleContract {
 
     pub fn add_source_with_assets(env: Env, source: Address, name: String, assets: Vec<Address>) {
         reentrancy::enter(&env);
+        crate::input_validation::validate_list_len(
+            &env,
+            "add_source_with_assets",
+            "assets",
+            assets.len(),
+        );
         sources::add_source_with_assets(&env, source, name, assets);
         reentrancy::exit(&env);
     }
@@ -1627,6 +1813,12 @@ impl PriceOracleContract {
 
     pub fn set_source_governance(env: Env, approvers: Vec<Address>, threshold: u32) {
         reentrancy::enter(&env);
+        crate::input_validation::validate_list_len(
+            &env,
+            "set_source_governance",
+            "approvers",
+            approvers.len(),
+        );
         sources::set_source_governance(&env, approvers, threshold);
         reentrancy::exit(&env);
     }
@@ -2253,6 +2445,12 @@ impl PriceOracleContract {
     ///
     /// Same error conditions as `submit_price`, applied per entry.
     pub fn submit_prices(env: Env, source: Address, asset_prices: Vec<(Address, i128, u64)>) {
+        crate::input_validation::validate_list_len(
+            &env,
+            "submit_prices",
+            "asset_prices",
+            asset_prices.len(),
+        );
         prices::submit_prices(&env, source, asset_prices);
     }
 
@@ -3722,6 +3920,12 @@ impl PriceOracleContract {
     /// * [`ErrorCode::BatchNotFeePrioritized`] — legs are not fee-ordered.
     /// * Any error `submit_price_relayed` raises for an individual leg.
     pub fn submit_prices_relayed(env: Env, relayer: Address, submissions: Vec<RelayedSubmission>) {
+        crate::input_validation::validate_list_len(
+            &env,
+            "submit_prices_relayed",
+            "submissions",
+            submissions.len(),
+        );
         relayer::submit_prices_relayed(&env, relayer, submissions);
     }
 
@@ -4654,6 +4858,12 @@ impl PriceOracleContract {
     /// * [`ErrorCode::NotAuthorized`] — caller is not admin.
     /// * [`ErrorCode::InvalidConfiguration`] — required is 0 or > governor count.
     pub fn ms_set_governors(env: Env, governors: Vec<Address>, required: u32) {
+        crate::input_validation::validate_list_len(
+            &env,
+            "ms_set_governors",
+            "governors",
+            governors.len(),
+        );
         multisig::set_governors(&env, governors, required);
     }
 
@@ -4833,6 +5043,13 @@ impl PriceOracleContract {
         proof: Groth16Proof,
         public_signals: Vec<soroban_sdk::BytesN<32>>,
     ) {
+        // #506 — elements are fixed width, but the caller controls the count.
+        crate::input_validation::validate_list_len(
+            &env,
+            "zk_submit_price",
+            "public_signals",
+            public_signals.len(),
+        );
         reentrancy::enter(&env);
         zk_verify::submit_zk_price(&env, source, asset, proof, public_signals);
         reentrancy::exit(&env);
@@ -4872,6 +5089,7 @@ impl PriceOracleContract {
         signature: BytesN<64>,
         source_pubkey: BytesN<32>,
     ) {
+        crate::input_validation::validate_list_len(&env, "sc_submit_batch", "batch", batch.len());
         reentrancy::enter(&env);
         state_channel::submit_batch(&env, source, batch, signature, source_pubkey);
         reentrancy::exit(&env);
@@ -4907,6 +5125,12 @@ impl PriceOracleContract {
         signature: BytesN<64>,
         source_pubkey: BytesN<32>,
     ) {
+        crate::input_validation::validate_list_len(
+            &env,
+            "sc_dispute_channel",
+            "last_known_batch",
+            last_known_batch.len(),
+        );
         reentrancy::enter(&env);
         state_channel::dispute_channel(&env, source, last_known_batch, signature, source_pubkey);
         reentrancy::exit(&env);
@@ -5189,6 +5413,19 @@ impl PriceOracleContract {
         validators: Vec<BytesN<32>>,
         signatures: Vec<BytesN<64>>,
     ) -> bool {
+        // #506 — bound both lists: each element is fixed width, the length is not.
+        crate::input_validation::validate_list_len(
+            &env,
+            "relay_verify_validator_set",
+            "validators",
+            validators.len(),
+        );
+        crate::input_validation::validate_list_len(
+            &env,
+            "relay_verify_validator_set",
+            "signatures",
+            signatures.len(),
+        );
         cross_chain_relay::verify_validator_set(&env, header_hash, validators, signatures)
     }
 
@@ -5201,6 +5438,13 @@ impl PriceOracleContract {
         proof: Vec<BytesN<32>>,
         event_data: PriceEventPayload,
     ) -> bool {
+        // #506 — bound the Merkle proof path supplied by the caller.
+        crate::input_validation::validate_list_len(
+            &env,
+            "relay_verify_event_proof",
+            "proof",
+            proof.len(),
+        );
         cross_chain_relay::verify_event_proof(&env, header_hash, proof, event_data)
     }
 
@@ -5223,6 +5467,12 @@ impl PriceOracleContract {
     /// * [`ErrorCode::NotAuthorized`] — caller is not admin.
     /// * [`ErrorCode::InvalidGuardianConfig`] — threshold is `0` or exceeds guardian count.
     pub fn recovery_set_guardians(env: Env, guardians: Vec<Address>, threshold: u32) {
+        crate::input_validation::validate_list_len(
+            &env,
+            "recovery_set_guardians",
+            "guardians",
+            guardians.len(),
+        );
         recovery::set_guardians(&env, guardians, threshold);
     }
 
@@ -5700,6 +5950,12 @@ impl PriceOracleContract {
         env: Env,
         requests: Vec<StorageBatchRequest>,
     ) -> Vec<StorageBatchResult> {
+        crate::input_validation::validate_list_len(
+            &env,
+            "get_storage_batch",
+            "requests",
+            requests.len(),
+        );
         batch_storage::get_storage_batch(&env, requests)
     }
 
@@ -5990,6 +6246,12 @@ impl PriceOracleContract {
     /// is a pure function of the surviving source set.
     pub fn remove_sources(env: Env, sources: soroban_sdk::Vec<Address>) {
         reentrancy::enter(&env);
+        crate::input_validation::validate_list_len(
+            &env,
+            "remove_sources",
+            "sources",
+            sources.len(),
+        );
         sources::remove_sources(&env, sources);
         reentrancy::exit(&env);
     }
@@ -6128,6 +6390,90 @@ impl PriceOracleContract {
     /// Returns the number of corrections applied to `asset` (#486).
     pub fn get_correction_count(env: Env, asset: Address) -> u32 {
         corrections::correction_count(&env, &asset)
+    }
+
+    // ── Robust outlier pre-filtering (#491) ──────────────────────────────────
+
+    /// Configures the robust outlier pre-filter for `asset`. Admin only.
+    ///
+    /// `detector`: `0` disables filtering, `1` selects the median absolute
+    /// deviation, `2` the interquartile range. `sensitivity_bps` is the
+    /// exclusion threshold in that detector's units (default `35000` = 3.5
+    /// MAD for detector 1, `15000` = 1.5 x IQR for detector 2).
+    /// `min_sources` is the source-count floor below which filtering is
+    /// skipped, in `4..=64`. Pass `None` to clear the override.
+    ///
+    /// # Errors
+    /// * [`ErrorCode::InvalidConfiguration`] — a bound above is violated.
+    pub fn set_outlier_config(env: Env, asset: Address, config: Option<types::OutlierConfig>) {
+        outlier_filter::set_config(&env, asset, config);
+    }
+
+    /// Returns the robust pre-filter configuration of `asset`.
+    pub fn get_outlier_config(env: Env, asset: Address) -> types::OutlierConfig {
+        outlier_filter::get_config(&env, &asset)
+    }
+
+    /// Returns the prices the pre-filter excluded during the most recent
+    /// aggregation of `asset`, with the score of each (#491).
+    pub fn get_outlier_exclusions(
+        env: Env,
+        asset: Address,
+    ) -> soroban_sdk::Vec<types::OutlierExclusion> {
+        outlier_filter::get_exclusions(&env, &asset)
+    }
+
+    // ── Submission-to-aggregate latency analytics (#492) ─────────────────────
+
+    /// Returns latency percentiles for a (source, asset) pair over the
+    /// rolling window of stored samples (#492).
+    ///
+    /// Every duration is in **ledgers**; `seconds_per_ledger` in the report
+    /// gives the nominal conversion. `never_counted` counts submissions that
+    /// were replaced before any aggregate counted them, and `window`
+    /// carries the raw samples so the percentiles can be recomputed.
+    pub fn get_latency_report(env: Env, source: Address, asset: Address) -> types::LatencyReport {
+        latency::get_report(&env, &source, &asset)
+    }
+
+    /// Returns the raw rolling latency samples for a (source, asset) pair,
+    /// oldest first (#492).
+    pub fn get_latency_samples(
+        env: Env,
+        source: Address,
+        asset: Address,
+    ) -> soroban_sdk::Vec<types::LatencySample> {
+        latency::get_samples(&env, &source, &asset)
+    }
+
+    // ── Aggregate provenance (#493) ─────────────────────────────────────────
+
+    /// Returns the provenance record of the aggregate published for
+    /// `asset` at `ledger`, naming every contributing submission, source
+    /// and weight (#493).
+    ///
+    /// # Errors
+    /// * [`ErrorCode::NoData`] — no record at that ledger. It was never
+    ///   written, or it was pruned along with the price history.
+    pub fn get_provenance(env: Env, asset: Address, ledger: u32) -> types::ProvenanceRecord {
+        provenance::get_record(&env, &asset, ledger)
+            .unwrap_or_else(|| panic_with_error!(&env, ErrorCode::NoData))
+    }
+
+    /// Verifies a provenance record: its commitment matches its contents and
+    /// it chains to its predecessor of the same asset (#493).
+    ///
+    /// Returns `false` for a record that was edited, replaced or back-dated.
+    pub fn verify_provenance(env: Env, asset: Address, ledger: u32) -> bool {
+        provenance::verify_link(&env, &asset, ledger)
+    }
+
+    // ── Pairwise disagreement index (#494) ──────────────────────────────────
+
+    /// Returns the pairwise disagreement index recorded by the most recent
+    /// aggregate of `asset` (#494).
+    pub fn get_disagreement_index(env: Env, asset: Address) -> Option<types::DisagreementIndex> {
+        disagreement::get_index(&env, &asset)
     }
 
     // ── TWAP observation cardinality ─────────────────────────────────────────

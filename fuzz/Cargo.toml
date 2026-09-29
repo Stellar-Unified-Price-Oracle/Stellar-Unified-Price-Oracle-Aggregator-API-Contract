@@ -29,6 +29,14 @@ test = false
 bench = false
 doc = false
 
+# #504 — coverage-guided harness over the public endpoint surface.
+[[bin]]
+name = "fuzz_endpoints"
+path = "fuzz_targets/fuzz_endpoints.rs"
+test = false
+bench = false
+doc = false
+
 [dependencies]
 # libfuzzer-sys provides the `fuzz_target!` macro and the AFL/libFuzzer harness.
 libfuzzer-sys = { version = "0.4.7", features = [] }

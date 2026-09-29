@@ -838,6 +838,52 @@ fn aggregate_asset(env: &Env, asset: &Address, current_ledger: u32, decimals: u3
                 mem_delta,
             );
 
+            // ── #492 / #493 / #494: post-publication data-quality records ─────────
+            // All three read `valid_prices` *after* the robust pre-filter, so the
+            // latency accounting, the provenance record and the disagreement index
+            // all describe exactly the submissions the aggregate was built from.
+            let round_weights = crate::freshness_weight::capped(env, &valid_weights);
+            let influence = crate::influence_cap::influence_bps(env, &round_weights);
+            // Deferral is measured from the previous publication of this asset,
+            // so a deferred aggregate is not charged to the sources.
+            let deferral =
+                current_ledger.saturating_sub(crate::latency::last_aggregate_ledger(env, asset));
+
+            let mut contributors: soroban_sdk::Vec<crate::types::ProvenanceEntry> =
+                soroban_sdk::Vec::new(env);
+            let mut deferrals: soroban_sdk::Vec<u32> = soroban_sdk::Vec::new(env);
+            for i in 0..contributing_sources {
+                let src = valid_sources.get_unchecked(i);
+                let sub_ledger = valid_sub_ledgers.get_unchecked(i);
+                crate::latency::record_counted(
+                    env,
+                    &src,
+                    asset,
+                    sub_ledger,
+                    current_ledger,
+                    deferral,
+                );
+                contributors.push_back(crate::types::ProvenanceEntry {
+                    source: src,
+                    price: valid_prices.get_unchecked(i),
+                    weight_bps: influence.get(i).unwrap_or(0),
+                    submission_ledger: sub_ledger,
+                });
+                deferrals.push_back(deferral);
+            }
+            crate::provenance::record(
+                env,
+                asset,
+                current_ledger,
+                median_price,
+                latest_timestamp,
+                compute_median(&valid_prices),
+                policy.method,
+                contributors,
+                deferrals,
+            );
+            crate::disagreement::record(env, asset, current_ledger, &valid_prices);
+
             let history_entry = PriceHistoryEntry {
                 price: median_price,
                 timestamp: latest_timestamp,
@@ -846,10 +892,9 @@ fn aggregate_asset(env: &Env, asset: &Address, current_ledger: u32, decimals: u3
                 is_interpolated: false,
             };
             let skip_history = should_skip_on_write(env, asset, median_price);
-            env.storage().temporary().set(
-                &DataKey::PriceHistory(asset.clone(), current_ledger),
-                &history_entry,
-            );
+            // #246: route the snapshot to the asset's configured history storage tier
+            // (temporary by default, which is byte-for-byte the pre-#246 behaviour).
+            crate::storage_tier::write_history_entry(env, asset, &history_entry);
 
             // Track ledger in history index for pruning. Avoid duplicate sequence entries
             // if aggregation is run more than once in the same ledger.
@@ -867,9 +912,7 @@ fn aggregate_asset(env: &Env, asset: &Address, current_ledger: u32, decimals: u3
                 }
                 write_history_shard(env, asset, &history_entry);
             } else {
-                env.storage()
-                    .temporary()
-                    .remove(&DataKey::PriceHistory(asset.clone(), current_ledger));
+                crate::storage_tier::remove_history_entry(env, asset, current_ledger);
             }
 
             // Issue #92: check event budget before emitting prune events.
@@ -894,6 +937,11 @@ fn aggregate_asset(env: &Env, asset: &Address, current_ledger: u32, decimals: u3
                     .temporary()
                     .remove(&DataKey::PriceHistory(asset.clone(), oldest_ledger));
                 remove_history_shard_entry(env, asset, oldest_ledger);
+                // #493: provenance is pruned by exactly the same policy as the
+                // price it explains, under both the global and the per-asset cap,
+                // so a record can never outlive its history entry and accumulate
+                // without bound.
+                crate::provenance::prune(env, asset, oldest_ledger);
                 HistoryPrunedEvent {
                     asset: asset.clone(),
                     pruned_ledger: oldest_ledger,
@@ -921,6 +969,8 @@ fn aggregate_asset(env: &Env, asset: &Address, current_ledger: u32, decimals: u3
                     .temporary()
                     .remove(&DataKey::PriceHistory(asset.clone(), oldest_ledger));
                 remove_history_shard_entry(env, asset, oldest_ledger);
+                crate::provenance::prune(env, asset, oldest_ledger);
+
                 HistoryPerAssetPrunedEvent {
                     asset: asset.clone(),
                     pruned_ledger: oldest_ledger,
@@ -2332,6 +2382,12 @@ pub fn reveal_prices_batch(
         let (asset, price, salt, round_ledger) = reveals.get_unchecked(i);
         check_registered_asset(env, &asset);
         check_source_asset(env, &source, &asset);
+        // #506 — the batch count is already capped by `MAX_BATCH_REVEALS`
+        // above; each element additionally carries a variable-length salt, so
+        // bound that too. The cap is the same one the single-item `reveal_price`
+        // endpoint uses, so a batch cannot accept a salt a single reveal would
+        // refuse.
+        crate::input_validation::validate_bytes(env, "reveal_price", "salt", &salt);
         _do_reveal(env, &source, &asset, price, salt, round_ledger);
     }
 }

@@ -2772,3 +2772,200 @@ pub struct DisagreementIndexEvent {
     pub num_sources: u32,
     pub low_sample: bool,
 }
+
+// ---------------------------------------------------------------------------
+// #246 — Configurable history storage tier
+// ---------------------------------------------------------------------------
+
+/// Emitted whenever an asset's price-history storage tier is proposed, approved
+/// or executed. `actor` is the address whose authorization drove the change, so
+/// a coerced-admin downgrade stays attributable on-chain (#246).
+///
+/// Topics: `asset`
+#[contractevent]
+#[derive(Clone)]
+pub struct StorageTierChangedEvent {
+    #[topic]
+    pub asset: Address,
+    /// 0 = temporary, 1 = persistent.
+    pub old_tier: u32,
+    /// 0 = temporary, 1 = persistent.
+    pub new_tier: u32,
+    /// 0 = applied immediately, 1 = proposal, 2 = approval, 3 = execution.
+    pub action: u32,
+    pub actor: Address,
+    pub ledger: u32,
+}
+
+/// Emitted when existing history entries are copied from one storage tier to the
+/// other, reporting how many entries were migrated (#246).
+///
+/// Topics: `asset`
+#[contractevent]
+#[derive(Clone)]
+pub struct StorageTierMigratedEvent {
+    #[topic]
+    pub asset: Address,
+    /// 0 = temporary, 1 = persistent.
+    pub from_tier: u32,
+    /// 0 = temporary, 1 = persistent.
+    pub to_tier: u32,
+    pub entries_migrated: u32,
+    pub actor: Address,
+    pub ledger: u32,
+}
+
+// ---------------------------------------------------------------------------
+// #289 — Subscription auto-renewal
+// ---------------------------------------------------------------------------
+
+/// Emitted for every auto-renewal attempt, successful or not. `success` is
+/// `false` whenever `reason` is non-zero, so a consumer can always tell an
+/// attempted drain from a real renewal (#289).
+///
+/// Topics: `consumer`
+#[contractevent]
+#[derive(Clone)]
+pub struct AutoRenewalAttemptEvent {
+    #[topic]
+    pub consumer: Address,
+    pub success: bool,
+    pub amount: i128,
+    /// 0 = renewed; otherwise the [`crate::types::ErrorCode`] discriminant that
+    /// made the attempt fail.
+    pub reason: u32,
+    pub period_id: u64,
+    pub expiry: u64,
+}
+
+/// Emitted when a consumer grants, revokes or cancels a standing auto-renewal
+/// authorization (#289).
+///
+/// Topics: `consumer`
+#[contractevent]
+#[derive(Clone)]
+pub struct AutoRenewalAuthorizationEvent {
+    #[topic]
+    pub consumer: Address,
+    /// 0 = granted, 1 = revoked, 2 = cancelled with the subscription.
+    pub action: u32,
+    pub max_amount_per_period: i128,
+    pub plan_duration: u32,
+}
+
+// ---------------------------------------------------------------------------
+// #397 — Multi-round price confirmation
+// ---------------------------------------------------------------------------
+
+/// Emitted when a round records its quorum tally (the median that round agreed
+/// on) and when a confirmation run finalizes (#397).
+///
+/// Topics: `asset`
+#[contractevent]
+#[derive(Clone)]
+pub struct ConsensusRoundEvent {
+    #[topic]
+    pub asset: Address,
+    pub round: u32,
+    /// 0 = quorum reached, 1 = confirmation finalized, 2 = round abandoned.
+    pub kind: u32,
+    pub median: i128,
+    pub votes: u32,
+}
+
+/// Emitted when a participant submits conflicting observations inside one round.
+/// The second observation is rejected and the source is barred from the round
+/// for its remainder (#397).
+///
+/// Topics: `asset`, `source`
+#[contractevent]
+#[derive(Clone)]
+pub struct RoundEquivocationEvent {
+    #[topic]
+    pub asset: Address,
+    #[topic]
+    pub source: Address,
+    pub round: u32,
+    pub kept_price: i128,
+    pub rejected_price: i128,
+    pub lifetime_count: u32,
+}
+
+// ---------------------------------------------------------------------------
+// #478 — Derived price feeds
+// ---------------------------------------------------------------------------
+
+/// Emitted whenever a derived feed is computed, carrying the staleness of the
+/// stalest input so a consumer can audit the derivation off-chain (#478).
+///
+/// Topics: `base`, `quote`
+#[contractevent]
+#[derive(Clone)]
+pub struct DerivedFeedComputedEvent {
+    #[topic]
+    pub base: Address,
+    #[topic]
+    pub quote: Address,
+    /// 0 = inverse, 1 = ratio, 2 = triangulation.
+    pub kind: u32,
+    pub price: i128,
+    /// Worst-case (maximum) staleness across the inputs, in seconds.
+    pub staleness_secs: u64,
+}
+
+/// Emitted on a consumer read that was served a degraded value (#495).
+///
+/// `state` is the `DegradationState` discriminant: `0 = Fresh`, `1 = Stale`,
+/// `2 = Clamped`, `3 = LowConfidence`, `4 = Deferred`. Severe states
+/// (`Clamped`, `Deferred`) set `severe = true` and are never sampled; the others
+/// are emitted on a `1 / sample_every` slice, with `window` carried on every
+/// event so the per-window rate stays reconstructible off-chain.
+///
+/// Topics: `asset`
+#[contractevent]
+#[derive(Clone)]
+pub struct DegradedReadEvent {
+    #[topic]
+    pub asset: Address,
+    pub state: u32,
+    pub window: u32,
+    pub severe: bool,
+}
+
+/// Emitted for every flag raised by an anomaly rule, carrying the same inputs
+/// the stored `AnomalyExplanation` holds (#496). The event is emitted even when
+/// the bounded ring drops the record, so explanations remain reconstructible
+/// from the event stream alone.
+///
+/// Topics: `asset`, `subject`
+#[contractevent]
+#[derive(Clone)]
+pub struct AnomalyExplainedEvent {
+    #[topic]
+    pub asset: Address,
+    #[topic]
+    pub subject: Address,
+    pub rule_id: u32,
+    pub rule: Symbol,
+    pub observed: i128,
+    pub reference: i128,
+    pub threshold: i128,
+    pub rejected: bool,
+}
+
+/// Emitted for every oracle-vs-benchmark comparison (#497).
+///
+/// `aligned = false` means the two snapshots were further apart than the
+/// configured tolerance; `bias_bps` is then `0` and the sample was counted in
+/// `misaligned_skipped` rather than folded into the drift window. `bias_bps` is
+/// signed: positive means the oracle priced above the benchmark.
+///
+/// Topics: `asset`
+#[contractevent]
+#[derive(Clone)]
+pub struct DriftSampleRecordedEvent {
+    #[topic]
+    pub asset: Address,
+    pub bias_bps: i128,
+    pub aligned: bool,
+}

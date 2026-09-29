@@ -172,6 +172,25 @@ jobs:
             -error_exitcode=1
         # 401 bytes = 1 trim byte + 100 i32 words (50 prices + 50 volumes)
 
+      # ── Fuzz target 4: public endpoint surface (#504) ──────────────────────
+      # Unlike the three targets above, which only reach `core_pricing` /
+      # `storage`, this one drives the contract's public endpoints with
+      # type-directed fuzz input and asserts the security invariants
+      # (INV-NO-PANIC, INV-AUTH, INV-NO-GROWTH). The covered surface is pinned
+      # by `fuzz/endpoint_manifest.txt`, checked against `lib.rs` in both
+      # directions by `fuzz_coverage_tests`.
+      - name: Fuzz fuzz_endpoints (1 000 000 iterations)
+        run: |
+          cargo fuzz run fuzz_endpoints \
+            fuzz/corpus/fuzz_endpoints \
+            -- \
+            -runs=1000000 \
+            -max_len=512 \
+            -timeout=30 \
+            -error_exitcode=1
+        # 512 bytes is comfortably above the 64-byte minimum input and the
+        # 32-byte salt cap the harness decodes, with room for libFuzzer to grow.
+
       # ── Upload any crash artifacts ───────────────────────────────────────────
       - name: Upload fuzz artifacts on failure
         if: failure()

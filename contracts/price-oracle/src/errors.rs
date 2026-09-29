@@ -360,4 +360,60 @@ pub enum ErrorCode {
     RelayerBondLocked = 164,
     /// The TWAP window holds fewer distinct observations than the floor.
     TwapInsufficientObservations = 165,
+    // ── Restored discriminants for the wired storage-tier / auto-renewal /
+    // consensus-round / derived-feed modules (#246, #289, #397, #478). These
+    // variants were dropped from the enum by a merge conflict resolution while
+    // their modules stayed in the crate. Original ranges from the feature
+    // branches (156–171) are already consumed above, so they are renumbered
+    // into the next free range; discriminants are never reused. ──────────────
+
+    // ── 166–168: Configurable history storage tier (#246) ─────────────────────
+    /// A persistent → temporary tier downgrade was attempted without the required
+    /// multi-party approval and timelock having completed.
+    StorageTierDowngradeNotReady = 166,
+    /// The requested storage tier value is not a known `StorageTier` discriminant.
+    UnknownStorageTier = 167,
+    /// A history-tier migration could not be completed.
+    StorageTierMigrationFailed = 168,
+
+    // ── 169–173: Subscription auto-renewal (#289) ─────────────────────────────
+    /// A renewal authorization was replayed after it had already been consumed.
+    RenewalAuthorizationReplay = 169,
+    /// No single-use renewal authorization exists for the requested period.
+    RenewalAuthorizationMissing = 170,
+    /// The consumer has no standing auto-renewal authorization.
+    AutoRenewalNotEnabled = 171,
+    /// The subscription was cancelled or superseded, so it cannot renew.
+    AutoRenewalCancelled = 172,
+    /// The consumer's pre-approved allowance would be exceeded by this renewal.
+    AutoRenewalAllowanceExceeded = 173,
+
+    // ── 174–177: Multi-round price confirmation (#397) ────────────────────────
+    /// The requested round is not the asset's current round.
+    RoundNotFound = 174,
+    /// The round's deadline has passed; it can no longer accept observations.
+    RoundExpired = 175,
+    /// The same observation was already used to satisfy an earlier round's quorum.
+    RoundEvidenceReplay = 176,
+    /// The participant equivocated inside a round and was penalized.
+    RoundEquivocation = 177,
+
+    // ── 178–181: Derived price feeds (#478) ───────────────────────────────────
+    /// A derived feed was requested with a zero denominator.
+    DerivedFeedZeroDenominator = 178,
+    /// One (or more) of the requested pair/triplet is unknown or has no price.
+    UnknownDerivedPair = 179,
+    /// The requested derivation would form a cycle in the derivation graph.
+    DerivedFeedCycle = 180,
+    /// The derivation graph depth bound would be exceeded.
+    DerivedFeedDepthExceeded = 181,
+
+    // ── 182–184: Input canonicalization & validation (#506) ─────────────────
+    /// A `String` parameter exceeds its documented byte cap (#506).
+    TextTooLong = 182,
+    /// A `String` parameter is empty, whitespace-padded, or contains a byte
+    /// outside the canonical printable-ASCII form (#506).
+    InvalidTextContent = 183,
+    /// A `Bytes` parameter exceeds its documented byte cap (#506).
+    PayloadTooLarge = 184,
 }
