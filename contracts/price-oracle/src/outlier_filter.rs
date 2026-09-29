@@ -186,11 +186,11 @@ fn median_and_mad(sorted: &[i128]) -> (i128, i128) {
 /// centre and scale used. `scale == 0` signals a collapsed MAD.
 fn mad_score(sorted: &[i128], x: i128) -> (u32, i128, i128) {
     let (med, mad) = median_and_mad(sorted);
-    let scaled = (mad as i128) * (MAD_SCALE as i128) / 10_000;
+    let scaled = mad * (MAD_SCALE as i128) / 10_000;
     if scaled <= 0 {
         return (0, med, 0);
     }
-    let score = ((x - med).abs() as u128) * 10_000u128 / (scaled as u128);
+    let score = (x - med).unsigned_abs() * 10_000u128 / (scaled as u128);
     (score.min(u32::MAX as u128) as u32, med, scaled)
 }
 
@@ -207,7 +207,7 @@ fn iqr_score(sorted: &[i128], x: i128, sensitivity_bps: u32) -> (u32, i128, i128
         return (0, center, 0);
     }
     // Fence offset = k * IQR with k = sensitivity_bps / 10_000.
-    let fence = ((iqr as i128) * (sensitivity_bps as i128)) / 10_000;
+    let fence = iqr * (sensitivity_bps as i128) / 10_000;
     let dist = if x > q3 + fence {
         x - (q3 + fence)
     } else if x < q1 - fence {
@@ -238,7 +238,7 @@ pub fn score_of(sorted: &[i128], x: i128, cfg: &OutlierConfig) -> (bool, u32, i1
     if denom == 0 {
         return (x != center, 0, center, 0);
     }
-    let dev = (x - center).abs() as u128;
+    let dev = (x - center).unsigned_abs();
     let rel_bps = (dev * 10_000u128) / (denom as u128);
     (
         rel_bps >= cfg.sensitivity_bps as u128,

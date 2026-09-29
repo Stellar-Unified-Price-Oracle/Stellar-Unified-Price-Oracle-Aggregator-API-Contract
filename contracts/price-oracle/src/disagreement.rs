@@ -30,7 +30,7 @@
 //!   pairs, so `index_bps` rises with it. Reporting both is what separates
 //!   the two cases; `index_bps` alone would miss the lone dissenter.
 //! * **Few sources.** With `n < 2` there are no pairs and the index is `0`
-//! by definition — no division by zero is possible, because the median of
+//!   by definition — no division by zero is possible, because the median of
 //!   one price is that price and no pair is ever formed. `low_sample` is
 //!   set for `n < 3`, where the index rests on at most one pair and should
 //!   not be alerted on.
@@ -91,7 +91,7 @@ pub fn compute(prices: &[i128]) -> (u32, u32) {
     let mut max_bps: u32 = 0;
     for i in 0..n {
         for j in (i + 1)..n {
-            let dev = ((sorted[j] - sorted[i]).abs() as u128) * 10_000u128 / (med as u128);
+            let dev = (sorted[j] - sorted[i]).unsigned_abs() * 10_000u128 / (med as u128);
             let bps = dev.min(u32::MAX as u128) as u32;
             if m < cap {
                 devs[m] = bps;
