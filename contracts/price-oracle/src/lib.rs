@@ -36,6 +36,10 @@ mod auto_renewal;
 mod consensus_rounds;
 mod derived_feeds;
 mod storage_tier;
+pub mod param_registry;
+pub mod proposal_impact;
+pub mod transparency_report;
+pub mod treasury_budget;
 // The core module is always compiled (it has no Env deps).
 // When the `fuzz` feature is enabled it is also re-exported so that the
 // fuzz crate can call `price_oracle::core_pricing::*` directly.

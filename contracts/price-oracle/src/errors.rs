@@ -360,4 +360,14 @@ pub enum ErrorCode {
     RelayerBondLocked = 164,
     /// The TWAP window holds fewer distinct observations than the floor.
     TwapInsufficientObservations = 165,
+    /// Parameter write outside the registered bounds (#544).
+    ParamOutOfBounds = 166,
+    /// Parameter is not present in the registry (#544).
+    ParamNotRegistered = 167,
+    /// Critical proposal lacks a worst-case simulation (#545).
+    SimulationRequired = 168,
+    /// Proposal simulation flagged harmful impact (#545).
+    ProposalHarmful = 169,
+    /// Unknown treasury budget category (#546).
+    UnknownBudgetCategory = 170,
 }
