@@ -34,6 +34,36 @@ jobs:
       - name: Run tests
         run: make test
 
+  # #515/#516/#517/#518: the verification suites. Each one is a plain
+  # `cargo test` filter over the contract's test binary, so they are cheap
+  # enough to run on every pull request. `make conformance` runs all four.
+  conformance:
+    name: Conformance, determinism, upgrade matrix, event snapshots
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@1.91.0
+        with:
+          targets: wasm32v1-none
+          components: rustfmt, clippy
+      - name: Cache dependencies
+        uses: Swatinem/rust-cache@v2
+      # The suite that reads the built WASM (test.rs) needs it to exist, so
+      # build first, exactly like the `contract` job above.
+      - name: Build
+        run: make build
+      - name: SEP-40 conformance (#515)
+        run: make sep40-conformance
+      - name: Determinism and interleaving (#516)
+        run: make interleaving
+      - name: N-2..N upgrade matrix (#517)
+        run: make version-matrix
+      # Check only. Regeneration is a deliberate, reviewed step
+      # (`make event-snapshots-regen`), never part of CI.
+      - name: Golden event-schema snapshots (#518)
+        run: make event-snapshots
+
   abi-check:
     runs-on: ubuntu-latest
     steps:

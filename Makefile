@@ -14,8 +14,15 @@
 #   mutation-per-module - per-module mutation scores and thresholds (#520)
 #   hermetic           - hermetic integration harness, verifies determinism (#519)
 
+# Determinism & Interleaving Suite (#516)
+#
+# SEP-40 conformance (#515), event-schema golden snapshots (#518) and the
+# N-2..N upgrade matrix (#517) also have their own targets. All of them are
+# plain `cargo test` filters over the contract's test binary.
 .PHONY: all build test lint fmt check clean watch gas-gate load-test \
-        mutation-gate mutation-per-module hermetic
+        mutation-gate mutation-per-module hermetic \
+        sep40-conformance interleaving version-matrix event-snapshots \
+        event-snapshots-regen conformance
 
 all: build test
 
@@ -48,6 +55,37 @@ mutation-per-module:
 # fails if the runs disagree. No network or testnet required.
 hermetic:
 	./scripts/hermetic-integration.sh
+
+# SEP-40 conformance suite (#515): every normative requirement of the published
+# spec, with the deviations and ambiguities recorded in docs/sep40-conformance.md.
+sep40-conformance:
+	cargo test -p price-oracle --lib sep40_conformance -- --nocapture
+
+# Determinism and interleaving suite (#516): permutations of the bounded
+# operation set, mid-ledger reads, re-entrant callbacks.
+# See docs/interleaving-determinism.md.
+interleaving:
+	cargo test -p price-oracle --lib interleaving -- --nocapture
+
+# N-2..N upgrade/downgrade round-trip matrix (#517).
+# See docs/version-matrix.md.
+version-matrix:
+	cargo test -p price-oracle --lib version_matrix -- --nocapture
+
+# Golden event-schema snapshots (#518). Check only: fails on any unversioned
+# change to an event's topics, payload, field order or field types.
+event-snapshots:
+	cargo test -p price-oracle --lib event_schema -- --nocapture
+
+# Deliberate regeneration of the golden event-schema snapshots. CI never runs
+# this: a snapshot is only ever regenerated as a reviewed step, and the diff is
+# part of the pull request.
+event-snapshots-regen:
+	UPDATE_EVENT_SCHEMA_SNAPSHOT=1 cargo test -p price-oracle --lib event_schema -- --nocapture
+	@echo "Review the regenerated contracts/price-oracle/testdata/event_schema.golden before committing."
+
+# All four verification suites in one go.
+conformance: sep40-conformance interleaving version-matrix event-snapshots
 
 # Run clippy linter
 lint:
