@@ -17,10 +17,10 @@ fuzz = []
 testutils = []
 
 [dependencies]
-soroban-sdk = { version = "26" }
+soroban-sdk = { version = "=26.0.1" }
 
 [dev-dependencies]
-soroban-sdk = { version = "26", features = ["testutils"] }
-proptest = { version = "1.5.0", default-features = false, features = ["std"] }
-ed25519-dalek = { version = "2.1.1", features = ["rand_core"] }
+soroban-sdk = { version = "=26.0.1", features = ["testutils"] }
+proptest = { version = "=1.11.0", default-features = false, features = ["std"] }
+ed25519-dalek = { version = "=2.2.0", features = ["rand_core"] }
 
