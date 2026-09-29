@@ -13,9 +13,12 @@
 #   mutation-gate       - mutation gate self-test, no cargo-mutants needed (#520)
 #   mutation-per-module - per-module mutation scores and thresholds (#520)
 #   hermetic           - hermetic integration harness, verifies determinism (#519)
+#   dev                - one-command contributor setup + full test run (#541)
+#   docs-check         - docs freshness: links, snippets, interface (#540)
+#   onboarding         - refresh + validate the contributor onboarding map (#542)
 
 .PHONY: all build test lint fmt check clean watch gas-gate load-test \
-        mutation-gate mutation-per-module hermetic
+        mutation-gate mutation-per-module hermetic dev docs-check onboarding
 
 all: build test
 
@@ -48,6 +51,18 @@ mutation-per-module:
 # fails if the runs disagree. No network or testnet required.
 hermetic:
 	./scripts/hermetic-integration.sh
+
+# One-command contributor environment (docs/dev-environment.md)
+dev:
+	./scripts/dev-setup.sh
+
+# Docs freshness gate (docs/docs-freshness.md)
+docs-check:
+	python3 scripts/docs_freshness.py
+
+# Onboarding map: validate and print current recommendations (docs/ONBOARDING.md)
+onboarding:
+	python3 scripts/onboarding.py check
 
 # Run clippy linter
 lint:

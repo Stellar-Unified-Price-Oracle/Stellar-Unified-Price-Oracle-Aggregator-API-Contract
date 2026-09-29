@@ -3,6 +3,8 @@ name: CI
 on:
   push:
   pull_request:
+  schedule:
+    - cron: "0 5 * * 1"   # weekly: external-link check (#540)
 
 env:
   CARGO_TERM_COLOR: always
@@ -210,3 +212,35 @@ jobs:
         with:
           name: hermetic-integration-artifacts
           path: hermetic-artifacts/
+
+  # #539 reference indexer: aggregate reproduction, idempotent replay, gaps, reorgs.
+  # #542 onboarding map must stay current.
+  indexer-onboarding:
+    name: Indexer & onboarding map
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install pytest
+      - run: python -m pytest services/indexer scripts/test_onboarding.py -q
+      - run: python scripts/onboarding.py check
+
+  # #540 docs freshness: links, snippets, interface version.
+  docs-freshness:
+    name: Docs freshness
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: dtolnay/rust-toolchain@1.91.0
+      - run: pip install pytest
+      - run: python -m pytest scripts/test_docs_freshness.py -q
+      - name: Check links, snippets and examples
+        # External links are checked on the weekly schedule only, to keep PRs
+        # independent of third-party uptime.
+        run: python scripts/docs_freshness.py ${{ github.event_name == 'schedule' && '--external' || '' }}
+

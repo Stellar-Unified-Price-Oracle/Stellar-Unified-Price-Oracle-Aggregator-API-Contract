@@ -114,3 +114,6 @@ openapi-*.yaml
 cargo_out.txt
 
 .blue-green/
+
+# Contributor dev environment (#541)
+.venv/
