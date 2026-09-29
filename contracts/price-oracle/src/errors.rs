@@ -337,27 +337,78 @@ pub enum ErrorCode {
 
     // ── 156–162: #484 bound tiers, #485 deferral, #486 price corrections ───────
     /// The soft/hard bound ordering supplied for an asset is invalid (#484).
-    InvalidBoundOrdering = 156,
+    InvalidBoundOrdering = 185,
     /// The supplied deferral policy is outside its documented bounds (#485).
-    InvalidDeferralPolicy = 157,
+    InvalidDeferralPolicy = 186,
     /// `correct_price` was called with an empty or oversized reason (#486).
-    InvalidCorrectionReason = 158,
+    InvalidCorrectionReason = 187,
     /// The per-asset correction count cap has been reached (#486).
-    CorrectionLimitReached = 159,
+    CorrectionLimitReached = 188,
     /// The value supplied lies outside the asset's hard bounds (#484, #486).
-    AggregateRejectedByBounds = 160,
+    AggregateRejectedByBounds = 189,
     /// The aggregate being corrected is older than the correction window (#486).
-    CorrectionWindowExpired = 161,
+    CorrectionWindowExpired = 190,
     /// The requested revision index does not exist in the chain (#486).
-    RevisionNotFound = 162,
+    RevisionNotFound = 191,
 
     // ── Restored discriminants referenced by wired modules but absent from
     // the enum, which left the crate uncompilable. Numbers are taken from the
     // registry note above and are never reused. ──────────────────────────────
     /// A required configuration value has not been set.
-    ConfigMissing = 163,
+    ConfigMissing = 192,
     /// Outstanding failure reports prevent the relayer bond from being locked.
-    RelayerBondLocked = 164,
+    RelayerBondLocked = 193,
     /// The TWAP window holds fewer distinct observations than the floor.
-    TwapInsufficientObservations = 165,
+    TwapInsufficientObservations = 194,
+
+    // ── 166–168: Configurable history storage tier (#246) ─────────────────────
+    /// A persistent → temporary tier downgrade was attempted without the required
+    /// multi-party approval and timelock having completed.
+    StorageTierDowngradeNotReady = 156,
+    /// The requested storage tier value is not a known storage-tier discriminant.
+    UnknownStorageTier = 157,
+    /// A history-tier migration could not be completed.
+    StorageTierMigrationFailed = 158,
+
+    // ── 169–173: Subscription auto-renewal (#289) ─────────────────────────────
+    /// A renewal authorization was replayed after it had already been consumed.
+    RenewalAuthorizationReplay = 159,
+    /// No single-use renewal authorization exists for the requested period.
+    RenewalAuthorizationMissing = 160,
+    /// The consumer has no standing auto-renewal authorization.
+    AutoRenewalNotEnabled = 161,
+    /// The subscription was cancelled or superseded, so it cannot renew.
+    AutoRenewalCancelled = 162,
+    /// The consumer's pre-approved allowance would be exceeded by this renewal.
+    AutoRenewalAllowanceExceeded = 163,
+
+    // ── 174–177: Multi-round price confirmation (#397) ────────────────────────
+    /// The requested round is not the asset's current round.
+    RoundNotFound = 164,
+    /// The round's deadline has passed; it can no longer accept observations.
+    RoundExpired = 165,
+    /// The same observation was already used to satisfy an earlier round's quorum.
+    RoundEvidenceReplay = 166,
+    /// The participant equivocated inside a round and was penalized.
+    RoundEquivocation = 167,
+
+    // ── 178–181: Derived price feeds (#478) ────────────────────────────────────
+    /// A derived feed was requested with a zero denominator.
+    DerivedFeedZeroDenominator = 168,
+    /// One (or more) of the requested pair/triplet is unknown or has no price.
+    UnknownDerivedPair = 169,
+    /// The requested derivation would form a cycle in the derivation graph.
+    DerivedFeedCycle = 170,
+    /// The derivation graph depth bound would be exceeded.
+    DerivedFeedDepthExceeded = 171,
+
+    // ── 182–184: Dead-man switch (#510) ───────────────────────────────────────
+    /// A heartbeat was submitted while the dead-man switch is not armed.
+    DeadManDisabled = 182,
+    /// The dead-man switch is not currently in the degraded state, so there is
+    /// nothing to recover from.
+    NotDegraded = 183,
+    /// The contract is in the dead-man degraded state: submissions are
+    /// rejected and reads serve no value until the recovery path clears it.
+    OracleDegraded = 184,
 }
