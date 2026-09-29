@@ -6593,3 +6593,6 @@ mod interleaving_determinism_tests;
 
 #[cfg(test)]
 mod version_matrix_tests;
+
+#[cfg(test)]
+mod event_schema_snapshot;
