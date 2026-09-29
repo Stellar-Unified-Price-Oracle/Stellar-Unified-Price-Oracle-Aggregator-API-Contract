@@ -811,21 +811,6 @@ pub enum DataKey {
     /// Minimum distinct observations a TWAP window must contain (u32).
     TwapMinCardinality,
 
-    /// Governor authorization epoch (u32); bumping it revokes every op grant.
-    GovernorEpoch,
-    /// Epoch (u32) at which a governance operation name was granted.
-    GovernorOpGrant(String),
-    /// Per-asset aggregation policy override (`PolicyOverride`).
-    AssetPolicy(Address),
-    /// Per-class aggregation policy override (`PolicyOverride`).
-    ClassPolicy(u32),
-    /// Asset class id an asset belongs to (u32).
-    AssetClassId(Address),
-    /// Per-asset freshness weighting curve (`FreshnessCurve`).
-    FreshnessCurve(Address),
-    /// Minimum distinct observations a TWAP window must contain (u32).
-    TwapMinCardinality,
-
     // -------------------------------------------------------------------------
     // #495: Degraded-mode serving analytics
     // -------------------------------------------------------------------------
@@ -910,25 +895,89 @@ pub enum DataKey {
     PublicationGuards,
 
     // -------------------------------------------------------------------------
-    // Restored variants referenced by the wired policy / governor / TWAP /
-    // freshness modules. These were referenced from `policy.rs`,
-    // `external_governance.rs`, `freshness_weight.rs` and `prices.rs` but were
-    // absent from the enum, so the crate could not compile.
+    // #487: Asset risk tiers
     // -------------------------------------------------------------------------
-    /// Per-asset aggregation policy override (Option<PolicyOverride>).
-    AssetPolicy(Address),
-    /// Aggregation policy override for an asset class (Option<PolicyOverride>).
-    ClassPolicy(u32),
-    /// Asset class an asset belongs to (u32).
-    AssetClassId(Address),
-    /// Freshness-weighting curve for an asset (FreshnessCurve).
-    FreshnessCurve(Address),
-    /// Current external-governor authorization epoch (u32).
-    GovernorEpoch,
-    /// Per-operation grant to the external governor (bool).
-    GovernorOpGrant(String),
-    /// Minimum distinct TWAP observations required (u32).
-    TwapMinCardinality,
+    /// Risk tier assigned to an asset (u32, validated against `RiskTier`).
+    AssetRiskTier(Address),
+    /// Effective default freshness window, in seconds, applied to every asset
+    /// that has neither a tier-derived nor a per-asset window (#489).
+    DefaultFreshnessWindow,
+    /// Per-asset freshness window override, in seconds (#489).
+    AssetFreshnessWindow(Address),
+    /// Last freshness-filter outcome for an asset (FreshnessStatus, #489).
+    AssetFreshnessStatus(Address),
+    /// Whether an asset is currently suspended from cross-asset sanity checks
+    /// by a declared de-peg (#488).
+    AssetSanitySuspended(Address),
+    /// Configured cross-asset sanity relations for an asset (#488).
+    AssetSanityRelations(Address),
+    /// Last sanity-check violation recorded for an asset (#488).
+    AssetSanityStatus(Address),
+    /// Rolling accuracy scorecard for a source (#490).
+    SourceScorecard(Address),
+    /// Global scorecard configuration: window sizes and the outlier floor (#490).
+    CfgScorecard,
+    /// `true` once the admin requires every asset to carry a risk tier (#487).
+    RiskTierEnforcement,
+    /// The [`StorageTier`] (temporary/persistent) an asset's history is written to.
+    AssetStorageTier(Address),
+    /// A pending, multi-party-approved downgrade request for an asset's history tier.
+    AssetStorageTierDowngrade(Address),
+    /// Ledger of the last completed history-tier migration for an asset.
+    AssetStorageTierMigrated(Address),
+    /// The confirmed price produced by a finalized confirmation run.
+    ConsensusConfirmedPrice(Address),
+    /// The consecutive confirmed rounds backing `ConsensusConfirmedPrice`.
+    ConsensusConfirmedRounds(Address),
+    /// Lifetime equivocation counter for a source on a given asset.
+    ConsensusEquivocationCount(Address, Address),
+    /// Number of times a stalled round was abandoned (bounded-abandonment counter).
+    ConsensusRoundAbandoned(Address),
+    /// Per-asset consensus-round configuration.
+    ConsensusRoundConfig(Address),
+    /// Monotonic round counter for an asset (the current round identity).
+    ConsensusRoundCounter(Address),
+    /// Set when a source is barred from a round for equivocation.
+    ConsensusRoundEquivocation(Address, u32, Address),
+    /// Maps an observation id to the first round that consumed it.
+    ConsensusRoundEvidenceOwner(Address, BytesN<32>),
+    /// Ledger at which a given round for an asset became live.
+    ConsensusRoundStart(Address, u32),
+    /// The tally (median + vote count) recorded for a round that reached quorum.
+    ConsensusRoundTally(Address, u32),
+    /// A source's signed observation inside one round.
+    ConsensusRoundVote(Address, u32, Address),
+    /// The distinct sources that have voted in a round, in submission order.
+    ///
+    /// Enumerating a round's voters through this index keeps the per-round cost
+    /// `O(votes)` rather than `O(registered sources)`, and makes "quorum
+    /// distinct sources" a check over actual votes rather than a count of
+    /// everyone who could have voted (#397).
+    ConsensusRoundVoteIndex(Address, u32),
+    /// Admin-set canonical base price for an asset, used by the derivation engine
+    /// in preference to the live aggregate when present.
+    DerivedFeedBase(Address),
+    /// Most recently computed [`DisagreementIndex`] for an asset, together
+    /// with the rolling window of prior values that forms its baseline (#494).
+    /// Held in one entry so a round writes one key instead of two.
+    DisagreementIndex(Address),
+    /// Rolling latency samples for a (source, asset) pair (#492).
+    LatencySamples(Address, Address),
+    /// Per-asset [`OutlierConfig`] for the MAD/IQR pre-filter (#491).
+    OutlierConfig(Address),
+    /// Exclusions produced by the most recent aggregation of an asset (#491).
+    OutlierExclusions(Address),
+    /// [`ProvenanceRecord`] published for an asset at a ledger (#493).
+    Provenance(Address, u32),
+    /// Chain head of an asset's provenance (#493): the hash and ledger of its
+    /// most recent record, in one entry so a round does not pay for two.
+    ProvenanceHead(Address),
+    /// The standing [`AutoRenewRecord`] a consumer granted for auto-renewal.
+    SubscriptionAutoRenew(Address),
+    /// A single-use, per-period renewal authorization for a consumer.
+    SubscriptionRenewalAuthorization(Address, u64),
+    /// Marker recording that a consumer's renewal for a period was already spent.
+    SubscriptionRenewalSpent(Address, u64),
 }
 
 /// A price submission from a single oracle source for a specific asset.
@@ -3181,6 +3230,14 @@ pub struct PublicationGuards {
     /// The admin has configured a correction scope (#486), so published
     /// aggregates need their original value preserved.
     pub any_corrections_enabled: bool,
+    /// At least one asset has a risk tier assigned (#487).
+    pub any_tier_assigned: bool,
+    /// The admin has configured at least one cross-asset sanity relation (#488).
+    pub any_sanity_relations: bool,
+    /// At least one asset has an explicit freshness window (#489).
+    pub any_freshness_window: bool,
+    /// Scorecard collection is enabled (#490).
+    pub scorecards_enabled: bool,
 }
 
 /// TWAP value together with the observation statistics backing it.
@@ -3224,4 +3281,988 @@ pub struct DisagreementIndex {
     pub num_sources: u32,
     /// `num_sources < 3`: the index rests on at most one pair.
     pub low_sample: bool,
+}
+
+// =============================================================================
+// Restored type definitions
+//
+// The merge of PR #571 (commit 71ebb6b) replaced this file with a version
+// missing ~630 lines, which deleted the type definitions belonging to
+// #246/#289/#397/#478 and left the modules that use them unable to compile.
+// The blocks below are restored verbatim from the last revision of this file
+// that still contained them (8aac347, the tip of `main` before that merge).
+// =============================================================================
+
+/// Default number of ledgers a consensus round stays open (#397).
+pub const DEFAULT_ROUND_LEDGERS: u32 = 5;
+
+/// Default maximum spread between consecutive round medians, in bps (#397).
+pub const DEFAULT_AGREEMENT_BPS: u32 = 500;
+
+/// Upper bound on `required_rounds`, bounding how long a price can be withheld.
+pub const MAX_REQUIRED_ROUNDS: u32 = 16;
+
+/// Minimum ledgers a `Temporary`-tier history entry is guaranteed to survive.
+///
+/// Writes and reads both bump the entry's TTL to this window, so a consumer that
+/// polls at least once inside the window never observes a spurious absence.
+pub const TEMPORARY_RETENTION_LEDGERS: u32 = 10_000;
+
+/// Ledgers after which a `Persistent`-tier entry is considered archivable. There
+/// is no protocol-level bound: persistent entries live until pruned.
+pub const PERSISTENT_RETENTION_LEDGERS: u32 = 6_312_000;
+
+/// Number of distinct approving parties (beyond the proposing admin) a tier
+/// downgrade requires before its timelock starts (#246).
+pub const TIER_DOWNGRADE_REQUIRED_APPROVALS: u32 = 1;
+
+/// Delay, in ledgers, between a fully-approved downgrade request and the ledger
+/// at which it may be executed. Matches the default normal timelock delay.
+pub const TIER_DOWNGRADE_DELAY_LEDGERS: u32 = 10;
+
+/// Maximum number of hops allowed in one derivation (#478).
+///
+/// A derived feed is only ever computed from *base* prices (an admin-set
+/// canonical base or a live aggregate), never from another derived feed, so the
+/// derivation graph has depth 1 and a cycle is structurally impossible.
+pub const MAX_DERIVATION_DEPTH: u32 = 1;
+
+/// A consumer's standing, explicitly bounded authorization for the contract to
+/// move tokens on their behalf when a subscription lapses (#289).
+///
+/// The record is the *only* source of authority for a renewal: it caps both the
+/// number of periods and the amount moved per period, so the total the contract
+/// can ever move for this consumer is `periods_authorized *
+/// max_amount_per_period`.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct AutoRenewRecord {
+    /// The consumer the standing authorization belongs to.
+    pub consumer: Address,
+    /// SAC token the renewal pulls from.
+    pub token: Address,
+    /// Plan duration in seconds; one renewal is possible per period of this size.
+    pub plan_duration: u32,
+    /// Hard per-period ceiling on the amount the contract may move. A renewal
+    /// transfers `min(plan_amount, max_amount_per_period)`.
+    pub max_amount_per_period: i128,
+    /// Number of periods this authorization may ever renew.
+    pub periods_authorized: u32,
+    /// Number of periods already renewed under it.
+    pub periods_used: u32,
+    /// The single-use authorization for the period currently being renewed.
+    pub authorization_nonce: u64,
+    /// Timestamp at which the next period becomes renewable.
+    pub next_renewal_timestamp: u64,
+    /// `true` while the standing authorization is live.
+    pub active: bool,
+    /// `true` once the subscription was cancelled or superseded; a cancelled
+    /// record can never renew again, even if the token allowance is still live.
+    pub cancelled: bool,
+}
+
+/// A price finalized by a run of consecutive, agreeing, independent rounds.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct ConfirmedPrice {
+    /// The confirmed price, the median of the confirming rounds' medians.
+    pub price: i128,
+    /// Decimal precision of `price`.
+    pub decimals: u32,
+    /// The consecutive round identities that produced this confirmation.
+    pub rounds: soroban_sdk::Vec<u32>,
+    /// Worst-case spread, in basis points, observed across the confirming rounds.
+    pub spread_bps: u32,
+    /// Ledger at which the confirmation finalized.
+    pub finalized_ledger: u32,
+    /// Timestamp of the newest counted observation across the confirming rounds.
+    pub timestamp: u64,
+}
+
+/// A derived price together with everything a consumer needs to audit it (#478).
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct DerivedFeed {
+    /// How this feed was derived.
+    pub kind: DerivedFeedKind,
+    /// The numerator asset (the asset itself for `Inverse`).
+    pub base: Address,
+    /// The denominator asset; equal to `base` for `Inverse`.
+    pub quote: Address,
+    /// The derived price, rounded toward zero (see the module docs).
+    pub price: i128,
+    /// Decimal precision of `price`.
+    pub decimals: u32,
+    /// Worst-case staleness across the inputs, in seconds: a derived feed is
+    /// only ever as fresh as its stalest input.
+    pub staleness_secs: u64,
+    /// Timestamp of the stalest input.
+    pub oldest_timestamp: u64,
+    /// Every input that fed the derivation, in evaluation order.
+    pub inputs: soroban_sdk::Vec<DerivedFeedInput>,
+}
+
+/// Provenance for one input of a derived feed.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct DerivedFeedInput {
+    /// The asset that contributed this price.
+    pub asset: Address,
+    /// Its price, scaled by `10^decimals`.
+    pub price: i128,
+    /// Its observation timestamp, used to propagate staleness.
+    pub timestamp: u64,
+    /// `true` when this input came from an admin-set canonical base rather than
+    /// the live aggregate.
+    pub from_base: bool,
+}
+
+/// The kind of derivation used to produce a [`DerivedFeed`] (#478).
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[contracttype]
+pub enum DerivedFeedKind {
+    /// `1 / base`, expressed in the same decimals as `base`.
+    Inverse = 0,
+    /// `base / quote`, expressed in the base assets' decimals.
+    Ratio = 1,
+    /// `(base / pivot) * (pivot / quote)`, i.e. a cross rate through `pivot`.
+    Triangulation = 2,
+}
+
+/// The storage tier an asset's price history is written to (#246).
+///
+/// The tier is part of the asset's *availability guarantee*, not a cost knob:
+/// `Temporary` entries live only until their TTL lapses, so a consumer reading
+/// them may observe an explicit "absent" result where a price used to be, while
+/// `Persistent` entries survive until the entry itself is archived or pruned.
+/// Selectors sort so `Temporary < Persistent`, which makes a tier comparison a
+/// downgrade check.
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
+#[contracttype]
+pub enum HistoryStorageTier {
+    /// Cheaper storage whose entries may expire with their TTL. Default for
+    /// newly registered assets, preserving the pre-#246 behaviour exactly.
+    Temporary = 0,
+    /// Archival storage that survives TTL expiry until explicitly pruned.
+    Persistent = 1,
+}
+
+/// The result of a single auto-renewal attempt, returned to the keeper that
+/// triggered it. A failed attempt is a value, never a panic, so a broken
+/// renewal can never lock a consumer out of their query path (#289).
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct RenewalAttempt {
+    /// The consumer whose subscription was targeted.
+    pub consumer: Address,
+    /// `true` only when tokens actually moved and the expiry advanced.
+    pub renewed: bool,
+    /// Amount moved (0 when the attempt failed).
+    pub amount: i128,
+    /// 0 on success, otherwise the [`ErrorCode`] discriminant explaining the
+    /// failure.
+    pub reason: u32,
+    /// The period the attempt targeted.
+    pub period_id: u64,
+    /// The subscription expiry after the attempt.
+    pub expiry: u64,
+}
+
+/// A single-use authorization to renew one specific period (#289).
+///
+/// Binds the consumer, the period, the exact amount and a monotonic nonce, so a
+/// captured authorization is useless once spent or superseded.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct RenewalAuthorization {
+    /// The period (identified by its due timestamp) this authorization covers.
+    pub period_id: u64,
+    /// Monotonic nonce; a value at or below the consumer's last issued nonce is
+    /// rejected as a replay.
+    pub nonce: u64,
+    /// The exact amount this authorization permits the contract to move.
+    pub amount: i128,
+    /// `true` once a renewal has consumed this authorization.
+    pub consumed: bool,
+}
+
+/// Per-asset configuration for the multi-round confirmation mode (#397).
+///
+/// `required_rounds == 1` is the default and is exactly the pre-#397
+/// single-round behaviour: `consensus_rounds` is then a no-op and the ordinary
+/// aggregate published by `submit_price` remains the final price.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct RoundConfig {
+    /// Consecutive agreeing rounds required before a price finalizes. 1 = off.
+    pub required_rounds: u32,
+    /// Distinct sources that must observe within a round for it to tally.
+    pub quorum: u32,
+    /// Ledgers a round may stay open before it can be abandoned (the liveness
+    /// bound: a stalled round can never block finalization for longer).
+    pub round_ledgers: u32,
+    /// Maximum spread, in basis points, between consecutive round medians that
+    /// still counts as agreement.
+    pub agreement_bps: u32,
+}
+
+/// A round's observable status, so a keeper can tell a live round from a stalled one.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct RoundStatus {
+    /// The asset's current round identity.
+    pub round: u32,
+    /// Ledger at which the round opened.
+    pub started_ledger: u32,
+    /// First ledger at which the round may be abandoned.
+    pub deadline_ledger: u32,
+    /// Distinct sources observed so far in this round.
+    pub votes: u32,
+    /// Quorum required for this round to tally.
+    pub quorum: u32,
+    /// `true` once the deadline has passed without the round reaching quorum.
+    pub stalled: bool,
+}
+
+/// The result of tallying a round that reached quorum.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct RoundTally {
+    /// Median of the round's distinct-source observations.
+    pub median: i128,
+    /// Number of distinct sources counted toward the quorum.
+    pub votes: u32,
+    /// Ledger at which the quorum was reached.
+    pub finalized_ledger: u32,
+    /// Timestamp of the newest counted observation.
+    pub timestamp: u64,
+    /// The counted observations themselves.
+    ///
+    /// Carried on the tally so each one's `observation_id` can be bound to this
+    /// round at tally time, which is what makes the same observation
+    /// unusable as evidence for any later round (#397).
+    pub sources: Vec<RoundVote>,
+}
+
+/// One source's observation inside one round.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct RoundVote {
+    /// The observing source.
+    pub source: Address,
+    /// The observed price, scaled by `10^decimals`.
+    pub price: i128,
+    /// The source's observation timestamp.
+    pub timestamp: u64,
+    /// Ledger at which the observation was accepted.
+    pub ledger: u32,
+    /// Commitment over `(source, price, timestamp)`; unique per observation and
+    /// therefore the unit of the cross-round replay check.
+    pub observation_id: BytesN<32>,
+}
+
+/// A downgrade request that has been proposed and is collecting approvals.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct StorageTierDowngradeRequest {
+    /// The admin that proposed the downgrade.
+    pub proposed_by: Address,
+    /// Distinct second parties that have approved so far.
+    pub approvals: soroban_sdk::Vec<Address>,
+    /// Ledger at which the last required approval was recorded; `0` until the
+    /// request is fully approved, after which the timelock runs to this value.
+    pub ready_at_ledger: u32,
+    /// The tier being downgraded away from.
+    pub from_tier: HistoryStorageTier,
+}
+
+/// A discovered, machine-readable description of an asset's history tier so a
+/// consumer never has to infer the availability guarantee (#246).
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct StorageTierInfo {
+    /// The tier the asset's history is currently written to.
+    pub tier: HistoryStorageTier,
+    /// Retention guarantee for that tier, in ledgers.
+    pub retention_ledgers: u32,
+    /// `false` for `Temporary`: entries may vanish with their TTL, so a read may
+    /// legitimately return an explicit "absent" result.
+    pub durable: bool,
+    /// Number of history entries currently retained for the asset.
+    pub entry_count: u32,
+    /// Ledger at which this asset's tier was last changed.
+    pub changed_at_ledger: u32,
+}
+/// A stored disagreement reading: the index itself plus the rolling window of
+/// prior values that forms its baseline (#494).
+///
+/// Both live in one ledger entry so recording a round costs a single write.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct DisagreementRecord {
+    pub index: DisagreementIndex,
+    /// Previous index values for this asset, oldest first, capped at
+    /// [`crate::disagreement::BASELINE_WINDOW`].
+    pub history: soroban_sdk::Vec<u32>,
+    /// Ledger in which this asset last published an aggregate (#492). The
+    /// next round's publication deferral is measured from here, so the two
+    /// readings share an entry instead of costing two.
+    pub last_aggregate_ledger: u32,
+}
+
+/// Latency percentiles for one (source, asset) pair over the rolling
+/// window of stored samples (#492). All latencies are in **ledgers**
+/// (Stellar's close time is ~5 s); multiply by `seconds_per_ledger` for
+/// wall-clock seconds.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct LatencyReport {
+    pub asset: Address,
+    pub source: Address,
+    /// Number of samples currently in the rolling window.
+    pub samples: u32,
+    /// Number of samples in the window that were never counted.
+    pub never_counted: u32,
+    /// Maximum number of samples retained per (source, asset) pair.
+    pub max_samples: u32,
+    pub p50_ledgers: u32,
+    pub p90_ledgers: u32,
+    pub max_ledgers: u32,
+    /// Mean deferral over the counted samples, in ledgers.
+    pub avg_deferral_ledgers: u32,
+    /// Nominal ledger close time used to convert ledgers to seconds.
+    pub seconds_per_ledger: u32,
+    /// The raw stored samples, oldest first, so the percentiles above can
+    /// be recomputed off-chain.
+    pub window: soroban_sdk::Vec<LatencySample>,
+}
+
+/// One submission-to-aggregate latency sample, in ledgers (#492).
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct LatencySample {
+    /// Ledger in which the submission was accepted.
+    pub submission_ledger: u32,
+    /// Ledger in which the submission was counted into a published
+    /// aggregate; `0` when the submission was never counted.
+    pub inclusion_ledger: u32,
+    /// `inclusion_ledger - submission_ledger`, or `0` if never counted.
+    pub latency_ledgers: u32,
+    /// Ledgers the aggregate publication itself was deferred past the
+    /// source's own submission. Reported separately from
+    /// `latency_ledgers` so a slow source is distinguishable from a slow
+    /// aggregator.
+    pub deferral_ledgers: u32,
+    /// Whether the submission was ever counted into a published aggregate.
+    pub counted: bool,
+}
+
+/// Per-asset configuration of the robust outlier pre-filter (#491).
+///
+/// See `docs/outlier-filtering.md`. `detector` selects the estimator:
+/// `0` = disabled (default), `1` = median absolute deviation, `2` =
+/// interquartile range. `sensitivity_bps` is the exclusion threshold in
+/// scaled units: for MAD the robust z-score in basis points, for IQR the
+/// multiple of the IQR (e.g. `15_000` = 1.5 x IQR, the classic 1.5 rule).
+/// `min_sources` is the source-count floor below which filtering is
+/// disabled, because the estimators are unstable on tiny samples.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct OutlierConfig {
+    pub detector: u32,
+    pub sensitivity_bps: u32,
+    pub min_sources: u32,
+}
+
+/// One price removed from an aggregation by the robust pre-filter (#491).
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct OutlierExclusion {
+    pub source: Address,
+    pub price: i128,
+    /// Robust score of the excluded value: the modified z-score in bps for
+    /// MAD, or the distance from the nearest quartile in bps of the IQR for
+    /// IQR. `>=` the configured sensitivity.
+    pub score_bps: u32,
+    /// Center the score was measured from (median, or midpoint of the
+    /// quartiles for IQR).
+    pub center: i128,
+    /// Scale the score was measured in (scaled MAD or IQR); `0` when the
+    /// scale collapsed and the value was excluded by the absolute floor.
+    pub scale: i128,
+}
+
+/// Contribution record for a single source inside a published aggregate
+/// (#493).
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct ProvenanceEntry {
+    pub source: Address,
+    /// Price the source submitted for this round.
+    pub price: i128,
+    /// Weight the source carried in the aggregation, in bps of the total.
+    pub weight_bps: u32,
+    /// Ledger in which the counted submission was made.
+    pub submission_ledger: u32,
+}
+
+/// Chain head of an asset's provenance (#493): the hash of its most recent
+/// record and the ledger that record was published at.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct ProvenanceHead {
+    pub hash: soroban_sdk::BytesN<32>,
+    pub ledger: u32,
+}
+
+/// Why an aggregate was published, with every contributing submission
+/// (#493). `hash` chains to the previous record of the same asset, so a
+/// record cannot be altered or back-dated without detection; see
+/// `docs/provenance.md`.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct ProvenanceRecord {
+    /// Stable identifier: the SHA-256 commitment `hash`.
+    pub id: soroban_sdk::BytesN<32>,
+    pub asset: Address,
+    /// Ledger in which the aggregate was published.
+    pub ledger: u32,
+    /// The published aggregate price.
+    pub price: i128,
+    /// Timestamp of the newest counted submission.
+    pub timestamp: u64,
+    /// The unweighted median of the counted prices — the reference value
+    /// the aggregate was checked against.
+    pub reference: i128,
+    pub num_sources: u32,
+    /// Aggregation method in force (0..=4, see `policy::MAX_METHOD`).
+    pub method: u32,
+    /// Every contributing submission, in aggregation order.
+    pub contributors: soroban_sdk::Vec<ProvenanceEntry>,
+    /// Ledgers the publications were deferred past, one per contributor,
+    /// in the same order.
+    pub deferral_ledgers: soroban_sdk::Vec<u32>,
+    /// Hash of the previous provenance record of this asset, or 32 zero
+    /// bytes for the first one.
+    pub previous_hash: soroban_sdk::BytesN<32>,
+    /// SHA-256 over the record's fields and `previous_hash`.
+    pub hash: soroban_sdk::BytesN<32>,
+}
+/// #496 — Why a submission or aggregate was flagged.
+///
+/// A flag without an explanation is unactionable, so every flagging path
+/// produces one of these. An explanation is a pure function of the rule inputs,
+/// so identical inputs always yield an identical explanation.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct AnomalyExplanation {
+    /// Stable rule identifier (see [`AnomalyRule`]); never reused.
+    pub rule_id: u32,
+    /// Short human-readable rule name (e.g. `"bounds"`).
+    pub rule: soroban_sdk::Symbol,
+    /// Address the explanation is about (the source for submission-level
+    /// flags; the asset for aggregate-level flags).
+    pub subject: Address,
+    /// The asset whose price was flagged.
+    pub asset: Address,
+    /// Ledger in which the flag was raised.
+    pub ledger: u32,
+    /// The value the rule compared (e.g. the submitted price, or the aggregate).
+    pub observed: i128,
+    /// The reference the rule compared against (e.g. the prior price, or a bound).
+    pub reference: i128,
+    /// The threshold that was breached, in the rule's own units.
+    pub threshold: i128,
+    /// `true` when the submission was rejected outright, `false` when it was
+    /// flagged but still accepted.
+    pub rejected: bool,
+}
+
+/// #496 — The flagging rules. Ids are stable and never reused.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[contracttype]
+pub enum AnomalyRule {
+    /// Submitted price outside the asset's configured `[min_price, max_price]`.
+    PriceOutOfBounds = 1,
+    /// Submitted price was zero or negative.
+    NonPositivePrice = 2,
+    /// Submitted timestamp is further than `timestamp_threshold` ahead of the
+    /// ledger clock.
+    FutureTimestamp = 3,
+    /// Submission is older than the source's previous submission for the asset.
+    StaleSubmission = 4,
+    /// Submission would move the aggregate by more than
+    /// `max_change_bps_per_ledger`.
+    ChangeRateBreach = 5,
+    /// The price ratio against a configured correlation pair fell outside its
+    /// band.
+    CorrelationBand = 6,
+    /// Fewer sources contributed than `min_sources_required`, so the aggregate
+    /// was served below quorum.
+    InsufficientSources = 7,
+    /// The interquartile confidence band collapsed (too few distinct prices).
+    LowConfidenceBand = 8,
+}
+
+/// #498 — Coverage of one asset, by independence and by time.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct CoverageReport {
+    /// Raw number of registered sources admitted for the asset.
+    pub registered_sources: u32,
+    /// Distinct `(infra, upstream, owner)` failure domains among them — the
+    /// same independence definition as `source_diversity` (#399).
+    pub independent_domains: u32,
+    /// Required number of independent domains for this asset.
+    pub min_independent_required: u32,
+    /// `independent_domains < min_independent_required`, i.e. the asset cannot
+    /// meet quorum even if every registered source agrees.
+    pub below_independence_threshold: bool,
+    /// Windows observed for this asset so far.
+    pub windows_observed: u32,
+    /// Windows in which participation fell below the independence threshold.
+    pub low_participation_windows: u32,
+    /// Fewest distinct sources seen in any observed window.
+    pub min_window_participation: u32,
+    /// Advisory admission recommendations (never enforced — see
+    /// `docs/source-coverage.md`).
+    pub recommendations: soroban_sdk::Vec<soroban_sdk::String>,
+}
+
+/// #495 — Instrumented switch and reporting shape for degraded-mode serving.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct DegradationConfig {
+    /// When false, no degraded read is counted or emitted (zero read overhead).
+    pub enabled: bool,
+    /// Length of one rolling window in ledgers. `0` accumulates everything into
+    /// the single window `0`.
+    pub window_ledgers: u32,
+    /// Emit a `DegradedReadEvent` for every Nth counted degradation. `0` or `1`
+    /// emits every one. Severe states are NEVER sampled.
+    pub sample_every: u32,
+    /// When false, no window counter is written (events only).
+    pub count_windows: bool,
+}
+
+/// #495 — Why a consumer read was degraded. The variants form a strict
+/// precedence order (`degradation::classify` returns the first match), so
+/// every degraded read is attributed to exactly one reason.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, PartialOrd, Ord)]
+#[contracttype]
+pub enum DegradationState {
+    /// Served a value unchanged and inside every configured bound.
+    Fresh = 0,
+    /// The value was older than the caller's `max_age` or the asset resolution.
+    Stale = 1,
+    /// The value was pinned by a freeze or admin override rather than by the
+    /// median of live submissions.
+    Clamped = 2,
+    /// The value was derived from fewer sources than `min_sources_required`.
+    LowConfidence = 3,
+    /// A fallback (TWAP / last raw aggregate) was served because the live
+    /// aggregation path was unavailable (circuit breaker tripped).
+    Deferred = 4,
+}
+
+/// #495 — Degradation counts for one asset over a rolling window.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct DegradationStats {
+    /// Window index these counts belong to (`sequence / window_ledgers`).
+    pub window: u32,
+    /// Total degraded reads counted in the window, all states.
+    pub total_degraded: u32,
+    /// Per-state counts, indexed by the `DegradationState` discriminant
+    /// (`0 = Fresh` … `4 = Deferred`).
+    pub by_state: soroban_sdk::Vec<u32>,
+    /// Counts of severe (`Clamped` + `Deferred`) reads — never sampled.
+    pub severe: u32,
+    /// Individual per-state events emitted, including sampled-out reads.
+    /// Off-chain aggregators reconstruct the true rate from these.
+    pub emitted_events: u32,
+}
+
+/// #497 — Long-horizon oracle-vs-benchmark drift metrics for one asset.
+///
+/// Divergence is a signal, not proof: the benchmark may be wrong too. These
+/// metrics are read-only reporting and never mutate an on-chain price.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct DriftReport {
+    /// Time-aligned samples currently in the rolling window.
+    pub samples: u32,
+    /// Samples discarded because the two snapshots were further apart than
+    /// `max_alignment_secs` (see `docs/drift-detection.md`).
+    pub misaligned_skipped: u32,
+    /// Signed mean bias of the oracle against the benchmark, in bps. Positive
+    /// means the oracle prices above the benchmark.
+    pub mean_bias_bps: i128,
+    /// Largest absolute single-sample divergence in the window, in bps.
+    pub max_abs_divergence_bps: i128,
+    /// Share of samples that individually breach `bias_threshold_bps` on the
+    /// same side as the mean, in bps (0–10000). This is what separates
+    /// sustained directional drift from a transient large divergence.
+    pub directional_consistency_bps: u32,
+    /// `true` when the window shows a sustained directional bias beyond
+    /// `bias_threshold_bps`.
+    pub sustained_drift: bool,
+    /// Threshold used for `sustained_drift`.
+    pub bias_threshold_bps: i128,
+    /// Minimum samples required before drift may be declared.
+    pub min_samples: u32,
+}
+impl HistoryStorageTier {
+    /// The on-chain discriminant used in events and public getters.
+    pub fn as_u32(self) -> u32 {
+        match self {
+            HistoryStorageTier::Temporary => 0,
+            HistoryStorageTier::Persistent => 1,
+        }
+    }
+
+    /// Parses an on-chain discriminant, rejecting unknown values.
+    pub fn from_u32(v: u32) -> Option<HistoryStorageTier> {
+        match v {
+            0 => Some(HistoryStorageTier::Temporary),
+            1 => Some(HistoryStorageTier::Persistent),
+            _ => None,
+        }
+    }
+
+    /// The retention guarantee, in ledgers, that real data in this tier satisfies.
+    ///
+    /// `Temporary` data is extended to at least `TEMPORARY_RETENTION_LEDGERS`
+    /// on every write and read, so a consumer that reads within that window
+    /// always sees a stored entry. `Persistent` data is retained until pruned.
+    pub fn retention_ledgers(self) -> u32 {
+        match self {
+            HistoryStorageTier::Temporary => TEMPORARY_RETENTION_LEDGERS,
+            HistoryStorageTier::Persistent => PERSISTENT_RETENTION_LEDGERS,
+        }
+    }
+}
+
+impl RoundConfig {
+    /// The default: single-round mode, disabled.
+    pub fn disabled() -> RoundConfig {
+        RoundConfig {
+            required_rounds: 1,
+            quorum: 1,
+            round_ledgers: DEFAULT_ROUND_LEDGERS,
+            agreement_bps: DEFAULT_AGREEMENT_BPS,
+        }
+    }
+
+    /// `true` when the asset is in multi-round confirmation mode.
+    pub fn is_multi_round(&self) -> bool {
+        self.required_rounds > 1
+    }
+}
+
+impl DerivedFeedKind {
+    /// The on-chain discriminant used in events and getters.
+    pub fn as_u32(self) -> u32 {
+        match self {
+            DerivedFeedKind::Inverse => 0,
+            DerivedFeedKind::Ratio => 1,
+            DerivedFeedKind::Triangulation => 2,
+        }
+    }
+
+    /// Parses an on-chain discriminant, rejecting unknown values.
+    pub fn from_u32(v: u32) -> Option<DerivedFeedKind> {
+        match v {
+            0 => Some(DerivedFeedKind::Inverse),
+            1 => Some(DerivedFeedKind::Ratio),
+            2 => Some(DerivedFeedKind::Triangulation),
+            _ => None,
+        }
+    }
+}
+impl AnomalyRule {
+    /// Short stable name used in explanations and events.
+    pub fn name(self) -> soroban_sdk::Symbol {
+        match self {
+            AnomalyRule::PriceOutOfBounds => soroban_sdk::symbol_short!("bounds"),
+            AnomalyRule::NonPositivePrice => soroban_sdk::symbol_short!("nonpos"),
+            AnomalyRule::FutureTimestamp => soroban_sdk::symbol_short!("future"),
+            AnomalyRule::StaleSubmission => soroban_sdk::symbol_short!("stale"),
+            AnomalyRule::ChangeRateBreach => soroban_sdk::symbol_short!("chgrate"),
+            AnomalyRule::CorrelationBand => soroban_sdk::symbol_short!("corr"),
+            AnomalyRule::InsufficientSources => soroban_sdk::symbol_short!("quorum"),
+            AnomalyRule::LowConfidenceBand => soroban_sdk::symbol_short!("lowconf"),
+        }
+    }
+
+    /// Every rule, for exhaustive per-path tests and retention sweeps.
+    pub const ALL: [AnomalyRule; 8] = [
+        AnomalyRule::PriceOutOfBounds,
+        AnomalyRule::NonPositivePrice,
+        AnomalyRule::FutureTimestamp,
+        AnomalyRule::StaleSubmission,
+        AnomalyRule::ChangeRateBreach,
+        AnomalyRule::CorrelationBand,
+        AnomalyRule::InsufficientSources,
+        AnomalyRule::LowConfidenceBand,
+    ];
+
+    /// Whether the rule rejects the submission outright, as opposed to flagging
+    /// it while still accepting the price. Drives `AnomalyExplanation::rejected`.
+    pub fn is_rejecting(self) -> bool {
+        matches!(
+            self,
+            AnomalyRule::PriceOutOfBounds
+                | AnomalyRule::NonPositivePrice
+                | AnomalyRule::FutureTimestamp
+                | AnomalyRule::StaleSubmission
+                | AnomalyRule::ChangeRateBreach
+        )
+    }
+}
+
+impl DegradationState {
+    /// All states, in precedence order.
+    pub const ALL: [DegradationState; 5] = [
+        DegradationState::Fresh,
+        DegradationState::Stale,
+        DegradationState::Clamped,
+        DegradationState::LowConfidence,
+        DegradationState::Deferred,
+    ];
+
+    /// Whether a read in this state is degraded at all.
+    pub fn is_degraded(self) -> bool {
+        self != DegradationState::Fresh
+    }
+
+    /// Rare-but-severe states. Sampling must never hide these, so they are
+    /// always counted and always emitted.
+    pub fn is_severe(self) -> bool {
+        matches!(self, DegradationState::Clamped | DegradationState::Deferred)
+    }
+}
+
+// =============================================================================
+// #487 — Asset risk tiers
+// =============================================================================
+
+/// The fixed set of risk tiers an asset may be assigned to (#487).
+///
+/// The set is closed and versioned: adding a tier later is a new discriminant,
+/// never a reinterpretation of an existing one, so a stored assignment always
+/// resolves to the same parameters it did when it was made. See
+/// `docs/asset-risk-tiers.md`.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[contracttype]
+pub enum RiskTier {
+    /// Deep, highly liquid markets. Median over a wide quorum, tight deviation.
+    Tier1BlueChip = 0,
+    /// Ordinary majors. Median over a standard quorum.
+    Tier2Standard = 1,
+    /// Thin but real markets. Trimmed mean, small quorum, loose bounds.
+    Tier3Thin = 2,
+    /// Speculative / newly listed. Widest tolerance, weakest quorum, fastest
+    /// expiry.
+    Tier4Speculative = 3,
+}
+
+/// A tier's fixed parameter set (#487).
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct TierParams {
+    /// Aggregation method (see `AggregationMethod`).
+    pub method: u32,
+    /// Quorum: minimum fresh contributing sources.
+    pub min_sources: u32,
+    /// Freshness window, in seconds. `0` means "no tier-imposed limit".
+    pub freshness_secs: u64,
+    /// Maximum deviation from the median, in bps. `0` disables the filter.
+    pub max_deviation_bps: u32,
+}
+
+/// An asset's tier together with the parameters it actually resolves to (#487).
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct ResolvedTier {
+    /// The assigned tier.
+    pub tier: RiskTier,
+    /// Tier-supplied parameters, before any per-asset override.
+    pub base: TierParams,
+    /// Tier parameters after the documented per-asset overrides are applied.
+    pub effective: TierParams,
+    /// `true` when at least one field was overridden away from the tier value.
+    pub overridden: bool,
+}
+
+// =============================================================================
+// #488 — Cross-asset sanity lattice
+// =============================================================================
+
+/// Kinds of cross-asset consistency relation (#488).
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[contracttype]
+pub enum SanityRelationKind {
+    /// `price(asset) ~= price(peer) * ratio` within tolerance — a stablecoin
+    /// or wrapped-token peg.
+    Peg = 0,
+    /// `price(a) * price(b) ~= price(c)` within tolerance — a triangular FX
+    /// cross. All three legs must be live.
+    Triangle = 1,
+    /// `|price(asset) - price(peer)| / price(asset) <= tolerance` — a plain
+    /// spread cap between two assets quoted in the same unit.
+    Spread = 2,
+}
+
+/// What a sanity violation does to the offending aggregate (#488).
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[contracttype]
+pub enum SanityAction {
+    /// Publish, but record and event the violation so it is visible.
+    Flag = 0,
+    /// Do not publish; the previous aggregate stays live.
+    Reject = 1,
+    /// Do not publish and mark the asset quarantined until an admin clears it.
+    Quarantine = 2,
+}
+
+/// One declared consistency relation between assets (#488).
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct SanityRelation {
+    /// The asset the relation is declared on.
+    pub asset: Address,
+    /// The asset it is checked against. Unused (and equal to `asset`) for
+    /// [`SanityRelationKind::Triangle`], which carries two peers instead.
+    pub peer: Address,
+    /// Second peer, for a triangular cross only.
+    pub peer2: Option<Address>,
+    pub kind: SanityRelationKind,
+    /// Permitted relative deviation, in bps. `1..=MAX_TOLERANCE_BPS`.
+    pub tolerance_bps: u32,
+    /// Peg ratio numerator/denominator. The relation is
+    /// `price(peer) * ratio_num / ratio_den`. Only meaningful for
+    /// [`SanityRelationKind::Peg`].
+    pub ratio_num: i128,
+    pub ratio_den: i128,
+    /// Action taken when the relation is violated.
+    pub action: SanityAction,
+}
+
+/// The outcome of checking one aggregate against its relations (#488).
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct SanityStatus {
+    pub asset: Address,
+    /// `true` when at least one relation was violated by the candidate.
+    pub violated: bool,
+    /// `true` when the asset is suspended by a declared de-peg, in which case
+    /// relations are skipped but the asset stays fully usable.
+    pub suspended: bool,
+    /// Number of relations actually evaluated (suspended ones are excluded).
+    pub checked: u32,
+    /// The asset whose value broke the relation.
+    pub conflicting_asset: Option<Address>,
+    /// Observed relative deviation, in bps. Reproduces the check exactly.
+    pub magnitude_bps: u32,
+    /// Tolerance the observation was compared against.
+    pub tolerance_bps: u32,
+    /// Action applied to the candidate aggregate.
+    pub action: SanityAction,
+    /// `true` when the asset is quarantined and must be cleared by an admin.
+    pub quarantined: bool,
+    pub ledger: u32,
+}
+
+// =============================================================================
+// #489 — Freshness-aware quorum
+// =============================================================================
+
+/// Why an asset is not currently publishable, and with how much participation.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[contracttype]
+pub enum FreshnessState {
+    /// Enough fresh sources to satisfy quorum.
+    Fresh = 0,
+    /// Submissions exist but too few are inside the freshness window.
+    Stale = 1,
+    /// The asset has no submissions at all.
+    Absent = 2,
+}
+
+/// The freshness-filter outcome of the most recent aggregation (#489).
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct FreshnessStatus {
+    pub asset: Address,
+    /// Submissions inside the window. Only these count toward quorum.
+    pub fresh: u32,
+    /// Submissions present but older than the window. These are *excluded*.
+    pub stale: u32,
+    /// Quorum the fresh count was measured against.
+    pub quorum: u32,
+    /// The window actually applied, after tier and per-asset overrides.
+    pub window_secs: u64,
+    /// `true` when the window came from the tier or the asset rather than the
+    /// global default.
+    pub overridden: bool,
+    pub state: FreshnessState,
+    /// Ledger time the ages were measured against.
+    pub measured_at: u64,
+    pub ledger: u32,
+}
+
+// =============================================================================
+// #490 — Per-source accuracy scorecards
+// =============================================================================
+
+/// How a source's accuracy is measured, over a rolling window (#490).
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct ScorecardWindow {
+    /// Number of most recent samples in this window.
+    pub samples: u32,
+    /// Mean absolute relative error against the reference, in bps.
+    pub mean_abs_error_bps: u32,
+    /// Mean *signed* relative error, in bps. Non-zero means persistent bias.
+    pub bias_bps: i32,
+    /// Share of samples within [`ScorecardConfig::hit_tolerance_bps`], in bps.
+    pub hit_rate_bps: u32,
+}
+
+/// A source's rolling accuracy scorecards (#490).
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct SourceScorecard {
+    pub source: Address,
+    /// Recent window: responsiveness to current conditions.
+    pub short: ScorecardWindow,
+    /// Long window: sustained quality.
+    pub long: ScorecardWindow,
+    /// `true` while the source has fewer than [`ScorecardConfig::cold_start_samples`]
+    /// samples, i.e. it is not yet being *scored*, only counted. A cold-start
+    /// source is never reported as poor.
+    pub cold_start: bool,
+    /// Sample count on which the short window's error is based.
+    pub short_samples: u32,
+    /// Largest single-sample error seen in the long window, in bps. This is the
+    /// figure the outlier floor guards against.
+    pub long_max_error_bps: u32,
+}
+
+/// Global scorecard configuration (#490).
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct ScorecardConfig {
+    /// Samples in the short (recent) window.
+    pub short_window: u32,
+    /// Samples in the long (sustained) window.
+    pub long_window: u32,
+    /// Below this many samples a source is `cold_start`, not scored.
+    pub cold_start_samples: u32,
+    /// A sample counts as a "hit" when its error is within this many bps.
+    pub hit_tolerance_bps: u32,
+    /// Per-sample error above this is winsorized to it, so one catastrophic
+    /// outlier cannot collapse a long window. See `docs/source-scorecards.md`.
+    pub outlier_cap_bps: u32,
 }
