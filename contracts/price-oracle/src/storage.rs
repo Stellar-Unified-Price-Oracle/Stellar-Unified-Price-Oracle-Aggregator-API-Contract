@@ -7,6 +7,12 @@ pub const LEDGER_THRESHOLD: u32 = 10_000;
 pub const LEDGER_BUMP: u32 = 40_000;
 pub const DEFAULT_QUERY_RATE_LIMIT: u32 = 100;
 
+/// Alias used by public getter wrappers in `lib.rs`.
+pub use crate::reentrancy::{enter as enter_reentrancy_guard, exit as exit_reentrancy_guard};
+
+/// Default number of ledgers after creation before a pending operation expires (~24 h at 5 s/ledger).
+pub const DEFAULT_EXPIRY_LEDGERS: u32 = 17_280;
+
 pub fn get_admin(env: &Env) -> Address {
     env.storage().persistent().get(&DataKey::Admin).unwrap()
 }
@@ -30,7 +36,6 @@ pub fn check_source(env: &Env, addr: &Address) {
         .persistent()
         .extend_ttl(&key, LEDGER_THRESHOLD, LEDGER_BUMP);
 }
-
 
 pub fn check_registered_asset(env: &Env, asset: &Address) {
     // Prefer the O(1) membership index.
@@ -79,7 +84,7 @@ pub fn check_source_asset(env: &Env, source: &Address, asset: &Address) {
 }
 
 /// Sort prices using heapsort — guaranteed O(n log n) worst-case, O(1) extra space.
-/// Preferred over quicksort to avoid O(n²) worst-case gas cost on adversarial inputs.
+/// Used by `compute_trimmed_mean` which needs a fully sorted array.
 pub fn sort_prices(prices: &mut soroban_sdk::Vec<i128>) {
     let n = prices.len();
     if n <= 1 {
@@ -153,12 +158,7 @@ fn median_of_five(prices: &mut soroban_sdk::Vec<i128>, left: u32, right: u32) ->
     left + (right - left) / 2
 }
 
-fn partition(
-    prices: &mut soroban_sdk::Vec<i128>,
-    left: u32,
-    right: u32,
-    pivot_index: u32,
-) -> u32 {
+fn partition(prices: &mut soroban_sdk::Vec<i128>, left: u32, right: u32, pivot_index: u32) -> u32 {
     let pivot_value = prices.get_unchecked(pivot_index);
     vec_swap(prices, pivot_index, right);
     let mut store_index = left;
@@ -188,16 +188,10 @@ fn select_pivot(prices: &mut soroban_sdk::Vec<i128>, left: u32, right: u32) -> u
         store += 1;
         i += 5;
     }
-    let mid = left + ((store - left - 1) / 2);
-    select_kth(prices, left, store - 1, mid)
+    median_of_five(prices, left, store - 1)
 }
 
-fn select_kth(
-    prices: &mut soroban_sdk::Vec<i128>,
-    mut left: u32,
-    mut right: u32,
-    k: u32,
-) -> i128 {
+fn select_kth(prices: &mut soroban_sdk::Vec<i128>, mut left: u32, mut right: u32, k: u32) -> i128 {
     loop {
         if left == right {
             return prices.get_unchecked(left);
@@ -237,7 +231,20 @@ pub fn compute_mean(prices: &soroban_sdk::Vec<i128>) -> i128 {
     }
     let mut sum: i128 = 0;
     for i in 0..n {
-        sum = sum.saturating_add(prices.get_unchecked(i));
+        let p = prices.get_unchecked(i);
+        match sum.checked_add(p) {
+            Some(s) => sum = s,
+            // Overflow (#464): exact quotient/remainder mean, never a saturated sum.
+            None => {
+                let n = n as i128;
+                let (mut quotient, mut remainder) = (0i128, 0i128);
+                for p in prices.iter() {
+                    quotient += p / n;
+                    remainder += p % n;
+                }
+                return quotient + remainder / n;
+            }
+        }
     }
     sum / (n as i128)
 }
@@ -319,6 +326,34 @@ pub fn compute_trimmed_mean(prices: &soroban_sdk::Vec<i128>, trim_percent: u32) 
     }
 
     compute_mean(&trimmed)
+}
+
+/// SDK-`Vec` counterpart of [`crate::core_pricing::weighted_median_core`].
+///
+/// The differential tests (`diff_tests.rs`) and the `fuzz_aggregation` harness
+/// assert that this function and the pure core agree for every input, so the
+/// arguments are copied into fixed-size buffers (the contract build has no
+/// allocator) and the core is used as the single source of truth. Both sides
+/// cap the number of considered entries at 128.
+pub fn compute_weighted_median(
+    prices: &soroban_sdk::Vec<i128>,
+    weights: &soroban_sdk::Vec<i128>,
+) -> i128 {
+    const MAX_ENTRIES: usize = 128;
+
+    let price_len = (prices.len() as usize).min(MAX_ENTRIES);
+    let weight_len = (weights.len() as usize).min(MAX_ENTRIES);
+
+    let mut price_buf = [0i128; MAX_ENTRIES];
+    let mut weight_buf = [0i128; MAX_ENTRIES];
+    for (i, slot) in price_buf[..price_len].iter_mut().enumerate() {
+        *slot = prices.get_unchecked(i as u32);
+    }
+    for (i, slot) in weight_buf[..weight_len].iter_mut().enumerate() {
+        *slot = weights.get_unchecked(i as u32);
+    }
+
+    crate::core_pricing::weighted_median_core(&price_buf[..price_len], &weight_buf[..weight_len])
 }
 
 pub fn compute_vwap(prices: &soroban_sdk::Vec<i128>, volumes: &soroban_sdk::Vec<i128>) -> i128 {
@@ -496,7 +531,7 @@ pub fn get_storage_ttl_status(env: &Env) -> soroban_sdk::Vec<crate::types::Stora
         let agg_key = DataKey::Aggregate(a.clone());
         let exists = env.storage().persistent().has(&agg_key);
         out.push_back(crate::types::StorageTtlEntry {
-            key: soroban_sdk::String::from_str(env, &format!("Aggregate({})", i)),
+            key: soroban_sdk::String::from_str(env, "Aggregate"),
             exists,
             remaining_ttl: 0,
         });
@@ -504,14 +539,15 @@ pub fn get_storage_ttl_status(env: &Env) -> soroban_sdk::Vec<crate::types::Stora
         // Price history ledgers list (if present)
         let ledgers_key = DataKey::PriceHistoryLedgers(a.clone());
         if env.storage().persistent().has(&ledgers_key) {
-            let ledger_list: Option<soroban_sdk::Vec<u32>> = env.storage().persistent().get(&ledgers_key);
+            let ledger_list: Option<soroban_sdk::Vec<u32>> =
+                env.storage().persistent().get(&ledgers_key);
             if let Some(list) = ledger_list {
                 for j in 0..list.len() {
                     let ledger = list.get_unchecked(j);
                     let hist_key = DataKey::PriceHistory(a.clone(), ledger);
                     let exists_hist = env.storage().temporary().has(&hist_key);
                     out.push_back(crate::types::StorageTtlEntry {
-                        key: soroban_sdk::String::from_str(env, &format!("PriceHistory({}, {})", i, ledger)),
+                        key: soroban_sdk::String::from_str(env, "PriceHistory"),
                         exists: exists_hist,
                         remaining_ttl: 0,
                     });

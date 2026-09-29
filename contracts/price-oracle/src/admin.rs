@@ -4,10 +4,11 @@ use crate::events::{
     emit_admin_action, emit_initialized, emit_max_price_deviation_changed,
     emit_timestamp_threshold_changed, AdminChangedEvent, AggCooldownChangedEvent,
     AssetResolutionSetEvent, ContractUpgradedEvent, DecimalsChangedEvent, DescriptionChangedEvent,
-    EventsPerCallChangedEvent, HeartbeatIntervalChangedEvent, HistoryPerAssetChangedEvent,
-    InterpolationChangedEvent, MaxAggSourcesChangedEvent, MaxHistoryChangedEvent,
-    MaxSourcesChangedEvent, MinSourcesChangedEvent, QueryRateLimitChangedEvent,
-    ResolutionChangedEvent, SubmitIntervalChangedEvent,
+    DisputeWindowChangedEvent, EventsPerCallChangedEvent, HeartbeatIntervalChangedEvent,
+    HistoryPerAssetChangedEvent, InterpolationChangedEvent, MaxAggSourcesChangedEvent,
+    MaxHistoryChangedEvent, MaxSourcesChangedEvent, MinSourcesChangedEvent,
+    OptimisticBondChangedEvent, QueryRateLimitChangedEvent, ResolutionChangedEvent,
+    SubmitIntervalChangedEvent,
 };
 use crate::storage::{
     get_admin, read_oracle_sources, read_subscription_plans, write_subscription_plans,
@@ -34,6 +35,16 @@ pub const DEFAULT_MAX_HISTORY_PER_ASSET: u32 = 1000;
 pub const DEFAULT_MAX_EVENTS_PER_CALL: u32 = 20;
 /// Default maximum aggregation sources; 0 means no limit (issue #93).
 pub const DEFAULT_MAX_AGGREGATION_SOURCES: u32 = 0;
+
+/// Upper bounds enforced on configuration setters so a compromised or buggy
+/// admin cannot push the contract into an unusable state.
+pub const MAX_MIN_SOURCES: u32 = 100_000;
+pub const MAX_MAX_HISTORY: u32 = 1_000_000;
+pub const MAX_RESOLUTION: u32 = 1_000_000;
+/// One day, in seconds — the timestamp window may not exceed the reporting period.
+pub const MAX_TIMESTAMP_THRESHOLD: u64 = 86_400;
+/// One year, in seconds — heartbeat liveness intervals beyond this are meaningless.
+pub const MAX_HEARTBEAT_INTERVAL: u64 = 31_536_000;
 
 pub fn initialize(
     env: &Env,
@@ -173,7 +184,7 @@ pub fn get_admin_address(env: &Env) -> Address {
 pub fn set_min_sources_required(env: &Env, new_min: u32) {
     let admin = get_admin(env);
     admin.require_auth();
-    if new_min == 0 {
+    if new_min == 0 || new_min > MAX_MIN_SOURCES {
         panic_with_error!(env, ErrorCode::InvalidConfiguration);
     }
     let oracle_sources = read_oracle_sources(env);
@@ -181,6 +192,7 @@ pub fn set_min_sources_required(env: &Env, new_min: u32) {
     if source_count > 0 && new_min > source_count {
         panic_with_error!(env, ErrorCode::InvalidConfiguration);
     }
+    crate::config_history::snapshot_before_change(env, &admin);
     env.storage()
         .persistent()
         .set(&DataKey::CfgMinSources, &new_min);
@@ -198,15 +210,18 @@ pub fn get_min_sources_required(env: &Env) -> u32 {
     env.storage()
         .persistent()
         .get(&key)
-        .unwrap_or(DEFAULT_MIN_SOURCES)
+        // Fail closed: `initialize` always writes this key, so a missing entry means it was
+        // evicted. Falling back to a permissive default would let a single source set prices.
+        .unwrap_or_else(|| panic_with_error!(env, ErrorCode::ConfigMissing))
 }
 
 pub fn set_max_history_length(env: &Env, new_max: u32) {
     let admin = get_admin(env);
     admin.require_auth();
-    if new_max == 0 {
+    if new_max == 0 || new_max > MAX_MAX_HISTORY {
         panic_with_error!(env, ErrorCode::InvalidConfiguration);
     }
+    crate::config_history::snapshot_before_change(env, &admin);
     env.storage()
         .persistent()
         .set(&DataKey::CfgMaxHistory, &new_max);
@@ -230,6 +245,10 @@ pub fn get_max_history_length(env: &Env) -> u32 {
 pub fn set_resolution(env: &Env, new_resolution: u32) {
     let admin = get_admin(env);
     admin.require_auth();
+    if new_resolution > MAX_RESOLUTION {
+        panic_with_error!(env, ErrorCode::InvalidConfiguration);
+    }
+    crate::config_history::snapshot_before_change(env, &admin);
     env.storage()
         .persistent()
         .set(&DataKey::CfgResolution, &new_resolution);
@@ -259,6 +278,7 @@ pub fn set_decimals(env: &Env, new_decimals: u32) {
     if new_decimals > 18 {
         panic_with_error!(env, ErrorCode::InvalidConfiguration);
     }
+    crate::config_history::snapshot_before_change(env, &admin);
     env.storage()
         .persistent()
         .set(&DataKey::CfgDecimals, &new_decimals);
@@ -288,6 +308,7 @@ pub fn set_description(env: &Env, new_description: String) {
     if new_description.len() > MAX_DESCRIPTION_LENGTH {
         panic_with_error!(env, ErrorCode::DescriptionTooLong);
     }
+    crate::config_history::snapshot_before_change(env, &admin);
     env.storage()
         .persistent()
         .set(&DataKey::CfgDescription, &new_description);
@@ -324,24 +345,49 @@ pub fn get_aggregation_method(env: &Env) -> u32 {
         .unwrap_or(AggregationMethod::Median as u32)
 }
 
+/// Set the active aggregation method. Admin-only.
+///
+/// # Valid values
+/// * `0` — `Median` (default)
+/// * `1` — `Mean`
+/// * `2` — `TrimmedMean`
+/// * `3` — `WeightedMedian`
+/// * `4` — freshness-weighted median
 pub fn set_aggregation_method(env: &Env, method: u32) {
     let admin = get_admin(env);
     admin.require_auth();
-    if method > AggregationMethod::VWAP as u32 {
+    if method > 4 {
         panic_with_error!(env, ErrorCode::InvalidConfiguration);
     }
+    let old_method = get_aggregation_method(env);
+    crate::config_history::snapshot_before_change(env, &admin);
     env.storage()
         .persistent()
         .set(&DataKey::CfgAggregationMethod, &method);
-    emit_admin_action(env, symbol_short!("set_agg"), admin, Bytes::new(env));
+    crate::events::AggregationMethodChangedEvent {
+        admin: admin.clone(),
+        old_method,
+        new_method: method,
+    }
+    .publish(env);
+    emit_admin_action(
+        env,
+        symbol_short!("set_agg"),
+        admin,
+        soroban_sdk::Bytes::new(env),
+    );
 }
 
 pub fn set_timestamp_threshold(env: &Env, threshold: u64) {
     let admin = get_admin(env);
     admin.require_auth();
+    if threshold == 0 || threshold > MAX_TIMESTAMP_THRESHOLD {
+        panic_with_error!(env, ErrorCode::InvalidConfiguration);
+    }
+    crate::config_history::snapshot_before_change(env, &admin);
     env.storage()
         .persistent()
-        .set(&DataKey::TimestampThreshold, &threshold);
+        .set(&DataKey::CfgTimestampThreshold, &threshold);
     emit_timestamp_threshold_changed(env, admin.clone(), threshold);
     emit_admin_action(env, symbol_short!("set_ts"), admin, Bytes::new(env));
 }
@@ -365,9 +411,10 @@ pub fn set_max_price_deviation(env: &Env, deviation_basis_points: u32) {
     if deviation_basis_points > 100000 {
         panic_with_error!(env, ErrorCode::InvalidConfiguration);
     }
+    crate::config_history::snapshot_before_change(env, &admin);
     env.storage()
         .persistent()
-        .set(&DataKey::MaxPriceDeviation, &deviation_basis_points);
+        .set(&DataKey::CfgMaxDeviation, &deviation_basis_points);
     emit_max_price_deviation_changed(env, admin.clone(), deviation_basis_points);
     emit_admin_action(env, symbol_short!("set_dev"), admin, Bytes::new(env));
 }
@@ -391,6 +438,7 @@ pub fn set_circuit_breaker_threshold(env: &Env, threshold_bps: u32) {
     if threshold_bps > 100000 {
         panic_with_error!(env, ErrorCode::InvalidConfiguration);
     }
+    crate::config_history::snapshot_before_change(env, &admin);
     env.storage()
         .persistent()
         .set(&DataKey::CircuitBreakerThreshold, &threshold_bps);
@@ -403,19 +451,16 @@ pub fn get_circuit_breaker_threshold(env: &Env) -> u32 {
             .persistent()
             .extend_ttl(&key, LEDGER_THRESHOLD, LEDGER_BUMP);
     }
-    env.storage()
-        .persistent()
-        .get(&key)
-        .unwrap_or(0)
+    env.storage().persistent().get(&key).unwrap_or(0)
 }
-
 
 pub fn set_heartbeat_interval(env: &Env, interval: u64) {
     let admin = get_admin(env);
     admin.require_auth();
-    if interval == 0 {
+    if interval == 0 || interval > MAX_HEARTBEAT_INTERVAL {
         panic_with_error!(env, ErrorCode::InvalidConfiguration);
     }
+    crate::config_history::snapshot_before_change(env, &admin);
     env.storage()
         .persistent()
         .set(&DataKey::CfgHeartbeatInterval, &interval);
@@ -441,6 +486,7 @@ pub fn get_heartbeat_interval(env: &Env) -> u64 {
 pub fn set_max_history_per_asset(env: &Env, new_max: u32) {
     let admin = get_admin(env);
     admin.require_auth();
+    crate::config_history::snapshot_before_change(env, &admin);
     env.storage()
         .persistent()
         .set(&DataKey::MaxHistoryPerAsset, &new_max);
@@ -465,6 +511,7 @@ pub fn get_max_history_per_asset(env: &Env) -> u32 {
 pub fn set_max_events_per_call(env: &Env, new_max: u32) {
     let admin = get_admin(env);
     admin.require_auth();
+    crate::config_history::snapshot_before_change(env, &admin);
     env.storage()
         .persistent()
         .set(&DataKey::MaxEventsPerCall, &new_max);
@@ -489,6 +536,7 @@ pub fn get_max_events_per_call(env: &Env) -> u32 {
 pub fn set_max_aggregation_sources(env: &Env, new_max: u32) {
     let admin = get_admin(env);
     admin.require_auth();
+    crate::config_history::snapshot_before_change(env, &admin);
     env.storage()
         .persistent()
         .set(&DataKey::MaxAggregationSources, &new_max);
@@ -545,6 +593,7 @@ pub fn get_asset_resolution(env: &Env, asset: Address) -> u32 {
 pub fn set_aggregation_cooldown(env: &Env, cooldown_ledgers: u32) {
     let admin = get_admin(env);
     admin.require_auth();
+    crate::config_history::snapshot_before_change(env, &admin);
     env.storage()
         .persistent()
         .set(&DataKey::AggregationCooldown, &cooldown_ledgers);
@@ -562,11 +611,75 @@ pub fn get_aggregation_cooldown(env: &Env) -> u32 {
     env.storage().persistent().get(&key).unwrap_or(10)
 }
 
+// --- #217: Configurable optimistic-oracle dispute window & minimum bond ---
+
+pub fn set_optimistic_dispute_window(env: &Env, dispute_window_ledgers: u32) {
+    let admin = get_admin(env);
+    admin.require_auth();
+    if dispute_window_ledgers == 0 {
+        panic_with_error!(env, ErrorCode::InvalidConfiguration);
+    }
+    env.storage().persistent().set(
+        &DataKey::CfgOptimisticDisputeWindow,
+        &dispute_window_ledgers,
+    );
+    DisputeWindowChangedEvent {
+        admin: admin.clone(),
+        dispute_window_ledgers,
+    }
+    .publish(env);
+    emit_admin_action(env, symbol_short!("set_odw"), admin, Bytes::new(env));
+}
+
+pub fn get_optimistic_dispute_window(env: &Env) -> u32 {
+    let key = DataKey::CfgOptimisticDisputeWindow;
+    if env.storage().persistent().has(&key) {
+        env.storage()
+            .persistent()
+            .extend_ttl(&key, LEDGER_THRESHOLD, LEDGER_BUMP);
+    }
+    env.storage()
+        .persistent()
+        .get(&key)
+        .unwrap_or(DEFAULT_OPTIMISTIC_DISPUTE_WINDOW)
+}
+
+pub fn set_optimistic_min_bond(env: &Env, min_bond: i128) {
+    let admin = get_admin(env);
+    admin.require_auth();
+    if min_bond <= 0 {
+        panic_with_error!(env, ErrorCode::InvalidConfiguration);
+    }
+    env.storage()
+        .persistent()
+        .set(&DataKey::CfgOptimisticMinBond, &min_bond);
+    OptimisticBondChangedEvent {
+        admin: admin.clone(),
+        min_bond,
+    }
+    .publish(env);
+    emit_admin_action(env, symbol_short!("set_omb"), admin, Bytes::new(env));
+}
+
+pub fn get_optimistic_min_bond(env: &Env) -> i128 {
+    let key = DataKey::CfgOptimisticMinBond;
+    if env.storage().persistent().has(&key) {
+        env.storage()
+            .persistent()
+            .extend_ttl(&key, LEDGER_THRESHOLD, LEDGER_BUMP);
+    }
+    env.storage()
+        .persistent()
+        .get(&key)
+        .unwrap_or(DEFAULT_OPTIMISTIC_MIN_BOND)
+}
+
 // --- #70: Minimum submission interval ---
 
 pub fn set_min_submission_interval(env: &Env, interval_ledgers: u32) {
     let admin = get_admin(env);
     admin.require_auth();
+    crate::config_history::snapshot_before_change(env, &admin);
     env.storage()
         .persistent()
         .set(&DataKey::MinSubmissionInterval, &interval_ledgers);
@@ -589,6 +702,7 @@ pub fn get_min_submission_interval(env: &Env) -> u32 {
 pub fn set_interpolation_enabled(env: &Env, enabled: bool) {
     let admin = get_admin(env);
     admin.require_auth();
+    crate::config_history::snapshot_before_change(env, &admin);
     env.storage()
         .persistent()
         .set(&DataKey::InterpolationEnabled, &enabled);
@@ -611,6 +725,7 @@ pub fn get_interpolation_enabled(env: &Env) -> bool {
 pub fn set_max_sources(env: &Env, new_max: u32) {
     let admin = get_admin(env);
     admin.require_auth();
+    crate::config_history::snapshot_before_change(env, &admin);
     env.storage()
         .persistent()
         .set(&DataKey::MaxSources, &new_max);
@@ -631,6 +746,7 @@ pub fn get_max_sources(env: &Env) -> u32 {
 pub fn set_query_rate_limit(env: &Env, max_per_ledger: u32) {
     let admin = get_admin(env);
     admin.require_auth();
+    crate::config_history::snapshot_before_change(env, &admin);
     env.storage()
         .persistent()
         .set(&DataKey::QueryRateLimit, &max_per_ledger);
@@ -656,6 +772,7 @@ pub fn get_query_rate_limit(env: &Env) -> u32 {
 pub fn set_max_assets(env: &Env, new_max: u32) {
     let admin = get_admin(env);
     admin.require_auth();
+    crate::config_history::snapshot_before_change(env, &admin);
     env.storage()
         .persistent()
         .set(&DataKey::MaxAssets, &new_max);
@@ -680,4 +797,28 @@ pub fn set_subscription_price(env: &Env, duration: u32, amount: i128) {
     let mut plans = read_subscription_plans(env);
     plans.set(duration, amount);
     write_subscription_plans(env, &plans);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// #247 — History Compaction threshold config
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Sets the history compaction threshold in basis points.
+///
+/// When `threshold_bps > 0`, adjacent history entries whose price difference is
+/// within `threshold_bps / 100 %` of each other are eligible for merging.
+/// A value of `0` disables compaction entirely (default).
+///
+/// # Errors
+/// * [`ErrorCode::NotAuthorized`] — caller is not the admin.
+pub fn set_compaction_threshold_bps(env: &Env, threshold_bps: u32) {
+    let admin = get_admin(env);
+    admin.require_auth();
+    crate::history::set_compaction_threshold_bps(env, threshold_bps);
+    emit_admin_action(env, symbol_short!("set_comp"), admin, Bytes::new(env));
+}
+
+/// Returns the current history compaction threshold in basis points (0 = disabled).
+pub fn get_compaction_threshold_bps(env: &Env) -> u32 {
+    crate::history::get_compaction_threshold_bps(env)
 }

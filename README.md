@@ -185,6 +185,10 @@ Deploys the contract to Stellar testnet and runs a full lifecycle test:
 
 See [docs/e2e-testnet.md](docs/e2e-testnet.md) for prerequisites, configuration, and expected output.
 
+Automated testnet lifecycle CI (with adversarial phases) runs via `scripts/testnet-lifecycle.sh`; see `.github/workflows/testnet-lifecycle.yml`.
+
+Related reports: [gas cost dashboard](docs/gas-dashboard.md), [chaos invariants](docs/chaos-invariants.md), and mutation testing (`scripts/mutation-gate.sh`, config in `.cargo/mutants.toml`).
+
 ### Deploy
 
 ```bash
@@ -245,6 +249,7 @@ See [`docs/error-codes.md`](docs/error-codes.md) for the full registry with caus
 | Document | Description |
 |---|---|
 | [Architecture](docs/ARCHITECTURE.md) | System design, data flow, module structure |
+| [Hackathon Bounty Track](docs/hackathon-bounty-track.md) | Hackathon bounty track definition, curated project ideas, judging rubric, and reward tiers |
 | [Deployment Record](docs/deployment.md) | Contract addresses, initialization parameters, admin addresses, deployment checklist |
 | [Security Audit Checklist](docs/security-audit-checklist.md) | Pre-audit review items: access control, input validation, arithmetic safety, storage safety, upgrade mechanism, event integrity, known patterns |
 | [Monitoring Dashboard](docs/monitoring/README.md) | Grafana dashboard setup and metrics reference |
@@ -252,10 +257,19 @@ See [`docs/error-codes.md`](docs/error-codes.md) for the full registry with caus
 | [Interface Package](docs/interface-versioning.md) | Versioned `@stellar-unified-price-oracle/interface` npm package, semver rules, deprecation policy |
 | [Error Registry](docs/errors/REGISTRY.md) | Every error code with meaning, cause and remediation ([JSON](docs/errors/registry.json)) |
 | [Migration Guides](docs/migrations/README.md) | Per-version guides for breaking changes and deprecation windows |
+| [Integration Case Studies](docs/case-studies.md) | Lending, DEX and payments integrations with threat models, worked exploits and countermeasures |
+| [Seam Invariant Catalogue](docs/seam-invariants.md) | Cross-module invariants and the regression tests that enforce them |
+| [SLA](docs/SLA.md) | Service levels and the machine-enforceable clause map checked by `services/sla_monitor` |
+| [Runbook](docs/runbook.md) | Every paging alert mapped to meaning, first check, mitigation, escalation, resolution, owner and review cadence (#527) |
+| [Incident Management](docs/incident-management/README.md) | Blameless postmortem process, template, index and tracked action items (#528) |
+| [Backup and Restore](docs/backup-restore.md) | Off-chain state inventory, encrypted backups, point-in-time restore and reconciliation (#529) |
+| [Capacity Planning](docs/capacity-planning.md) | Ingest, storage and ledger-budget model with headroom targets and load shedding (#530) |
 
 ## Documentation
 
+- [Hackathon Bounty Track](docs/hackathon-bounty-track.md) — reusable hackathon track definition, curated ideas mapped to open issues, judging rubric, and reward tiers (#407)
 - [Price Submission Bot Design](docs/price-submission-bot.md) — off-chain bot architecture for automated price submissions
+- [Signed CEX/Aggregator Adapters](docs/signed-price-adapters.md) — CoinGecko/Binance/Coinbase adapters with failover, staleness handling, and signed submission (#216)
 - [Disaster Recovery Plan](docs/disaster-recovery.md) — failure scenario playbooks and recovery procedures
 - [Architecture](docs/ARCHITECTURE.md) — contract design and data flow
 - [Monitoring](docs/monitoring/README.md) — Grafana dashboard and alerting setup

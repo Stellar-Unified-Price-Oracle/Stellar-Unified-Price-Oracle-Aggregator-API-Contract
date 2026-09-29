@@ -247,7 +247,8 @@ fn test_admin_action_on_unpause() {
 
 #[test]
 fn test_admin_action_emits_two_events_per_call() {
-    // set_resolution: ResolutionChangedEvent (contractevent macro) + AdminActionEvent = 2
+    // set_resolution: ResolutionChangedEvent (contractevent macro) + AdminActionEvent
+    // + AdminAuditEntryAppendedEvent (audit log #239) = 3
     let e = Env::default();
     let (client, _admin) = setup_contract(&e);
 
@@ -255,8 +256,8 @@ fn test_admin_action_emits_two_events_per_call() {
 
     assert_eq!(
         event_count(&e),
-        2,
-        "set_resolution should emit exactly 2 events"
+        3,
+        "set_resolution should emit exactly 3 events"
     );
 }
 
@@ -268,7 +269,7 @@ fn test_admin_action_emits_two_events_for_set_admin() {
 
     client.set_admin(&new_admin);
 
-    assert_eq!(event_count(&e), 2, "set_admin should emit exactly 2 events");
+    assert_eq!(event_count(&e), 3, "set_admin should emit exactly 3 events");
 }
 
 #[test]
@@ -281,7 +282,7 @@ fn test_admin_action_emits_two_events_for_register_asset() {
 
     assert_eq!(
         event_count(&e),
-        2,
-        "register_asset should emit exactly 2 events"
+        3,
+        "register_asset should emit exactly 3 events"
     );
 }

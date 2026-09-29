@@ -7,6 +7,18 @@ use soroban_sdk::{
 
 use crate::{PriceOracleContract, PriceOracleContractClient};
 
+/// Deploys a Stellar Asset Contract to act as the payment token in tests and
+/// returns its address.
+pub fn deploy_token(e: &Env) -> Address {
+    let issuer = Address::generate(e);
+    e.register_stellar_asset_contract_v2(issuer).address()
+}
+
+/// Mints `amount` of the token at `token` to `to`.
+pub fn mint_token(e: &Env, token: &Address, to: &Address, amount: i128) {
+    soroban_sdk::token::StellarAssetClient::new(e, token).mint(to, &amount);
+}
+
 /// Creates a contract client without initializing it.
 pub fn create_contract(e: &Env) -> PriceOracleContractClient<'_> {
     e.mock_all_auths();
@@ -47,6 +59,9 @@ pub fn register_test_asset(e: &Env, client: &PriceOracleContractClient<'_>) -> A
 }
 
 /// Submits a price from the given source for the given asset.
+///
+/// Uses the plain `submit_price` entrypoint, which assigns the replay nonce
+/// automatically, so the same source may submit repeatedly.
 pub fn submit_test_price(
     client: &PriceOracleContractClient<'_>,
     source: &Address,
@@ -55,6 +70,18 @@ pub fn submit_test_price(
     timestamp: u64,
 ) {
     client.submit_price(source, asset, &price, &timestamp);
+}
+
+/// Like submit_test_price but with an explicit nonce — use for repeated submissions from the same source.
+pub fn submit_test_price_n(
+    client: &PriceOracleContractClient<'_>,
+    source: &Address,
+    asset: &Address,
+    price: i128,
+    timestamp: u64,
+    nonce: u64,
+) {
+    client.submit_price_with_nonce(source, asset, &price, &timestamp, &nonce);
 }
 
 /// Creates an initialized contract with N sources and M assets; sets min_sources to N.
@@ -99,7 +126,7 @@ pub fn ledger_default(e: &Env, seq: u32, timestamp: u64) {
         base_reserve: 10,
         min_temp_entry_ttl: 10,
         min_persistent_entry_ttl: 10,
-        max_entry_ttl: 4096,
+        max_entry_ttl: 6_312_000,
     });
 }
 

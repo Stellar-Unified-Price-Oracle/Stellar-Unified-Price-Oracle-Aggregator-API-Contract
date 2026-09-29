@@ -251,8 +251,7 @@ pub fn set_sampling_size(env: &Env, n: u32) {
     }
     write_sampling_size(env, n);
 
-    env.events()
-        .publish((symbol_short!("vdf_size"),), (n,));
+    env.events().publish((symbol_short!("vdf_size"),), (n,));
 }
 
 /// Returns the configured sampling size. Default: 3.
@@ -334,6 +333,17 @@ pub fn sample_sources(
         .publish((symbol_short!("vdf_ok"),), (pick as u32,));
 
     selected
+}
+
+/// Test hook exposing the unverified selection step (#466).
+#[cfg(test)]
+pub fn select_for_test(
+    env: &Env,
+    sources: &soroban_sdk::Vec<Address>,
+    n: u32,
+    randomness: BytesN<32>,
+) -> soroban_sdk::Vec<Address> {
+    select_sources_deterministic(env, sources, n, randomness)
 }
 
 /// Deterministic source selection using a hash-based Fisher-Yates partial shuffle.

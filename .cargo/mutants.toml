@@ -1,0 +1,28 @@
+# cargo-mutants configuration (#412). Run via `scripts/mutation-gate.sh`.
+#
+# Module classes
+#   security-critical (100% kill rate required, see SECURITY_CRITICAL in the
+#   gate script): admin.rs, rbac.rs, multisig.rs (auth), storage.rs
+#   (median/aggregation math, bounds), finality.rs, migration.rs (upgrade).
+#   general: everything else under contracts/price-oracle/src.
+
+test_package = ["price-oracle"]
+additional_cargo_test_args = ["--lib"]
+timeout_multiplier = 3.0
+
+# Test-only code is never shipped, so mutating it proves nothing.
+exclude_globs = [
+    "contracts/price-oracle/src/*test*.rs",
+    "contracts/price-oracle/src/test/**",
+    "fuzz/**",
+    "scripts/**",
+]
+
+# Every exclusion below needs a written justification.
+exclude_re = [
+    # Event emission only publishes data; no state or control flow depends on it.
+    "emit_",
+    # Debug/Display impls are not part of any on-chain decision.
+    "impl Debug",
+    "impl (core::)?fmt::Display",
+]

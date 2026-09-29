@@ -1,0 +1,13 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://stellar-unified-price-oracle/schemas/events/v1/asset_registered.schema.json",
+  "title": "AssetRegisteredEvent",
+  "description": "Emitted when a new asset is registered for price tracking.",
+  "type": "object",
+  "properties": {
+    "asset": { "type": "string", "description": "Stellar address of the newly registered asset (topic)." },
+    "admin": { "type": "string", "description": "Stellar address of the admin who registered the asset (topic)." }
+  },
+  "required": ["asset", "admin"],
+  "additionalProperties": false
+}

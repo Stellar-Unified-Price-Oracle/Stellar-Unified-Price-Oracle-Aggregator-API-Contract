@@ -1,0 +1,14 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://stellar-unified-price-oracle/schemas/events/v1/source_added.schema.json",
+  "title": "SourceAddedEvent",
+  "description": "Emitted when a new oracle source is registered by the admin.",
+  "type": "object",
+  "properties": {
+    "source": { "type": "string", "description": "Stellar address of the newly added oracle source (topic)." },
+    "admin": { "type": "string", "description": "Stellar address of the admin who performed the action (topic)." },
+    "name": { "type": "string", "description": "Human-readable display name assigned to the source." }
+  },
+  "required": ["source", "admin", "name"],
+  "additionalProperties": false
+}

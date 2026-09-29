@@ -181,6 +181,10 @@ pub fn dispatch_alerts(env: &Env, asset: &Address, old_price: i128, new_price: i
         return;
     }
 
+    // Classify and route the movement by severity before dispatching to
+    // individual subscriber callbacks below.
+    crate::alert_severity::evaluate_and_route(env, asset, movement_bps);
+
     let list_key = DataKey::AlertSubscriptionList;
     let list: Vec<AlertSubscriptionRef> = match env.storage().persistent().get(&list_key) {
         Some(l) => l,

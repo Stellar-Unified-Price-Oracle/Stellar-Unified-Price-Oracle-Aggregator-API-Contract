@@ -16,9 +16,11 @@
 
 use soroban_sdk::{panic_with_error, Address, Env, Vec};
 
-use crate::events::{CorrelationBandSetEvent, CorrelationPriceFlaggedEvent, CorrelationViolationEvent};
+use crate::events::{
+    CorrelationBandSetEvent, CorrelationPriceFlaggedEvent, CorrelationViolationEvent,
+};
 use crate::storage::{get_admin, LEDGER_BUMP, LEDGER_THRESHOLD};
-use crate::types::{CorrelationBand, CorrelationPair, DataKey, ErrorCode};
+use crate::types::{AnomalyRule, CorrelationBand, CorrelationPair, DataKey, ErrorCode};
 
 /// Scaling precision for ratio calculations (10^7).
 pub const RATIO_PRECISION: u128 = 10_000_000;
@@ -239,6 +241,18 @@ pub fn validate_correlation(
                 max_ratio: band.max_ratio,
             }
             .publish(env);
+
+            // #496: the ratio, the band and the submitted price are all in hand
+            // here, so the explanation costs nothing extra on this path.
+            crate::explanation::record_submission(
+                env,
+                AnomalyRule::CorrelationBand,
+                source,
+                submitted_asset,
+                submitted_price,
+                counterpart_price,
+                ratio as i128,
+            );
 
             // Flag the (source, submitted_asset) pair so aggregate_asset excludes it.
             let flag_key = DataKey::CorrelationFlagged(source.clone(), submitted_asset.clone());

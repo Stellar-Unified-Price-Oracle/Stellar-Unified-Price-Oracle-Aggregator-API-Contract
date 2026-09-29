@@ -2,7 +2,6 @@
 ///
 /// Compares prices with the same oracle on other chains. Deviation beyond threshold
 /// triggers alerts and freezes aggregation for that asset.
-
 use soroban_sdk::{panic_with_error, symbol_short, Address, Bytes, Env, String};
 
 use crate::events::emit_admin_action;
@@ -56,9 +55,16 @@ pub fn get_cross_chain_deviation_threshold(env: &Env) -> u32 {
         .unwrap_or(DEFAULT_CROSS_CHAIN_DEVIATION_THRESHOLD)
 }
 
-/// Store a cross-chain price observation for later verification.
-/// Called externally with prices fetched from other chains.
-pub fn submit_cross_chain_price(
+/// Store a cross-chain price observation for later verification, without any
+/// authorization check. Callers are responsible for establishing their own
+/// authorization before calling this — the admin-gated [`submit_cross_chain_price`]
+/// checks `admin.require_auth()`, while [`crate::wormhole_relay::submit_price_via_wormhole`]
+/// relies on a verified Wormhole guardian quorum instead.
+///
+/// # Panics
+/// * [`ErrorCode::AssetNotRegistered`] — `asset` is not registered.
+/// * [`ErrorCode::InvalidPrice`] — `price <= 0`.
+pub(crate) fn store_cross_chain_price(
     env: &Env,
     asset: Address,
     oracle_chain: Address,
@@ -70,6 +76,31 @@ pub fn submit_cross_chain_price(
     let admin = get_admin(env);
     admin.require_auth();
 
+    record_reference_price(
+        env,
+        asset,
+        oracle_chain,
+        price,
+        decimals,
+        chain_id,
+        timestamp,
+    );
+}
+
+/// Records a cross-chain reference price observation without an authorization
+/// check, so it can be shared by [`submit_cross_chain_price`] (admin-submitted)
+/// and the bridge integrations in [`crate::bridge_common`] (Axelar GMP,
+/// LayerZero), which authenticate the observation through their own trust
+/// model before calling this.
+pub(crate) fn record_reference_price(
+    env: &Env,
+    asset: Address,
+    oracle_chain: Address,
+    price: i128,
+    decimals: u32,
+    chain_id: String,
+    timestamp: u64,
+) {
     crate::storage::check_registered_asset(env, &asset);
 
     if price <= 0 {
@@ -89,10 +120,35 @@ pub fn submit_cross_chain_price(
         &entry,
     );
 
-    env.storage().persistent().bump(
+    env.storage().persistent().extend_ttl(
         &DataKey::CrossChainPrice(asset, oracle_chain),
         LEDGER_THRESHOLD,
         LEDGER_BUMP,
+    );
+}
+
+/// Store a cross-chain price observation for later verification.
+/// Called externally (by the admin) with prices fetched from other chains.
+pub fn submit_cross_chain_price(
+    env: &Env,
+    asset: Address,
+    oracle_chain: Address,
+    price: i128,
+    decimals: u32,
+    chain_id: String,
+    timestamp: u64,
+) {
+    let admin = get_admin(env);
+    admin.require_auth();
+
+    store_cross_chain_price(
+        env,
+        asset,
+        oracle_chain,
+        price,
+        decimals,
+        chain_id,
+        timestamp,
     );
 }
 
@@ -146,12 +202,8 @@ pub fn verify_cross_chain_price(
 
     let max_price = our_adjusted.max(ref_adjusted);
     let deviation_bps = if max_price > 0 {
-        let abs_diff = if our_adjusted > ref_adjusted {
-            our_adjusted - ref_adjusted
-        } else {
-            ref_adjusted - our_adjusted
-        };
-        ((abs_diff as u128 * 10000) / max_price) as u32
+        let abs_diff = our_adjusted.abs_diff(ref_adjusted);
+        ((abs_diff * 10000) / max_price) as u32
     } else {
         0
     };
@@ -163,139 +215,155 @@ pub fn verify_cross_chain_price(
 mod tests {
     use super::*;
     use soroban_sdk::testutils::{Address as _, Ledger};
-    use soroban_sdk::{Env, Address, String as SorobanString};
+    use soroban_sdk::{Address, Env, String as SorobanString};
 
     #[test]
     fn test_cross_chain_verification_flag() {
         let env = Env::default();
-        let admin = Address::random(&env);
+        let __contract_id = env.register(crate::PriceOracleContract, ());
+        env.mock_all_auths();
+        env.as_contract(&__contract_id, || {
+            let admin = Address::generate(&env);
 
-        env.ledger().with_mut(|l| {
-            l.timestamp = 1000;
+            env.ledger().with_mut(|l| {
+                l.timestamp = 1000;
+            });
+
+            crate::admin::initialize(
+                &env,
+                admin.clone(),
+                1,
+                100,
+                18,
+                SorobanString::from_str(&env, "Oracle"),
+            );
+
+            // Initially disabled
+            assert!(!is_cross_chain_verification_enabled(&env));
+
+            // Enable it
+            set_cross_chain_verification_enabled(&env, true);
+            assert!(is_cross_chain_verification_enabled(&env));
+
+            // Disable it
+            set_cross_chain_verification_enabled(&env, false);
+            assert!(!is_cross_chain_verification_enabled(&env));
         });
-
-        crate::admin::initialize(
-            &env,
-            admin.clone(),
-            1,
-            100,
-            18,
-            SorobanString::from_slice(&env, "Oracle"),
-        );
-
-        // Initially disabled
-        assert!(!is_cross_chain_verification_enabled(&env));
-
-        // Enable it
-        set_cross_chain_verification_enabled(&env, true);
-        assert!(is_cross_chain_verification_enabled(&env));
-
-        // Disable it
-        set_cross_chain_verification_enabled(&env, false);
-        assert!(!is_cross_chain_verification_enabled(&env));
     }
 
     #[test]
     fn test_price_within_threshold() {
         let env = Env::default();
-        let admin = Address::random(&env);
+        let __contract_id = env.register(crate::PriceOracleContract, ());
+        env.mock_all_auths();
+        env.as_contract(&__contract_id, || {
+            let admin = Address::generate(&env);
 
-        env.ledger().with_mut(|l| {
-            l.timestamp = 1000;
+            env.ledger().with_mut(|l| {
+                l.timestamp = 1000;
+            });
+
+            crate::admin::initialize(
+                &env,
+                admin.clone(),
+                1,
+                100,
+                18,
+                SorobanString::from_str(&env, "Oracle"),
+            );
+
+            set_cross_chain_verification_enabled(&env, true);
+
+            // 2% deviation threshold
+            set_cross_chain_deviation_threshold(&env, 200);
+
+            let our_price = 100_000_000_000_000_000i128; // 100 * 10^16
+            let cross_chain = CrossChainPriceEntry {
+                price: 101_500_000_000_000_000i128, // 101.5 * 10^16 (1.5% deviation)
+                decimals: 18,
+                chain_id: SorobanString::from_str(&env, "ethereum"),
+                ledger: 1,
+                timestamp: 1000,
+            };
+
+            assert!(verify_cross_chain_price(&env, our_price, 18, &cross_chain));
         });
-
-        crate::admin::initialize(
-            &env,
-            admin.clone(),
-            1,
-            100,
-            18,
-            SorobanString::from_slice(&env, "Oracle"),
-        );
-
-        set_cross_chain_verification_enabled(&env, true);
-
-        // 2% deviation threshold
-        set_cross_chain_deviation_threshold(&env, 200);
-
-        let our_price = 100_000_000_000_000_000i128; // 100 * 10^16
-        let cross_chain = CrossChainPriceEntry {
-            price: 101_500_000_000_000_000i128, // 101.5 * 10^16 (1.5% deviation)
-            decimals: 18,
-            chain_id: SorobanString::from_slice(&env, "ethereum"),
-            ledger: 1,
-            timestamp: 1000,
-        };
-
-        assert!(verify_cross_chain_price(&env, our_price, 18, &cross_chain));
     }
 
     #[test]
     fn test_price_exceeds_threshold() {
         let env = Env::default();
-        let admin = Address::random(&env);
+        let __contract_id = env.register(crate::PriceOracleContract, ());
+        env.mock_all_auths();
+        env.as_contract(&__contract_id, || {
+            let admin = Address::generate(&env);
 
-        env.ledger().with_mut(|l| {
-            l.timestamp = 1000;
+            env.ledger().with_mut(|l| {
+                l.timestamp = 1000;
+            });
+
+            crate::admin::initialize(
+                &env,
+                admin.clone(),
+                1,
+                100,
+                18,
+                SorobanString::from_str(&env, "Oracle"),
+            );
+
+            set_cross_chain_verification_enabled(&env, true);
+
+            // 2% deviation threshold
+            set_cross_chain_deviation_threshold(&env, 200);
+
+            let our_price = 100_000_000_000_000_000i128; // 100 * 10^16
+            let cross_chain = CrossChainPriceEntry {
+                price: 106_000_000_000_000_000i128, // 106 * 10^16 (6% deviation)
+                decimals: 18,
+                chain_id: SorobanString::from_str(&env, "ethereum"),
+                ledger: 1,
+                timestamp: 1000,
+            };
+
+            assert!(!verify_cross_chain_price(&env, our_price, 18, &cross_chain));
         });
-
-        crate::admin::initialize(
-            &env,
-            admin.clone(),
-            1,
-            100,
-            18,
-            SorobanString::from_slice(&env, "Oracle"),
-        );
-
-        set_cross_chain_verification_enabled(&env, true);
-
-        // 2% deviation threshold
-        set_cross_chain_deviation_threshold(&env, 200);
-
-        let our_price = 100_000_000_000_000_000i128; // 100 * 10^16
-        let cross_chain = CrossChainPriceEntry {
-            price: 106_000_000_000_000_000i128, // 106 * 10^16 (6% deviation)
-            decimals: 18,
-            chain_id: SorobanString::from_slice(&env, "ethereum"),
-            ledger: 1,
-            timestamp: 1000,
-        };
-
-        assert!(!verify_cross_chain_price(&env, our_price, 18, &cross_chain));
     }
 
     #[test]
     fn test_verification_disabled() {
         let env = Env::default();
-        let admin = Address::random(&env);
+        let __contract_id = env.register(crate::PriceOracleContract, ());
+        env.mock_all_auths();
+        env.as_contract(&__contract_id, || {
+            let admin = Address::generate(&env);
 
-        env.ledger().with_mut(|l| {
-            l.timestamp = 1000;
+            env.ledger().with_mut(|l| {
+                l.timestamp = 1000;
+            });
+
+            crate::admin::initialize(
+                &env,
+                admin.clone(),
+                1,
+                100,
+                18,
+                SorobanString::from_str(&env, "Oracle"),
+            );
+
+            // Verification disabled by default
+            set_cross_chain_verification_enabled(&env, false);
+            set_cross_chain_deviation_threshold(&env, 200);
+
+            let our_price = 100_000_000_000_000_000i128;
+            let cross_chain = CrossChainPriceEntry {
+                price: 150_000_000_000_000_000i128, // 50% deviation - should pass because verification disabled
+                decimals: 18,
+                chain_id: SorobanString::from_str(&env, "ethereum"),
+                ledger: 1,
+                timestamp: 1000,
+            };
+
+            assert!(verify_cross_chain_price(&env, our_price, 18, &cross_chain));
         });
-
-        crate::admin::initialize(
-            &env,
-            admin.clone(),
-            1,
-            100,
-            18,
-            SorobanString::from_slice(&env, "Oracle"),
-        );
-
-        // Verification disabled by default
-        set_cross_chain_verification_enabled(&env, false);
-        set_cross_chain_deviation_threshold(&env, 200);
-
-        let our_price = 100_000_000_000_000_000i128;
-        let cross_chain = CrossChainPriceEntry {
-            price: 150_000_000_000_000_000i128, // 50% deviation - should pass because verification disabled
-            decimals: 18,
-            chain_id: SorobanString::from_slice(&env, "ethereum"),
-            ledger: 1,
-            timestamp: 1000,
-        };
-
-        assert!(verify_cross_chain_price(&env, our_price, 18, &cross_chain));
     }
 }

@@ -57,6 +57,7 @@ pub fn set_exotic_asset_config(env: &Env, asset: Address, config: AssetPricingCo
     write_asset_config(env, &asset, &config);
     crate::events::ExoticAssetConfigSetEvent {
         asset: asset.clone(),
+        admin: admin.clone(),
     }
     .publish(env);
 }
@@ -138,26 +139,23 @@ fn resolve_direct_price(env: &Env, asset: &Address) -> i128 {
 
 fn compute_lp_token_price(
     env: &Env,
-    reserve0: Address,
-    reserve1: Address,
+    reserve0: u128,
+    reserve1: u128,
     total_supply: u128,
-    depth: u32,
-    visited: &mut Vec<Address>,
+    _depth: u32,
+    _visited: &mut Vec<Address>,
 ) -> i128 {
     if total_supply == 0 {
         panic_with_error!(env, ErrorCode::InvalidConfiguration);
     }
 
-    let r0 = resolve_price(env, &reserve0, depth + 1, visited);
-    let r1 = resolve_price(env, &reserve1, depth + 1, visited);
-
-    if r0 <= 0 || r1 <= 0 {
+    if reserve0 == 0 || reserve1 == 0 {
         panic_with_error!(env, ErrorCode::NoData);
     }
 
-    // Compute sqrt(r0 * r1) using u128 integer square root
+    // Compute sqrt(reserve0 * reserve1) using u128 integer square root
     // Both prices are SCALE-denominated; multiply then divide by SCALE to keep scale
-    let product_u128 = (r0 as u128).saturating_mul(r1 as u128) / (SCALE as u128);
+    let product_u128 = reserve0.saturating_mul(reserve1) / (SCALE as u128);
     let sqrt_product = isqrt_u128(product_u128);
 
     // 2 * sqrt / total_supply * SCALE (re-scale result)
@@ -174,7 +172,7 @@ fn isqrt_u128(n: u128) -> u128 {
         return 0;
     }
     let mut x = n;
-    let mut y = (x + 1) / 2;
+    let mut y = x.div_ceil(2);
     while y < x {
         x = y;
         y = (x + n / x) / 2;
@@ -193,7 +191,7 @@ fn compute_index_price(
     depth: u32,
     visited: &mut Vec<Address>,
 ) -> i128 {
-    if components.len() == 0 || components.len() != weights.len() {
+    if components.is_empty() || components.len() != weights.len() {
         panic_with_error!(env, ErrorCode::InvalidConfiguration);
     }
 
@@ -495,8 +493,8 @@ fn normal_cdf(d: i128) -> i128 {
     let tail = n_x.saturating_mul(poly) / SCALE; // SCALE-denominated tail probability
 
     // Clamp to [0, SCALE]
-    let tail_clamped = tail.max(0).min(SCALE);
-    let n_pos = (SCALE - tail_clamped).max(0).min(SCALE);
+    let tail_clamped = tail.clamp(0, SCALE);
+    let n_pos = (SCALE - tail_clamped).clamp(0, SCALE);
 
     if negative {
         SCALE - n_pos
@@ -539,7 +537,7 @@ fn fixed_exp_neg(x: i128) -> i128 {
     // We compute 16 terms — sufficient for convergence when x <= 20*SCALE
     for k in 1i128..=16i128 {
         term = term.saturating_mul(x) / SCALE; // multiply by x (SCALE)
-        term = term / k; // divide by k (dimensionless)
+        term /= k; // divide by k (dimensionless)
         if k % 2 == 0 {
             result = result.saturating_add(term);
         } else {

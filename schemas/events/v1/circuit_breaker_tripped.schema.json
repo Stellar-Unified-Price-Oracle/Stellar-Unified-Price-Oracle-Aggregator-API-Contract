@@ -1,0 +1,18 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://stellar-unified-price-oracle/schemas/events/v1/circuit_breaker_tripped.schema.json",
+  "title": "CircuitBreakerTrippedEvent",
+  "description": "Emitted when an asset's circuit breaker trips and the update is rejected.",
+  "type": "object",
+  "properties": {
+    "asset": { "type": "string", "description": "Stellar address of the asset that triggered the breaker (topic)." },
+    "previous_price": { "type": "string", "description": "Previous aggregate price before the rejected update (i128 decimal string)." },
+    "candidate_price": { "type": "string", "description": "Candidate aggregate price that would have been published (i128 decimal string)." },
+    "change_bps": { "type": "integer", "minimum": 0, "description": "Change amount in basis points that exceeded the configured limit." },
+    "max_change_bps": { "type": "integer", "minimum": 0, "description": "Maximum allowed change in basis points for a single ledger." },
+    "ledger": { "type": "integer", "minimum": 0, "description": "Ledger at which the breaker tripped." },
+    "timestamp": { "type": "integer", "minimum": 0, "description": "Unix timestamp of the breaker trip." }
+  },
+  "required": ["asset", "previous_price", "candidate_price", "change_bps", "max_change_bps", "ledger", "timestamp"],
+  "additionalProperties": false
+}

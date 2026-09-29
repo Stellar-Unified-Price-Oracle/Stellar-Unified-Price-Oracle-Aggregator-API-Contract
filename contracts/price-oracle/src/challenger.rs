@@ -5,9 +5,30 @@
 
 use soroban_sdk::{panic_with_error, symbol_short, Address, Bytes, Env, Vec};
 
-use crate::events::{emit_admin_action, ChallengePricedEvent, ChallengeResolvedEvent, RewardsClaimedEvent};
+use crate::events::{
+    emit_admin_action, ChallengePricedEvent, ChallengeResolvedEvent, RewardsClaimedEvent,
+};
 use crate::storage::{get_admin, LEDGER_BUMP, LEDGER_THRESHOLD};
 use crate::types::{Challenge, DataKey, ErrorCode};
+
+/// Maximum unresolved challenges a single challenger may have open at once (#461).
+pub const MAX_OPEN_CHALLENGES_PER_CHALLENGER: u32 = 3;
+/// Maximum unresolved challenges that may be open against one asset (#461).
+pub const MAX_OPEN_CHALLENGES_PER_ASSET: u32 = 5;
+/// Challenges resolved as invalid after which a challenger is barred (#461).
+pub const MAX_CHALLENGER_STRIKES: u32 = 3;
+
+fn read_u32(env: &Env, key: &DataKey) -> u32 {
+    env.storage().persistent().get(key).unwrap_or(0)
+}
+
+fn write_u32(env: &Env, key: &DataKey, value: u32) {
+    if value == 0 {
+        env.storage().persistent().remove(key);
+    } else {
+        env.storage().persistent().set(key, &value);
+    }
+}
 
 /// Challenge a price submission for an asset.
 ///
@@ -26,7 +47,17 @@ use crate::types::{Challenge, DataKey, ErrorCode};
 ///
 /// * [`ErrorCode::AssetNotRegistered`] — if the asset is not registered.
 /// * [`ErrorCode::InvalidPrice`] — if `expected_price` is <= 0.
-pub fn challenge_price(env: &Env, asset: Address, expected_price: i128, proof_data: Bytes) {
+/// * [`ErrorCode::NotAuthorized`] — if the challenger reached [`MAX_CHALLENGER_STRIKES`].
+/// * [`ErrorCode::RateLimitExceeded`] — if the challenger or asset open-challenge cap is hit.
+pub fn challenge_price(
+    env: &Env,
+    challenger: Address,
+    asset: Address,
+    expected_price: i128,
+    proof_data: Bytes,
+) {
+    challenger.require_auth();
+
     // Validate asset is registered
     crate::storage::check_registered_asset(env, &asset);
 
@@ -34,7 +65,22 @@ pub fn challenge_price(env: &Env, asset: Address, expected_price: i128, proof_da
         panic_with_error!(env, ErrorCode::InvalidPrice);
     }
 
-    let challenger = env.invoker();
+    // Anti-griefing (#461): barred challengers and bounded open challenges.
+    if read_u32(env, &DataKey::ChallengerStrikes(challenger.clone())) >= MAX_CHALLENGER_STRIKES {
+        panic_with_error!(env, ErrorCode::NotAuthorized);
+    }
+    let challenger_key = DataKey::ChallengerOpenCount(challenger.clone());
+    let challenger_open = read_u32(env, &challenger_key);
+    let asset_key = DataKey::AssetOpenChallenges(asset.clone());
+    let asset_open = read_u32(env, &asset_key);
+    if challenger_open >= MAX_OPEN_CHALLENGES_PER_CHALLENGER
+        || asset_open >= MAX_OPEN_CHALLENGES_PER_ASSET
+    {
+        panic_with_error!(env, ErrorCode::RateLimitExceeded);
+    }
+    write_u32(env, &challenger_key, challenger_open + 1);
+    write_u32(env, &asset_key, asset_open + 1);
+
     let current_ledger = env.ledger().sequence();
 
     // Get next challenge ID
@@ -76,12 +122,7 @@ pub fn challenge_price(env: &Env, asset: Address, expected_price: i128, proof_da
     }
     .publish(env);
 
-    emit_admin_action(
-        env,
-        symbol_short!("chall"),
-        challenger.clone(),
-        proof_data,
-    );
+    emit_admin_action(env, symbol_short!("chall"), challenger.clone(), proof_data);
 }
 
 /// Resolve a challenge as valid or invalid.
@@ -116,10 +157,18 @@ pub fn resolve_challenge(env: &Env, challenge_id: u32, is_valid: bool) {
     challenge.is_resolved = true;
     challenge.is_valid = is_valid;
 
+    let challenger_key = DataKey::ChallengerOpenCount(challenge.challenger.clone());
+    write_u32(
+        env,
+        &challenger_key,
+        read_u32(env, &challenger_key).saturating_sub(1),
+    );
+    let asset_key = DataKey::AssetOpenChallenges(challenge.asset.clone());
+    write_u32(env, &asset_key, read_u32(env, &asset_key).saturating_sub(1));
+
     // Calculate reward if valid
     if is_valid {
-        // Simple reward: 0.1% of challenged price, scaled by decimals
-        let decimals = crate::admin::get_decimals(env);
+        // Simple reward: 0.1% of the challenged price, in the asset's own scale.
         let base_reward = challenge.expected_price / 1000; // 0.1%
         challenge.reward_amount = if base_reward > 0 {
             base_reward
@@ -137,6 +186,17 @@ pub fn resolve_challenge(env: &Env, challenge_id: u32, is_valid: bool) {
             &DataKey::ChallengerRewards(challenge.challenger.clone()),
             &(challenger_rewards + challenge.reward_amount),
         );
+    } else {
+        // Frivolous challenge (#461): record a strike and forfeit an amount equal
+        // to the reward a valid challenge would have earned from unclaimed rewards.
+        let strikes_key = DataKey::ChallengerStrikes(challenge.challenger.clone());
+        write_u32(env, &strikes_key, read_u32(env, &strikes_key) + 1);
+        let rewards_key = DataKey::ChallengerRewards(challenge.challenger.clone());
+        let rewards: i128 = env.storage().persistent().get(&rewards_key).unwrap_or(0);
+        let penalty = (challenge.expected_price / 1000).max(1);
+        env.storage()
+            .persistent()
+            .set(&rewards_key, &(rewards - penalty).max(0));
     }
 
     // Update challenge
@@ -154,12 +214,7 @@ pub fn resolve_challenge(env: &Env, challenge_id: u32, is_valid: bool) {
     }
     .publish(env);
 
-    emit_admin_action(
-        env,
-        symbol_short!("resch"),
-        admin,
-        Bytes::new(env),
-    );
+    emit_admin_action(env, symbol_short!("resch"), admin, Bytes::new(env));
 }
 
 /// Claim accumulated challenge rewards.
@@ -173,9 +228,8 @@ pub fn resolve_challenge(env: &Env, challenge_id: u32, is_valid: bool) {
 /// # Returns
 ///
 /// The amount of rewards claimed (in stroops).
-pub fn claim_rewards(env: &Env) -> i128 {
-    let claimer = env.invoker();
-
+pub fn claim_rewards(env: &Env, claimer: Address) -> i128 {
+    claimer.require_auth();
     let rewards: i128 = env
         .storage()
         .persistent()
@@ -198,12 +252,7 @@ pub fn claim_rewards(env: &Env) -> i128 {
     }
     .publish(env);
 
-    emit_admin_action(
-        env,
-        symbol_short!("claim"),
-        claimer,
-        Bytes::new(env),
-    );
+    emit_admin_action(env, symbol_short!("claim"), claimer, Bytes::new(env));
 
     rewards
 }
@@ -222,7 +271,11 @@ pub fn claim_rewards(env: &Env) -> i128 {
 pub fn get_challenge_history(env: &Env, asset: Address, limit: u32) -> Vec<Challenge> {
     crate::storage::check_registered_asset(env, &asset);
 
-    let effective_limit = if limit == 0 || limit > 100 { 100 } else { limit };
+    let effective_limit = if limit == 0 || limit > 100 {
+        100
+    } else {
+        limit
+    };
 
     let challenge_count: u32 = env
         .storage()
@@ -250,6 +303,13 @@ pub fn get_challenge_history(env: &Env, asset: Address, limit: u32) -> Vec<Chall
     }
 
     results
+}
+
+/// Number of unresolved challenges against `asset` (#461).
+///
+/// Consumers must treat a price with open challenges as disputed.
+pub fn get_open_challenge_count(env: &Env, asset: Address) -> u32 {
+    read_u32(env, &DataKey::AssetOpenChallenges(asset))
 }
 
 /// Get accumulated unclaimed rewards for a challenger.

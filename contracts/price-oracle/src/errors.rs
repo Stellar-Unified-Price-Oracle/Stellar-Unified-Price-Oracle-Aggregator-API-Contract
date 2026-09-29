@@ -17,7 +17,14 @@ use soroban_sdk::contracterror;
 /// | 40–49  | Finality gadget (#188) |
 /// | 50–61  | Relayer & misc         |
 /// | 62–74  | Asset/price bounds     |
-/// | 75–99  | Advanced features      |
+/// | 75–98  | Advanced features      |
+/// | 99–101 | Signed submission (#216) |
+/// | 102, 116–118 | Freeze/pagination/notify (#223,#229,#243) — 116–118 renumbered off the 99–101 collision |
+/// | 103–107 | Relayer batch/bond/fee market (#264,#265,#266) |
+/// | 116–118 | Cross-chain asset registry |
+/// | 119–121 | Axelar GMP integration |
+/// | 122–125 | LayerZero integration |
+/// | 156–158 | Per-asset policy / TWAP cardinality / relayer bond lock |
 #[contracterror]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ErrorCode {
@@ -200,4 +207,157 @@ pub enum ErrorCode {
     ZkVkNotSet = 97,
     /// ZK invalid public signals.
     ZkInvalidPublicSignals = 98,
+
+    // ── 99–101: Signed price submission (#216) ────────────────────────────────
+    /// A pre-signed price proof's `expiration_ledger` has already passed.
+    SignatureExpired = 99,
+    /// The provided nonce does not exceed the source's last accepted nonce.
+    InvalidNonce = 100,
+    /// `source` has not registered an Ed25519 key for signed submissions.
+    SigningKeyNotRegistered = 101,
+    // ── 116–118: Freeze & pagination (renumbered off the 99–101 range, which
+    // collided with the Signed price submission block above and would not
+    // compile — see the discriminant registry note at the top of this file) ──
+    /// The asset's price is currently frozen (#223).
+    PriceFrozen = 116,
+    /// The asset's price is not currently frozen (#223).
+    PriceNotFrozen = 117,
+    /// The requested pagination limit is `0` or exceeds the configured maximum (#229).
+    InvalidPageSize = 118,
+    /// A notification `channel` or `target` string exceeds the maximum allowed length (#243).
+    NotificationConfigInvalid = 102,
+
+    // ── 103–109: History export ───────────────────────────────────────────────
+    /// The requested export limit is `0` or exceeds the configured maximum.
+    ExportLimitExceeded = 103,
+    /// No export snapshot was found for the given asset / range.
+    ExportNotFound = 104,
+
+    // ── 110–112: Timelock priority queues ────────────────────────────────────
+    /// The supplied priority discriminant is not a valid `OperationPriority` value.
+    InvalidPriority = 110,
+    /// The priority-specific timelock delay has not elapsed for this operation.
+    PriorityTimelockNotReady = 111,
+
+    // ── 112–115: Issues #295–#298 ─────────────────────────────────────────────
+    /// The submitted external proof failed format validation (#296).
+    InvalidProof = 112,
+    /// The proof type does not satisfy the asset's configured proof requirement (#296).
+    ProofTypeMismatch = 113,
+    /// The per-asset callback limit has been reached (#297).
+    TooManyCallbacks = 114,
+    /// No callback registration found for the given (consumer, asset) pair (#297).
+    CallbackNotFound = 115,
+
+    // ── 126–128: Canonical cross-chain asset registry (renumbered off the
+    // 116–118 collision with the Freeze & pagination block) ──────────────────
+    /// A foreign asset mapping already exists for this (chain, foreign_address) pair.
+    ForeignAssetAlreadyMapped = 126,
+    /// No foreign asset mapping exists for this (chain, foreign_address) pair.
+    ForeignAssetNotMapped = 127,
+    /// The foreign asset mapping exists but has been disabled by the admin.
+    ForeignAssetMappingDisabled = 128,
+
+    // ── 119–121: Axelar GMP integration ────────────────────────────────────────
+    /// The Axelar Gateway contract address has not been configured.
+    AxelarGatewayNotConfigured = 119,
+    /// This Axelar `command_id` has already been executed (replay).
+    AxelarCommandAlreadyExecuted = 120,
+    /// No trusted bridge source is registered for this (source_chain, source_address).
+    AxelarSourceNotTrusted = 121,
+
+    // ── 122–125: LayerZero integration ─────────────────────────────────────────
+    /// The LayerZero Endpoint contract address has not been configured.
+    LzEndpointNotConfigured = 122,
+    /// The delivered nonce does not match the expected next nonce for this pathway.
+    LzNonceOutOfOrder = 123,
+    /// No trusted bridge source is registered for this (src_eid, sender) pathway.
+    LzRemoteNotTrusted = 124,
+    /// No canonical registry chain name is configured for this LayerZero src_eid.
+    LzChainNameNotConfigured = 125,
+
+    // ── 129–143: Operations, recovery, wormhole, severity & misc (#262, #245,
+    // #296, #294, #265, #304-adjacent, cross-chain relay) ────────────────────
+    /// An operation with the same id already exists.
+    OperationAlreadyExists = 129,
+    /// The operation is not in a state that allows the requested transition.
+    InvalidOperationState = 130,
+    /// A dependency operation has not been executed yet.
+    DependencyNotMet = 131,
+    /// No configuration snapshot exists for the requested version.
+    ConfigVersionNotFound = 132,
+    /// The caller is not a registered recovery guardian.
+    NotGuardian = 133,
+    /// A recovery is already pending for a different candidate admin.
+    RecoveryAlreadyPending = 134,
+    /// This guardian has already approved the pending recovery.
+    RecoveryAlreadyApproved = 135,
+    /// No recovery is currently pending.
+    RecoveryNotPending = 136,
+    /// The recovery cancellation-window delay has not elapsed.
+    RecoveryDelayNotElapsed = 137,
+    /// The consumer does not have an active subscription.
+    NoActiveSubscription = 138,
+    /// The configured guardian set is invalid.
+    InvalidGuardianConfig = 139,
+    /// The configured severity thresholds are invalid.
+    InvalidSeverityThresholds = 140,
+    /// The batch is empty.
+    BatchEmpty = 141,
+    /// The batch exceeds the maximum allowed size.
+    BatchTooLarge = 142,
+    /// The batch is not ordered by priority fee.
+    BatchNotFeePrioritized = 143,
+    /// No guardian set has been configured.
+    GuardianSetNotConfigured = 144,
+    /// The guardian quorum was not met.
+    GuardianQuorumNotMet = 145,
+    /// The guardian signature set is invalid.
+    InvalidGuardianSignatureSet = 146,
+    /// The VAA payload is invalid.
+    InvalidVaaPayload = 147,
+    /// The VAA has already been processed.
+    VaaAlreadyProcessed = 148,
+    /// The Wormhole chain id is not mapped to an oracle chain.
+    UnmappedWormholeChain = 149,
+    /// The relayer's performance bond is insufficient.
+    RelayerBondInsufficient = 150,
+    /// The relayer failure threshold has not been reached.
+    RelayerFailureThresholdMiss = 151,
+    /// The external submission proof failed validation.
+    InvalidExternalProof = 152,
+    /// The source's stake could not be slashed.
+    SlashFailed = 153,
+
+    // ── 154–155: Source diversity — effective independence (#399) ─────────────
+    /// The active source set is below the configured effective-independence threshold.
+    LowSourceDiversity = 154,
+    /// The supplied diversity thresholds are invalid (e.g. max HHI > 10000).
+    InvalidDiversityThresholds = 155,
+
+    // ── 156–162: #484 bound tiers, #485 deferral, #486 price corrections ───────
+    /// The soft/hard bound ordering supplied for an asset is invalid (#484).
+    InvalidBoundOrdering = 156,
+    /// The supplied deferral policy is outside its documented bounds (#485).
+    InvalidDeferralPolicy = 157,
+    /// `correct_price` was called with an empty or oversized reason (#486).
+    InvalidCorrectionReason = 158,
+    /// The per-asset correction count cap has been reached (#486).
+    CorrectionLimitReached = 159,
+    /// The value supplied lies outside the asset's hard bounds (#484, #486).
+    AggregateRejectedByBounds = 160,
+    /// The aggregate being corrected is older than the correction window (#486).
+    CorrectionWindowExpired = 161,
+    /// The requested revision index does not exist in the chain (#486).
+    RevisionNotFound = 162,
+
+    // ── Restored discriminants referenced by wired modules but absent from
+    // the enum, which left the crate uncompilable. Numbers are taken from the
+    // registry note above and are never reused. ──────────────────────────────
+    /// A required configuration value has not been set.
+    ConfigMissing = 163,
+    /// Outstanding failure reports prevent the relayer bond from being locked.
+    RelayerBondLocked = 164,
+    /// The TWAP window holds fewer distinct observations than the floor.
+    TwapInsufficientObservations = 165,
 }

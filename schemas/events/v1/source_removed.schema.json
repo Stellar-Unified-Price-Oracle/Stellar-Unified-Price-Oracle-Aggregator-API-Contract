@@ -1,0 +1,13 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://stellar-unified-price-oracle/schemas/events/v1/source_removed.schema.json",
+  "title": "SourceRemovedEvent",
+  "description": "Emitted when an oracle source is de-registered by the admin.",
+  "type": "object",
+  "properties": {
+    "source": { "type": "string", "description": "Stellar address of the removed oracle source (topic)." },
+    "admin": { "type": "string", "description": "Stellar address of the admin who performed the action (topic)." }
+  },
+  "required": ["source", "admin"],
+  "additionalProperties": false
+}

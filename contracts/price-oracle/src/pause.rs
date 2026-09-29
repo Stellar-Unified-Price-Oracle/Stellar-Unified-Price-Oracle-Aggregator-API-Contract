@@ -8,6 +8,7 @@ pub fn pause(env: &Env) {
     let admin = get_admin(env);
     admin.require_auth();
 
+    crate::config_history::snapshot_before_change(env, &admin);
     env.storage()
         .persistent()
         .set(&DataKey::CfgPauseFlag, &true);
@@ -23,6 +24,7 @@ pub fn unpause(env: &Env) {
     let admin = get_admin(env);
     admin.require_auth();
 
+    crate::config_history::snapshot_before_change(env, &admin);
     env.storage()
         .persistent()
         .set(&DataKey::CfgPauseFlag, &false);

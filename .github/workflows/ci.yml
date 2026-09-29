@@ -12,8 +12,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      # Pin to the exact version in rust-toolchain.toml. Installing via
+      # @stable leaves the pinned 1.91.0 override without rustfmt/clippy,
+      # which makes `make check` and `make lint` fail with "not installed
+      # for the toolchain '1.91.0'".
       - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@1.91.0
         with:
           targets: wasm32v1-none
           components: rustfmt, clippy
@@ -25,8 +29,40 @@ jobs:
         run: make build
       - name: Run clippy
         run: make lint
+      - name: Gas-budget gates
+        run: make gas-gate
       - name: Run tests
         run: make test
+
+  abi-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@1.91.0
+        with:
+          targets: wasm32v1-none
+      - name: Cache dependencies
+        uses: Swatinem/rust-cache@v2
+      # Use a prebuilt stellar-cli release instead of `cargo install
+      # --locked stellar-cli`, which compiles from source, needs system
+      # libraries the runner image lacks (libdbus-1-dev, pkg-config), and
+      # only succeeds with a "^23" resolution that no longer exists.
+      - name: Install Stellar CLI (prebuilt binary)
+        run: |
+          set -euo pipefail
+          STELLAR_CLI_VERSION="26.1.0"
+          curl -fsSL \
+            "https://github.com/stellar/stellar-cli/releases/download/v${STELLAR_CLI_VERSION}/stellar-cli-${STELLAR_CLI_VERSION}-x86_64-unknown-linux-gnu.tar.gz" \
+            | tar -xz -C /usr/local/bin
+          stellar --version
+      - name: Generate ABI
+        run: ./scripts/generate-abi.sh
+      - name: Upload generated ABI
+        uses: actions/upload-artifact@v4
+        with:
+          name: contract-abi
+          path: docs/abi.json
 
   deny:
     runs-on: ubuntu-latest
@@ -37,3 +73,140 @@ jobs:
         with:
           command: check
           arguments: --config deny.toml
+
+  sla-monitor:
+    name: SLA monitor (docs/SLA.md consistency + tests)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install pytest
+      - name: Check docs/SLA.md matches the monitor clause map
+        run: python -m services.sla_monitor.monitor --check-sla
+      - name: Run SLA monitor tests
+        run: python -m pytest services/sla_monitor -q
+
+  ops-docs:
+    name: Ops docs (runbook, postmortems, capacity model)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install pytest
+      # #527 every paging alert must have a runbook entry with an owner, a
+      # review cadence, and a link from the alert -> entry table.
+      - name: Check every paging alert has a runbook entry
+        run: python -m services.runbook.check_runbook
+      # #528 postmortems must be structured, indexed, and carry action items
+      # with owners, due dates and tracking issues.
+      - name: Check postmortem structure, index and follow-up
+        run: python -m services.incident_review.check_postmortems
+      # #529 inventory doc and #530 capacity doc must stay in step with code.
+      - name: Run ops service tests (runbook, postmortems, backup, capacity)
+        run: python -m pytest services/runbook services/incident_review services/backup services/capacity -q
+
+  fuzz:
+    name: Coverage-guided fuzzing (1M iterations)
+    runs-on: ubuntu-latest
+    # Only run on main / PRs targeting main to keep CI fast on feature branches.
+    if: github.ref == 'refs/heads/main' || github.base_ref == 'main'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install nightly Rust (required by cargo-fuzz / libfuzzer-sys)
+        uses: dtolnay/rust-toolchain@nightly
+        with:
+          components: rustfmt
+
+      # rust-toolchain.toml pins 1.91.0 and would override the nightly
+      # toolchain above, so set an explicit directory override (stronger
+      # than the toolchain file) for this job only.
+      - name: Force nightly for this job
+        run: rustup override set nightly
+
+      - name: Cache dependencies
+        uses: Swatinem/rust-cache@v2
+
+      # 0.12.0 no longer builds on current nightly (its rustix dependency uses
+      # reserved `rustc::` attributes). Pin the current 0.13.x line instead.
+      - name: Install cargo-fuzz
+        run: cargo install cargo-fuzz --locked --version "0.13.2"
+
+      # ── Fuzz target 1: differential aggregation ─────────────────────────────
+      - name: Fuzz fuzz_aggregation (1 000 000 iterations)
+        run: |
+          cargo fuzz run fuzz_aggregation \
+            fuzz/corpus/fuzz_aggregation \
+            -- \
+            -runs=1000000 \
+            -max_len=816 \
+            -timeout=30 \
+            -error_exitcode=1
+        # 816 bytes = 102 i64 words ≈ 51 prices + 51 weights (just over max sources)
+
+      # ── Fuzz target 2: quickselect invariants ───────────────────────────────
+      - name: Fuzz fuzz_quickselect (1 000 000 iterations)
+        run: |
+          cargo fuzz run fuzz_quickselect \
+            fuzz/corpus/fuzz_quickselect \
+            -- \
+            -runs=1000000 \
+            -max_len=809 \
+            -timeout=30 \
+            -error_exitcode=1
+        # 809 bytes = 100 i64 words (800) + 1 byte for k + extra room
+
+      # ── Fuzz target 3: security invariants for trimmed mean / VWAP / weighted median (#409)
+      - name: Fuzz fuzz_aggregation_invariants (1 000 000 iterations)
+        run: |
+          cargo fuzz run fuzz_aggregation_invariants \
+            fuzz/corpus/fuzz_aggregation_invariants \
+            -- \
+            -runs=1000000 \
+            -max_len=401 \
+            -timeout=30 \
+            -error_exitcode=1
+        # 401 bytes = 1 trim byte + 100 i32 words (50 prices + 50 volumes)
+
+      # ── Upload any crash artifacts ───────────────────────────────────────────
+      - name: Upload fuzz artifacts on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fuzz-crashes
+          path: |
+            fuzz/artifacts/
+            fuzz/corpus/
+
+  # #519: hermetic integration harness. One command, no network, deterministic
+  # across repeated runs. Runs on every PR so integration coverage no longer
+  # depends on a shared testnet.
+  hermetic-integration:
+    name: Hermetic integration harness
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@1.91.0
+        with:
+          targets: wasm32v1-none
+          components: rustfmt, clippy
+      - name: Cache dependencies
+        uses: Swatinem/rust-cache@v2
+      - name: Run harness (twice, verifying determinism)
+        run: ./scripts/hermetic-integration.sh
+      - name: Publish summary
+        if: always()
+        run: cat hermetic-artifacts/summary.md >> "$GITHUB_STEP_SUMMARY"
+      # Logs and Soroban ledger snapshots, so a failure can be diagnosed from
+      # CI without re-running locally.
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: hermetic-integration-artifacts
+          path: hermetic-artifacts/

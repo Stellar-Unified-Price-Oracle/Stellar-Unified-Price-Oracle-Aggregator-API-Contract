@@ -176,6 +176,161 @@ cmd_health_check() {
   info "Health check complete"
 }
 
+cmd_oracle_state_dump() {
+  # oracle-cli oracle-state-dump [--format json|text]
+  local format="text"
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --format)  format="$2";    shift 2 ;;
+      --contract) CONTRACT_ID="$2"; shift 2 ;;
+      --network)  NETWORK="$2";     shift 2 ;;
+      *) die "Unknown flag: $1" ;;
+    esac
+  done
+  need_contract
+
+  info "Dumping oracle state (format: $format)"
+
+  local admin description min_sources max_history decimals resolution timestamp_threshold max_deviation heartbeat_interval
+  admin=$(invoke get_admin_address 2>/dev/null) || die "Failed to read admin"
+  description=$(invoke get_description 2>/dev/null) || die "Failed to read description"
+  min_sources=$(invoke get_min_sources_required 2>/dev/null) || die "Failed to read min_sources_required"
+  max_history=$(invoke get_max_history_length 2>/dev/null) || die "Failed to read max_history_length"
+  decimals=$(invoke get_decimals 2>/dev/null) || die "Failed to read decimals"
+  resolution=$(invoke get_resolution 2>/dev/null) || echo "0"
+  timestamp_threshold=$(invoke get_timestamp_threshold 2>/dev/null) || echo "0"
+  max_deviation=$(invoke get_max_price_deviation 2>/dev/null) || echo "0"
+  heartbeat_interval=$(invoke get_heartbeat_interval 2>/dev/null) || echo "0"
+
+  if [[ "$format" == "json" ]]; then
+    printf '{"admin":"%s","description":"%s","min_sources":%s,"max_history":%s,"decimals":%s,"resolution":%s,"timestamp_threshold":%s,"max_deviation_bps":%s,"heartbeat_interval":%s}\n' \
+      "$admin" "$description" "$min_sources" "$max_history" "$decimals" "$resolution" "$timestamp_threshold" "$max_deviation" "$heartbeat_interval"
+  else
+    echo "admin:            $admin"
+    echo "description:      $description"
+    echo "min_sources:      $min_sources"
+    echo "max_history:      $max_history"
+    echo "decimals:         $decimals"
+    echo "resolution:       $resolution"
+    echo "timestamp_threshold: $timestamp_threshold"
+    echo "max_deviation_bps: $max_deviation"
+    echo "heartbeat_interval: $heartbeat_interval"
+  fi
+}
+
+cmd_oracle_state_analyze() {
+  # oracle-cli oracle-state-analyze [--asset <address>]
+  local asset=""
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --asset)     asset="$2";     shift 2 ;;
+      --contract)  CONTRACT_ID="$2"; shift 2 ;;
+      --network)   NETWORK="$2";   shift 2 ;;
+      *) die "Unknown flag: $1" ;;
+    esac
+  done
+  need_contract
+
+  info "Analyzing oracle state"
+
+  local admin min_sources max_history decimals
+  admin=$(invoke get_admin_address 2>/dev/null) || die "Failed to read admin"
+  min_sources=$(invoke get_min_sources_required 2>/dev/null) || die "Failed to read min_sources_required"
+  max_history=$(invoke get_max_history_length 2>/dev/null) || die "Failed to read max_history_length"
+  decimals=$(invoke get_decimals 2>/dev/null) || die "Failed to read decimals"
+
+  echo "contract:      $CONTRACT_ID"
+  echo "admin:         $admin"
+  echo "min_sources:   $min_sources"
+  echo "max_history:   $max_history"
+  echo "decimals:      $decimals"
+
+  if [[ -n "$asset" ]]; then
+    local agg price timestamp num_sources
+    agg=$(invoke get_price --asset "$asset" 2>/dev/null) || { echo "asset_price: [error]"; return 0; }
+    echo "asset:         $asset"
+    echo "aggregate:     $agg"
+  fi
+}
+
+cmd_oracle_state_diff() {
+  # oracle-cli oracle-state-diff --contract <id_a> --contract <id_b> [--format json|text]
+  local contract_a="" contract_b="" format="text"
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --contract)  contract_a="$2"; shift 2 ;;
+      --contract-b) contract_b="$2"; shift 2 ;;
+      --format)    format="$2";    shift 2 ;;
+      --network)   NETWORK="$2";   shift 2 ;;
+      *) die "Unknown flag: $1" ;;
+    esac
+  done
+  [[ -n "$contract_a" ]] || die "--contract <id_a> is required"
+  [[ -n "$contract_b" ]] || die "--contract-b <id_b> is required"
+
+  info "Diffing oracle state between $contract_a and $contract_b"
+
+  local a_admin b_admin a_desc b_desc a_min b_min
+  a_admin=$(stellar contract invoke --id "$contract_a" --network "$NETWORK" --function get_admin_address 2>/dev/null) || die "Failed to read admin from $contract_a"
+  b_admin=$(stellar contract invoke --id "$contract_b" --network "$NETWORK" --function get_admin_address 2>/dev/null) || die "Failed to read admin from $contract_b"
+  a_desc=$(stellar contract invoke --id "$contract_a" --network "$NETWORK" --function get_description 2>/dev/null) || die "Failed to read description from $contract_a"
+  b_desc=$(stellar contract invoke --id "$contract_b" --network "$NETWORK" --function get_description 2>/dev/null) || die "Failed to read description from $contract_b"
+  a_min=$(stellar contract invoke --id "$contract_a" --network "$NETWORK" --function get_min_sources_required 2>/dev/null) || die "Failed to read min_sources from $contract_a"
+  b_min=$(stellar contract invoke --id "$contract_b" --network "$NETWORK" --function get_min_sources_required 2>/dev/null) || die "Failed to read min_sources from $contract_b"
+
+  if [[ "$format" == "json" ]]; then
+    printf '{"a_admin":"%s","b_admin":"%s","a_description":"%s","b_description":"%s","a_min_sources":%s,"b_min_sources":%s}\n' \
+      "$a_admin" "$b_admin" "$a_desc" "$b_desc" "$a_min" "$b_min"
+  else
+    echo "contract_a: $contract_a"
+    echo "contract_b: $contract_b"
+    echo "admin_a:    $a_admin"
+    echo "admin_b:    $b_admin"
+    echo "desc_a:     $a_desc"
+    echo "desc_b:     $b_desc"
+    echo "min_sources_a: $a_min"
+    echo "min_sources_b: $b_min"
+  fi
+}
+
+cmd_soroswap_price() {
+  # oracle-cli soroswap-price --asset <address> [--pool <address>]
+  local asset="" pool=""
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --asset)    asset="$2";    shift 2 ;;
+      --pool)     pool="$2";     shift 2 ;;
+      --contract) CONTRACT_ID="$2"; shift 2 ;;
+      --network)  NETWORK="$2";   shift 2 ;;
+      *) die "Unknown flag: $1" ;;
+    esac
+  done
+  [[ -n "$asset" ]] || die "--asset is required"
+  need_contract
+
+  info "Fetching Soroswap pool price for asset $asset"
+  invoke get_soroswap_price --asset "$asset" ${pool:+--pool "$pool"}
+}
+
+cmd_dex_price() {
+  # oracle-cli dex-price --asset <address> [--pair <address>]
+  local asset="" pair=""
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --asset)    asset="$2";    shift 2 ;;
+      --pair)     pair="$2";     shift 2 ;;
+      --contract) CONTRACT_ID="$2"; shift 2 ;;
+      --network)  NETWORK="$2";   shift 2 ;;
+      *) die "Unknown flag: $1" ;;
+    esac
+  done
+  [[ -n "$asset" ]] || die "--asset is required"
+  need_contract
+
+  info "Fetching Stellar DEX price for asset $asset"
+  invoke get_dex_price --asset "$asset" ${pair:+--pair "$pair"}
+}
+
 cmd_init() {
   # oracle-cli init --admin <address> --admin-key <identity> [--min-sources 1] [--max-history 100] [--decimals 18] [--description "..."]
   local admin="" admin_key="" min_sources="1" max_history="100" decimals="18" description="Stellar Price Oracle Aggregator"
@@ -227,6 +382,11 @@ COMMANDS:
   add-source        Register a new oracle source (admin)
   register-asset    Register a new asset (admin)
   health-check      Display contract configuration and status
+  oracle-state-dump Dump contract state (json|text)
+  oracle-state-analyze Analyze state statistics (avg sources, history depth, TTL health)
+  oracle-state-diff Compare two contract states
+  soroswap-price    Get Soroswap pool price for an asset
+  dex-price         Get Stellar DEX price for an asset
 
 EXAMPLES:
   export ORACLE_CONTRACT_ID=CAAAA...
@@ -257,13 +417,18 @@ main() {
   shift
 
   case "$cmd" in
-    submit-price)    cmd_submit_price    "$@" ;;
-    get-price)       cmd_get_price       "$@" ;;
-    add-source)      cmd_add_source      "$@" ;;
-    register-asset)  cmd_register_asset  "$@" ;;
-    health-check)    cmd_health_check    "$@" ;;
-    init)            cmd_init            "$@" ;;
-    -h|--help|help)  usage ;;
+    submit-price)         cmd_submit_price         "$@" ;;
+    get-price)            cmd_get_price            "$@" ;;
+    add-source)           cmd_add_source           "$@" ;;
+    register-asset)       cmd_register_asset       "$@" ;;
+    health-check)         cmd_health_check         "$@" ;;
+    init)                 cmd_init                 "$@" ;;
+    oracle-state-dump)    cmd_oracle_state_dump    "$@" ;;
+    oracle-state-analyze) cmd_oracle_state_analyze "$@" ;;
+    oracle-state-diff)    cmd_oracle_state_diff    "$@" ;;
+    soroswap-price)       cmd_soroswap_price       "$@" ;;
+    dex-price)            cmd_dex_price            "$@" ;;
+    -h|--help|help)       usage ;;
     *) die "Unknown command: $cmd. Run 'oracle-cli help' for usage." ;;
   esac
 }

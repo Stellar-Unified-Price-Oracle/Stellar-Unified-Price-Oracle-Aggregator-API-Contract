@@ -5,7 +5,7 @@
 
 use soroban_sdk::{panic_with_error, Address, Env, Vec};
 
-use crate::events::{SourceRotationScheduleSetEvent, SourcesRotatedEvent};
+use crate::events::{SourceRotationSetEvent, SourcesRotatedEvent};
 use crate::storage::{get_admin, LEDGER_BUMP, LEDGER_THRESHOLD};
 use crate::types::{DataKey, ErrorCode, SourceRotationSchedule};
 
@@ -63,11 +63,12 @@ pub fn set_source_schedule(
         .persistent()
         .extend_ttl(&active_key, LEDGER_THRESHOLD, LEDGER_BUMP);
 
-    SourceRotationScheduleSetEvent {
+    SourceRotationSetEvent {
         asset,
+        admin: admin.clone(),
         rotation_interval,
         overlap_period,
-        num_sources: sources.len() as u32,
+        num_sources: sources.len(),
     }
     .publish(env);
 }
@@ -86,10 +87,7 @@ pub fn set_source_schedule(
 /// `true` if rotation occurred, `false` if no rotation was needed.
 pub fn attempt_rotation(env: &Env, asset: &Address) -> bool {
     let schedule_key = DataKey::AssetRotationSchedule(asset.clone());
-    let schedule: Option<SourceRotationSchedule> = env
-        .storage()
-        .persistent()
-        .get(&schedule_key);
+    let schedule: Option<SourceRotationSchedule> = env.storage().persistent().get(&schedule_key);
 
     if let Some(mut sched) = schedule {
         if !sched.enabled {
@@ -109,13 +107,13 @@ pub fn attempt_rotation(env: &Env, asset: &Address) -> bool {
             .storage()
             .persistent()
             .get(&active_key)
-            .unwrap_or_else(Vec::new);
+            .unwrap_or_else(|| Vec::new(env));
 
         let standby: Vec<Address> = env
             .storage()
             .persistent()
             .get(&standby_key)
-            .unwrap_or_else(Vec::new);
+            .unwrap_or_else(|| Vec::new(env));
 
         if standby.is_empty() {
             return false; // No standby set to rotate to
@@ -127,7 +125,9 @@ pub fn attempt_rotation(env: &Env, asset: &Address) -> bool {
             .persistent()
             .extend_ttl(&active_key, LEDGER_THRESHOLD, LEDGER_BUMP);
 
-        env.storage().persistent().set(&standby_key, &current_active);
+        env.storage()
+            .persistent()
+            .set(&standby_key, &current_active);
         env.storage()
             .persistent()
             .extend_ttl(&standby_key, LEDGER_THRESHOLD, LEDGER_BUMP);
@@ -141,7 +141,8 @@ pub fn attempt_rotation(env: &Env, asset: &Address) -> bool {
 
         SourcesRotatedEvent {
             asset: asset.clone(),
-            new_active_count: standby.len() as u32,
+            rotated_at_ledger: current_ledger,
+            new_active_count: standby.len(),
             next_rotation_ledger: sched.next_rotation_ledger,
         }
         .publish(env);
@@ -165,7 +166,7 @@ pub fn get_active_sources(env: &Env, asset: &Address) -> Vec<Address> {
     env.storage()
         .persistent()
         .get(&key)
-        .unwrap_or_else(Vec::new)
+        .unwrap_or_else(|| Vec::new(env))
 }
 
 /// Returns the standby source set for an asset.
@@ -181,7 +182,7 @@ pub fn get_standby_sources(env: &Env, asset: &Address) -> Vec<Address> {
     env.storage()
         .persistent()
         .get(&key)
-        .unwrap_or_else(Vec::new)
+        .unwrap_or_else(|| Vec::new(env))
 }
 
 /// Returns the rotation schedule for an asset.
@@ -207,7 +208,11 @@ pub fn disable_rotation(env: &Env, asset: &Address) {
     admin.require_auth();
 
     let schedule_key = DataKey::AssetRotationSchedule(asset.clone());
-    if let Some(mut schedule) = env.storage().persistent().get::<_, SourceRotationSchedule>(&schedule_key) {
+    if let Some(mut schedule) = env
+        .storage()
+        .persistent()
+        .get::<_, SourceRotationSchedule>(&schedule_key)
+    {
         schedule.enabled = false;
         env.storage().persistent().set(&schedule_key, &schedule);
         env.storage()

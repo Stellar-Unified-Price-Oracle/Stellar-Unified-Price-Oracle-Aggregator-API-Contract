@@ -1,29 +1,25 @@
 use soroban_sdk::{panic_with_error, symbol_short, Address, Bytes, Env, String, Vec};
 
 use crate::events::{
-    emit_admin_action, RemovalCooldownChangedEvent, SourceActiveAgainEvent, SourceAddedEvent,
-    SourceHeartbeatEvent, SourceInactiveEvent, SourceMarkedForRemovalEvent,
-    SourceRemovalCancelledEvent, SourceRemovedEvent,
-    SourceWarningEvent, SourceProbationEvent, SourceDisqualifiedEvent, SourceDemeritsResetEvent,
-    DemeritConfigChangedEvent, InvalidSubmissionRecordedEvent,
-    SourceGovConfigChangedEvent, SourceProposalCreatedEvent, SourceProposalApprovedEvent, SourceProposalExecutedEvent,
-    SourceGeoUpdatedEvent,
-    SourceBondConfigChangedEvent, SourceBondDepositedEvent, SourceBondForfeitedEvent, SourceBondReturnedEvent,
-    SourceAssetAddedEvent, SourceAssetRemovedEvent, SourceKeyRotatedEvent,
-    SourceVerificationSetEvent,
+    emit_admin_action, DemeritConfigChangedEvent, InvalidSubmissionEvent,
+    RemovalCooldownChangedEvent, SourceActiveAgainEvent, SourceAddedEvent, SourceAssetAddedEvent,
+    SourceAssetRemovedEvent, SourceBondConfigChangedEvent, SourceBondDepositedEvent,
+    SourceBondForfeitedEvent, SourceBondReturnedEvent, SourceDemeritsResetEvent,
+    SourceDisqualifiedEvent, SourceGeoUpdatedEvent, SourceGovConfigChangedEvent,
+    SourceHeartbeatEvent, SourceInactiveEvent, SourceKeyRotatedEvent, SourceMarkedForRemovalEvent,
+    SourceProbationEvent, SourceProposalApprovedEvent, SourceProposalCreatedEvent,
+    SourceProposalExecutedEvent, SourceRemovalCancelledEvent, SourceRemovedEvent,
+    SourceVerificationSetEvent, SourceWarningEvent,
 };
 use crate::storage::{
     get_admin, is_source_inactive as check_source_inactive, mark_source_active,
     mark_source_inactive, read_oracle_sources, LEDGER_BUMP, LEDGER_THRESHOLD,
 };
 use crate::types::{
-    DataKey, ErrorCode, OracleSources, DisqualificationStatus, SourceDemeritState, DemeritConfig,
-    SourceGovernance, SourceProposal, SourceGeoMetadata, DecentralizationReport,
-    SourceVerification,
+    DataKey, DecentralizationReport, DemeritConfig, DisqualificationStatus, ErrorCode,
+    OracleSources, PriceEntry, SourceDemeritState, SourceGeoMetadata, SourceGovernance,
+    SourceProposal, SourceVerification,
 };
-
-
-
 
 const MAX_SOURCE_NAME_LENGTH: u32 = 64;
 const SOURCE_ROTATION_COOLDOWN: u32 = 100;
@@ -111,8 +107,26 @@ pub fn add_source_with_assets(env: &Env, source: Address, name: String, assets: 
     emit_admin_action(env, symbol_short!("add_srca"), admin, Bytes::new(env));
 }
 
-
 pub fn remove_source(env: &Env, source: Address) {
+    let admin = get_admin(env);
+    admin.require_auth();
+    remove_source_inner(env, source.clone());
+    // #483: the removed source's last submission must not linger in the
+    // published median. Recompute every asset it could have contributed to
+    // from the surviving registry, in this same transaction, and emit the
+    // resulting aggregate alongside the removal event.
+    crate::recompute::recompute_source_change(
+        env,
+        &source,
+        crate::recompute::RecomputeReason::Removed,
+    );
+    emit_admin_action(env, symbol_short!("rem_src"), admin, Bytes::new(env));
+}
+
+/// De-registers `source` without recomputing. `remove_source` and
+/// `remove_sources` layer the (#483) recomputation on top so a batch pays for
+/// one aggregation pass instead of one per source.
+fn remove_source_inner(env: &Env, source: Address) {
     let admin = get_admin(env);
     admin.require_auth();
     if !env
@@ -139,12 +153,19 @@ pub fn remove_source(env: &Env, source: Address) {
         } else {
             forfeit_source_bond_internal(env, source.clone());
         }
-        env.storage().persistent().remove(&DataKey::SourceBond(source.clone()));
+        env.storage()
+            .persistent()
+            .remove(&DataKey::SourceBond(source.clone()));
     }
 
     env.storage()
         .persistent()
         .remove(&DataKey::SrcActive(source.clone()));
+    // Revoke the off-chain signing key so a re-added source cannot have
+    // proofs signed by its old key accepted (#468).
+    env.storage()
+        .persistent()
+        .remove(&DataKey::SignedSubmitPubKey(source.clone()));
 
     let mut oracle_sources: OracleSources = read_oracle_sources(env);
     let mut new_sources: Vec<Address> = Vec::new(env);
@@ -156,7 +177,7 @@ pub fn remove_source(env: &Env, source: Address) {
     }
     oracle_sources.sources = new_sources;
     let removed_source = source.clone();
-    oracle_sources.metadata.remove(source);
+    oracle_sources.metadata.remove(source.clone());
     oracle_sources.verification.remove(removed_source.clone());
     env.storage()
         .persistent()
@@ -169,12 +190,28 @@ pub fn remove_source(env: &Env, source: Address) {
         .remove(&DataKey::SourceVerification(removed_source.clone()));
     SourceRemovedEvent {
         source: removed_source,
-        admin: admin.clone(),
+        admin,
     }
     .publish(env);
-    emit_admin_action(env, symbol_short!("rem_src"), admin, Bytes::new(env));
 }
 
+/// Removes several sources and recomputes once at the end (#483).
+///
+/// Equivalent to removing them one at a time: recomputation is a pure
+/// function of the surviving registry, so the batch converges on the same
+/// aggregate as the sequential path. Removal of the final source is rejected
+/// with `ErrorCode::SourceNotFound` by [`remove_source`].
+pub fn remove_sources(env: &Env, sources: Vec<Address>) {
+    let admin = get_admin(env);
+    admin.require_auth();
+    if sources.is_empty() {
+        panic_with_error!(env, ErrorCode::InvalidConfiguration);
+    }
+    for i in 0..sources.len() {
+        remove_source_inner(env, sources.get_unchecked(i));
+    }
+    crate::recompute::recompute_all(env, crate::recompute::RecomputeReason::Removed);
+}
 
 pub fn is_source(env: &Env, source: Address) -> bool {
     let key = DataKey::SrcActive(source.clone());
@@ -258,9 +295,23 @@ pub fn remove_source_asset(env: &Env, source: Address, asset: Address) {
     if removed {
         SourceAssetRemovedEvent {
             source: source.clone(),
-            asset,
+            asset: asset.clone(),
         }
         .publish(env);
+        // #483: dropping the source's claim on this asset drops its stored
+        // value for this asset too, so it cannot keep influencing the
+        // published median through a later recomputation.
+        env.storage()
+            .persistent()
+            .remove(&DataKey::Submission(asset.clone(), source.clone()));
+        // #483: and the aggregate is re-derived immediately, not at the next
+        // submission. The affected-asset scan can no longer see this source
+        // (its submission and claim are gone), so the asset is named directly.
+        crate::recompute::recompute_assets(
+            env,
+            &soroban_sdk::vec![env, asset.clone()],
+            crate::recompute::RecomputeReason::AssetClaimRemoved,
+        );
     }
     emit_admin_action(env, symbol_short!("rem_sass"), admin, Bytes::new(env));
 }
@@ -327,8 +378,7 @@ pub fn rotate_source_key(env: &Env, source: Address, new_address: Address) {
         .persistent()
         .get(&DataKey::SourceRotationLedger(source.clone()))
         .unwrap_or(0);
-    if last_rotation > 0
-        && current_ledger.saturating_sub(last_rotation) < SOURCE_ROTATION_COOLDOWN
+    if last_rotation > 0 && current_ledger.saturating_sub(last_rotation) < SOURCE_ROTATION_COOLDOWN
     {
         panic_with_error!(env, ErrorCode::CooldownNotElapsed);
     }
@@ -359,9 +409,10 @@ pub fn rotate_source_key(env: &Env, source: Address, new_address: Address) {
         env.storage()
             .persistent()
             .remove(&DataKey::SourceVerification(source.clone()));
-        env.storage()
-            .persistent()
-            .set(&DataKey::SourceVerification(new_address.clone()), &verification);
+        env.storage().persistent().set(
+            &DataKey::SourceVerification(new_address.clone()),
+            &verification,
+        );
     }
     env.storage()
         .persistent()
@@ -384,12 +435,17 @@ pub fn rotate_source_key(env: &Env, source: Address, new_address: Address) {
     for i in 0..registered_assets.len() {
         let asset = registered_assets.get_unchecked(i);
         let old_key = DataKey::Submission(asset.clone(), source.clone());
-        if let Some(mut entry) = env.storage().persistent().get::<_, crate::types::PriceEntry>(&old_key) {
+        if let Some(mut entry) = env
+            .storage()
+            .persistent()
+            .get::<_, crate::types::PriceEntry>(&old_key)
+        {
             entry.source = new_address.clone();
             env.storage().persistent().remove(&old_key);
-            env.storage()
-                .persistent()
-                .set(&DataKey::Submission(asset.clone(), new_address.clone()), &entry);
+            env.storage().persistent().set(
+                &DataKey::Submission(asset.clone(), new_address.clone()),
+                &entry,
+            );
         }
     }
 
@@ -519,8 +575,8 @@ pub fn is_source_inactive(env: &Env, source: Address) -> bool {
                     2u32
                 };
                 mark_source_inactive(env, &source);
+                crate::recompute::note_excluded_source(env);
                 forfeit_source_bond_internal(env, source.clone());
-
 
                 // Record when inactivity started (only on first trip).
                 let inactive_since_key = DataKey::SrcInactiveSinceLedger(source.clone());
@@ -543,6 +599,12 @@ pub fn is_source_inactive(env: &Env, source: Address) -> bool {
                     last_heartbeat: hb_time,
                 }
                 .publish(env);
+                // #483: a suspended source stops contributing immediately.
+                crate::recompute::recompute_source_change(
+                    env,
+                    &source,
+                    crate::recompute::RecomputeReason::Suspended,
+                );
                 return true;
             }
 
@@ -561,6 +623,7 @@ pub fn is_source_inactive(env: &Env, source: Address) -> bool {
             let new_missed = increment_missed_heartbeats(env, &source);
             if new_missed >= MISS_THRESHOLD {
                 mark_source_inactive(env, &source);
+                crate::recompute::note_excluded_source(env);
                 let inactive_since_key = DataKey::SrcInactiveSinceLedger(source.clone());
                 if !env.storage().persistent().has(&inactive_since_key) {
                     env.storage()
@@ -632,20 +695,24 @@ pub fn set_demerit_config(env: &Env, config: DemeritConfig) {
 
 pub fn get_source_demerits(env: &Env, source: Address) -> SourceDemeritState {
     let key = DataKey::SourceDemerits(source.clone());
-    let mut state: SourceDemeritState = env
-        .storage()
-        .persistent()
-        .get(&key)
-        .unwrap_or(SourceDemeritState {
-            demerits: 0,
-            status: DisqualificationStatus::Active,
-            status_updated_ledger: 0,
-        });
+    let mut state: SourceDemeritState =
+        env.storage()
+            .persistent()
+            .get(&key)
+            .unwrap_or(SourceDemeritState {
+                demerits: 0,
+                status: DisqualificationStatus::Active,
+                status_updated_ledger: 0,
+            });
 
     if state.status == DisqualificationStatus::Disqualified {
         let config = get_demerit_config(env);
         let current_ledger = env.ledger().sequence();
-        if current_ledger >= state.status_updated_ledger.saturating_add(config.cooldown_ledgers) {
+        if current_ledger
+            >= state
+                .status_updated_ledger
+                .saturating_add(config.cooldown_ledgers)
+        {
             state.demerits = 0;
             state.status = DisqualificationStatus::Active;
             state.status_updated_ledger = current_ledger;
@@ -690,7 +757,7 @@ pub fn record_invalid_submission(env: &Env, source: Address) {
         .persistent()
         .extend_ttl(&key, LEDGER_THRESHOLD, LEDGER_BUMP);
 
-    InvalidSubmissionRecordedEvent {
+    InvalidSubmissionEvent {
         source: source.clone(),
         demerits: state.demerits,
     }
@@ -713,12 +780,22 @@ pub fn record_invalid_submission(env: &Env, source: Address) {
                 .publish(env);
             }
             DisqualificationStatus::Disqualified => {
+                // #483: make the aggregation loop filter this source out from
+                // the next pass on, and recompute now.
+                crate::recompute::note_excluded_source(env);
                 SourceDisqualifiedEvent {
                     source: source.clone(),
                     demerits: state.demerits,
                     status_updated_ledger: current_ledger,
                 }
                 .publish(env);
+                // #483: a disqualified source must stop influencing the
+                // published median immediately, not at the next submission.
+                crate::recompute::recompute_source_change(
+                    env,
+                    &source,
+                    crate::recompute::RecomputeReason::Disqualified,
+                );
             }
             _ => {}
         }
@@ -750,14 +827,8 @@ pub fn reset_source_demerits(env: &Env, source: Address) {
         .persistent()
         .extend_ttl(&key, LEDGER_THRESHOLD, LEDGER_BUMP);
 
-    SourceDemeritsResetEvent {
-        source,
-        admin,
-    }
-    .publish(env);
+    SourceDemeritsResetEvent { source, admin }.publish(env);
 }
-
-
 
 pub fn get_source_last_heartbeat(env: &Env, source: Address) -> u64 {
     let key = DataKey::SrcHeartbeat(source);
@@ -1089,10 +1160,14 @@ pub fn record_price_submitted(env: &Env, source: &Address, ledger: u32) {
         .persistent()
         .set(&DataKey::SrcLastPriceLedger(source.clone()), &ledger);
     // Mark that a price has been submitted after the most recent reactivation.
-    env.storage().persistent().set(
-        &DataKey::SrcPriceSubmitAfterReactivation(source.clone()),
-        &true,
-    );
+    // Only relevant while the source is inactive: flagging an active source
+    // would let a later heartbeat-only call wrongly reactivate it.
+    if crate::storage::is_source_inactive(env, source) {
+        env.storage().persistent().set(
+            &DataKey::SrcPriceSubmitAfterReactivation(source.clone()),
+            &true,
+        );
+    }
 }
 
 /// Returns the ledger of the most recent price submission from a source.
@@ -1153,7 +1228,7 @@ pub fn check_and_prune_inactive_sources(env: &Env) -> u32 {
             .filter(|s| !check_source_inactive(env, s))
             .count() as u32;
 
-        if active_count <= min_required {
+        if active_count < min_required {
             // Removing this would break the oracle — skip.
             break;
         }
@@ -1231,9 +1306,7 @@ fn _remove_source_internal(env: &Env, source: Address) {
 }
 
 pub fn get_source_governance(env: &Env) -> Option<SourceGovernance> {
-    env.storage()
-        .persistent()
-        .get(&DataKey::SourceGovConfig)
+    env.storage().persistent().get(&DataKey::SourceGovConfig)
 }
 
 pub fn set_source_governance(env: &Env, approvers: Vec<Address>, threshold: u32) {
@@ -1244,7 +1317,7 @@ pub fn set_source_governance(env: &Env, approvers: Vec<Address>, threshold: u32)
         panic_with_error!(env, ErrorCode::InvalidGovernanceConfig);
     }
 
-    if threshold == 0 && approvers.len() > 0 {
+    if threshold == 0 && !approvers.is_empty() {
         panic_with_error!(env, ErrorCode::InvalidGovernanceConfig);
     }
 
@@ -1340,13 +1413,13 @@ pub fn approve_source(env: &Env, approver: Address, proposal_id: u32) {
     }
 
     let prop_key = DataKey::SourceProposal(proposal_id);
-    let mut proposal: SourceProposal = env
-        .storage()
-        .persistent()
-        .get(&prop_key)
-        .unwrap_or_else(|| {
-            panic_with_error!(env, ErrorCode::ProposalNotFound);
-        });
+    let mut proposal: SourceProposal =
+        env.storage()
+            .persistent()
+            .get(&prop_key)
+            .unwrap_or_else(|| {
+                panic_with_error!(env, ErrorCode::ProposalNotFound);
+            });
 
     if proposal.executed {
         panic_with_error!(env, ErrorCode::ProposalAlreadyExecuted);
@@ -1416,15 +1489,28 @@ pub fn set_source_geo(env: &Env, source: Address, metadata: SourceGeoMetadata) {
         .extend_ttl(&key, LEDGER_THRESHOLD, LEDGER_BUMP);
 
     SourceGeoUpdatedEvent {
+        source: source.clone(),
+        region: metadata.region.clone(),
+        provider: metadata.provider.clone(),
+        jurisdiction: metadata.jurisdiction.clone(),
+    }
+    .publish(env);
+    // #399: mirror the independence axes on a dedicated event so indexers
+    // do not need to decode the extended geo struct to track diversity.
+    crate::events::SourceDiversityUpdatedEvent {
         source,
-        region: metadata.region,
-        provider: metadata.provider,
-        jurisdiction: metadata.jurisdiction,
+        infra: metadata.infra,
+        upstream: metadata.upstream,
+        owner: metadata.owner,
     }
     .publish(env);
 }
 
-fn calculate_hhi(env: &Env, counts: soroban_sdk::Map<soroban_sdk::String, u32>, total: u32) -> u32 {
+fn calculate_hhi(
+    _env: &Env,
+    counts: soroban_sdk::Map<soroban_sdk::String, u32>,
+    total: u32,
+) -> u32 {
     if total == 0 {
         return 0;
     }
@@ -1452,8 +1538,10 @@ pub fn get_decentralization_report(env: &Env) -> DecentralizationReport {
     }
 
     let mut region_counts: soroban_sdk::Map<soroban_sdk::String, u32> = soroban_sdk::Map::new(env);
-    let mut provider_counts: soroban_sdk::Map<soroban_sdk::String, u32> = soroban_sdk::Map::new(env);
-    let mut jurisdiction_counts: soroban_sdk::Map<soroban_sdk::String, u32> = soroban_sdk::Map::new(env);
+    let mut provider_counts: soroban_sdk::Map<soroban_sdk::String, u32> =
+        soroban_sdk::Map::new(env);
+    let mut jurisdiction_counts: soroban_sdk::Map<soroban_sdk::String, u32> =
+        soroban_sdk::Map::new(env);
 
     let default_str = soroban_sdk::String::from_str(env, "unknown");
 
@@ -1462,7 +1550,11 @@ pub fn get_decentralization_report(env: &Env) -> DecentralizationReport {
         let geo = get_source_geo(env, source);
         let (region, provider, jurisdiction) = match geo {
             Some(g) => (g.region, g.provider, g.jurisdiction),
-            None => (default_str.clone(), default_str.clone(), default_str.clone()),
+            None => (
+                default_str.clone(),
+                default_str.clone(),
+                default_str.clone(),
+            ),
         };
 
         let rc = region_counts.get(region.clone()).unwrap_or(0);
@@ -1541,7 +1633,7 @@ pub fn deposit_source_bond(env: &Env, source: Address) {
     });
 
     let client = soroban_sdk::token::Client::new(env, &token_contract);
-    client.transfer(&source, &env.current_contract_address(), &deposit_amount);
+    client.transfer(&source, env.current_contract_address(), &deposit_amount);
 
     let key = DataKey::SourceBond(source.clone());
     env.storage().persistent().set(&key, &required);
@@ -1566,7 +1658,9 @@ pub fn forfeit_source_bond_internal(env: &Env, source: Address) {
     if deposited > 0 {
         let treasury_key = DataKey::TreasuryBalance;
         let balance: i128 = env.storage().persistent().get(&treasury_key).unwrap_or(0);
-        env.storage().persistent().set(&treasury_key, &(balance + deposited));
+        env.storage()
+            .persistent()
+            .set(&treasury_key, &(balance + deposited));
 
         env.storage().persistent().set(&key, &0i128);
 
@@ -1578,4 +1672,38 @@ pub fn forfeit_source_bond_internal(env: &Env, source: Address) {
     }
 }
 
+/// Explicit liveness check for a `(source, asset)` pair.
+///
+/// A source counts as live only when **both** of these hold:
+///
+/// 1. It is on schedule — if a submission schedule is registered for the pair,
+///    the gap since the last submission must not exceed
+///    `interval × deadline_multiplier` (see [`crate::scheduling`]).
+/// 2. It is not stale — the price observation recorded for the pair must be
+///    within the configured heartbeat interval of the current ledger time. A
+///    pair with no recorded submission is treated as live, since there is
+///    nothing to be late for yet.
+///
+/// # Returns
+///
+/// `true` when the source is live for `asset`, `false` when it is behind
+/// schedule or has gone quiet for longer than the heartbeat interval.
+pub fn check_source_liveness(env: &Env, source: Address, asset: Address) -> bool {
+    if !crate::scheduling::check_liveness(env, source.clone(), asset.clone()) {
+        return false;
+    }
 
+    let last_timestamp = env
+        .storage()
+        .persistent()
+        .get::<DataKey, PriceEntry>(&DataKey::Submission(asset.clone(), source.clone()))
+        .map(|entry| entry.timestamp);
+
+    match last_timestamp {
+        Some(timestamp) => {
+            let interval = crate::admin::get_heartbeat_interval(env);
+            env.ledger().timestamp() <= timestamp.saturating_add(interval)
+        }
+        None => true,
+    }
+}

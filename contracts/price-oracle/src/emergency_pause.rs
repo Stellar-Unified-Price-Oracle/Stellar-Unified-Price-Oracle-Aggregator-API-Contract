@@ -7,7 +7,7 @@
 use soroban_sdk::{panic_with_error, symbol_short, Address, Bytes, Env, String};
 
 use crate::events::{
-    emit_admin_action, EmergencyPausedEvent, EmergencyUnpausedEvent, EmergencyPauseExtendedEvent,
+    emit_admin_action, EmergencyPauseExtendedEvent, EmergencyPausedEvent, EmergencyUnpausedEvent,
 };
 use crate::storage::get_admin;
 use crate::types::{DataKey, EmergencyPause, ErrorCode};
@@ -64,18 +64,14 @@ pub fn emergency_pause(env: &Env, reason: String, auto_unpause_ledgers: u32) {
 
     // Emit event
     EmergencyPausedEvent {
+        admin: admin.clone(),
         reason: reason.clone(),
         auto_unpause_ledger,
         initiated_by: admin.clone(),
     }
     .publish(env);
 
-    emit_admin_action(
-        env,
-        symbol_short!("emgp"),
-        admin,
-        Bytes::new(env),
-    );
+    emit_admin_action(env, symbol_short!("emgp"), admin, Bytes::new(env));
 }
 
 /// Extend an active emergency pause.
@@ -104,7 +100,7 @@ pub fn extend_emergency_pause(env: &Env, additional_ledgers: u32) {
         .unwrap();
 
     let current_ledger = env.ledger().sequence();
-    
+
     // Check if auto-unpause has already occurred
     if current_ledger >= emergency_pause.auto_unpause_ledger {
         panic_with_error!(env, ErrorCode::InvalidConfiguration);
@@ -118,18 +114,14 @@ pub fn extend_emergency_pause(env: &Env, additional_ledgers: u32) {
 
     // Emit event
     EmergencyPauseExtendedEvent {
+        admin: admin.clone(),
         reason: emergency_pause.reason.clone(),
         new_unpause_ledger: emergency_pause.auto_unpause_ledger,
         extended_by: admin.clone(),
     }
     .publish(env);
 
-    emit_admin_action(
-        env,
-        symbol_short!("extep"),
-        admin,
-        Bytes::new(env),
-    );
+    emit_admin_action(env, symbol_short!("extep"), admin, Bytes::new(env));
 }
 
 /// Cancel an active emergency pause.
@@ -174,17 +166,13 @@ pub fn cancel_emergency_pause(env: &Env) {
 
     // Emit event
     EmergencyUnpausedEvent {
+        admin: admin.clone(),
         reason: emergency_pause.reason,
         cancelled_by: admin.clone(),
     }
     .publish(env);
 
-    emit_admin_action(
-        env,
-        symbol_short!("cnlep"),
-        admin,
-        Bytes::new(env),
-    );
+    emit_admin_action(env, symbol_short!("cnlep"), admin, Bytes::new(env));
 }
 
 /// Check if emergency auto-unpause timeout has been reached, and unpause if so.
@@ -213,7 +201,7 @@ pub fn auto_unpause_if_due(env: &Env) {
 
     if let Some(pause) = emergency_pause {
         let current_ledger = env.ledger().sequence();
-        
+
         if current_ledger >= pause.auto_unpause_ledger {
             // Auto-unpause has triggered
             env.storage()

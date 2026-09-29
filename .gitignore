@@ -9,12 +9,26 @@
 test_snapshots/
 **/test_snapshots/
 
+# Hermetic integration harness output (#519)
+hermetic-artifacts/
+
+# cargo-mutants output (#412/#520)
+mutants-critical/
+mutants-general/
+mutants-per-module/
+
 # Kiro AI agent state
 .kiro/
 
 # Node.js
 node_modules/
 npm-debug.log*
+yarn-error.log
+
+# Python (services/)
+__pycache__/
+*.pyc
+.pytest_cache/
 
 # Environment / secrets
 .env
@@ -25,6 +39,8 @@ npm-debug.log*
 .vscode/
 .idea/
 *.iml
+*.swp
+*.swo
 
 # OS
 .DS_Store
@@ -41,3 +57,60 @@ Thumbs.db
 # Logs
 *.log
 logs/
+
+# Cargo artifacts (keep Cargo.lock committed)
+# /Cargo.lock
+
+# Terraform
+infrastructure/.terraform.lock.hcl
+**/.terraform.lock.hcl
+
+# IDE
+.kiro/
+.claude/
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Generated docs / summaries
+CHANGELOG.md
+CONTRIBUTING.md
+SECURITY.md
+README.md
+TODO.md
+IMPLEMENTATION_SUMMARY.md
+FEATURE_IMPLEMENTATION.md
+DELIVERABLES.txt
+CODE_AUDIT.md
+TEST_STRATEGY.md
+IMPLEMENTATION_PLAN.md
+IMPLEMENTATION_CHECKLIST.md
+IMPLEMENTATION_COMPLETE.md
+GOVERNANCE_FEATURES_INDEX.md
+SENIOR_DEV_SUMMARY.md
+INTEGRATION_GUIDE.md
+brainstorm_plan.md
+00_START_HERE.md
+ACCESSIBILITY_IMPLEMENTATION.md
+DARK_MODE_AUDIT.md
+PUSH_SUCCESS.md
+STAGING.md
+TRANSACTION_HISTORY_FEATURE.md
+TRANSACTION_INTEGRATION_GUIDE.md
+PR_DESCRIPTIONS.md
+ALLOWED_ORIGINS/
+
+# Generated build/output directories
+grafana/
+observability/
+frontend/
+backend/
+tests/
+
+# OpenAPI specs
+openapi-*.yaml
+cargo_out.txt
+
+.blue-green/

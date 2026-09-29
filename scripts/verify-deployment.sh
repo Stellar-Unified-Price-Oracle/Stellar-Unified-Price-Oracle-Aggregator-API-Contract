@@ -107,6 +107,20 @@ DESCRIPTION=$(invoke get_description)
 [[ -n "$DESCRIPTION" ]] && pass "description is set" || fail "description is empty"
 
 # ---------------------------------------------------------------------------
+# 3b. SEP-40 compliance (base, decimals, resolution, assets, lastprice, price, prices)
+# ---------------------------------------------------------------------------
+info "=== 3b. SEP-40 compliance ==="
+SEP40_FUNCS=(base decimals resolution assets lastprice price prices)
+CONTRACT_SPEC=$(stellar contract invoke --id "$CONTRACT_ID" --source "$ADMIN_IDENTITY" --network "$NETWORK" -- --help 2>&1 || true)
+for fn in "${SEP40_FUNCS[@]}"; do
+    if echo "$CONTRACT_SPEC" | grep -qE "(^|[[:space:]])${fn}([[:space:]]|$)"; then
+        pass "SEP-40 function '$fn' is present in contract interface"
+    else
+        fail "SEP-40 function '$fn' missing from contract interface"
+    fi
+done
+
+# ---------------------------------------------------------------------------
 # 4. Register test source and verify
 # ---------------------------------------------------------------------------
 info "=== 4. Register test source ==="
@@ -166,6 +180,21 @@ check "test asset unregistered"   "false" "$ASSET_AFTER"
 
 # Clean up ephemeral local key
 stellar keys rm _verify_source 2>/dev/null || true
+
+# ---------------------------------------------------------------------------
+# 8. Post-upgrade invariant sweep (#415)
+# ---------------------------------------------------------------------------
+info "=== 8. Post-upgrade invariants ==="
+MIG_STATE=$(invoke get_migration_state 2>&1 || echo "error")
+check "no migration in progress" "null" "${MIG_STATE:-null}"
+SCHEMA=$(invoke get_storage_version 2>&1 || echo "error")
+if [[ -n "${EXPECTED_SCHEMA:-}" ]]; then
+    check "storage schema version" "$EXPECTED_SCHEMA" "$SCHEMA"
+else
+    [[ "$SCHEMA" =~ ^[0-9]+$ ]] && pass "schema version is a number ($SCHEMA)" || fail "schema version not numeric: $SCHEMA"
+fi
+ADMIN_AFTER=$(invoke get_admin_address)
+check "admin unchanged across upgrade" "$ADMIN_ADDRESS" "$ADMIN_AFTER"
 
 # ---------------------------------------------------------------------------
 # Summary

@@ -1,0 +1,11 @@
+{
+  "type": "record",
+  "name": "PriceAggregatedEvent",
+  "namespace": "com.stellaroracle.events.v1",
+  "fields": [
+    { "name": "asset", "type": "string" },
+    { "name": "price", "type": "string" },
+    { "name": "num_sources", "type": "int" },
+    { "name": "timestamp", "type": "long" }
+  ]
+}

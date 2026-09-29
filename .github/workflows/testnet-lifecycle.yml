@@ -1,0 +1,70 @@
+name: Testnet Lifecycle
+
+# #418: deploy → exercise (incl. adversarial phases) → tear down on testnet.
+on:
+  pull_request:
+    branches: [main]
+  schedule:
+    - cron: "0 3 * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: testnet-lifecycle-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lifecycle:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@1.91.0
+        with:
+          targets: wasm32v1-none
+      - name: Cache dependencies
+        uses: Swatinem/rust-cache@v2
+      - name: Install Stellar CLI (prebuilt binary)
+        run: |
+          set -euo pipefail
+          STELLAR_CLI_VERSION="26.1.0"
+          curl -fsSL \
+            "https://github.com/stellar/stellar-cli/releases/download/v${STELLAR_CLI_VERSION}/stellar-cli-${STELLAR_CLI_VERSION}-x86_64-unknown-linux-gnu.tar.gz" \
+            | tar -xz -C /usr/local/bin
+          stellar --version
+      - name: Build contract
+        run: make build
+      - name: Restore previous run metrics
+        uses: actions/cache/restore@v4
+        with:
+          path: previous-metrics.json
+          key: lifecycle-metrics-${{ github.run_id }}
+          restore-keys: lifecycle-metrics-
+      - name: Run lifecycle
+        env:
+          RUN_ID: ${{ github.run_id }}-${{ github.run_attempt }}
+          METRICS_OUT: lifecycle-metrics.json
+        run: ./scripts/testnet-lifecycle.sh
+      - name: Report metric deltas
+        if: always()
+        run: |
+          [[ -f lifecycle-metrics.json ]] || { echo "No metrics (run failed early)." >> "$GITHUB_STEP_SUMMARY"; exit 0; }
+          prev=previous-metrics.json; [[ -f $prev ]] || echo '{}' > $prev
+          {
+            echo "### Testnet lifecycle metrics"
+            echo ""
+            echo "| metric | previous | current | delta |"
+            echo "|---|---|---|---|"
+            jq -r --slurpfile p $prev '
+              [paths(numbers)] as $ks | $ks[] as $k
+              | (getpath($k)) as $c | ($p[0] | getpath($k) // null) as $o
+              | "| \($k | join(".")) | \($o // "n/a") | \($c) | \(if $o then $c - $o else "n/a" end) |"
+            ' lifecycle-metrics.json
+          } >> "$GITHUB_STEP_SUMMARY"
+          cp lifecycle-metrics.json previous-metrics.json
+      - name: Save metrics for next run
+        if: success()
+        uses: actions/cache/save@v4
+        with:
+          path: previous-metrics.json
+          key: lifecycle-metrics-${{ github.run_id }}

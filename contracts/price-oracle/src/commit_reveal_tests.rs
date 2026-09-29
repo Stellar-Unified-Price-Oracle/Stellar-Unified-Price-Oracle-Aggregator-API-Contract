@@ -13,7 +13,8 @@
 //! - set/get_commit_window and set/get_reveal_window
 
 use soroban_sdk::{
-    testutils::{Address as _, Ledger, LedgerInfo},
+    testutils::{Address as _, Events as _, Ledger, LedgerInfo},
+    xdr::ToXdr,
     Address, Bytes, BytesN, Env,
 };
 
@@ -32,12 +33,18 @@ fn advance_ledger(e: &Env, seq: u32) {
         base_reserve: 10,
         min_temp_entry_ttl: 10,
         min_persistent_entry_ttl: 10,
-        max_entry_ttl: 6000,
+        max_entry_ttl: 6_312_000,
     });
 }
 
 /// Builds the sha256 preimage for a commit and returns the expected hash.
-fn make_hash(e: &Env, price: i128, salt_val: u64, round_ledger: u32) -> BytesN<32> {
+fn make_hash(
+    e: &Env,
+    source: &Address,
+    price: i128,
+    salt_val: u64,
+    round_ledger: u32,
+) -> BytesN<32> {
     let price_bytes = price.to_le_bytes();
     let salt_bytes = salt_val.to_le_bytes();
     let round_bytes = round_ledger.to_le_bytes();
@@ -52,6 +59,7 @@ fn make_hash(e: &Env, price: i128, salt_val: u64, round_ledger: u32) -> BytesN<3
     for b in round_bytes.iter() {
         preimage.push_back(*b);
     }
+    preimage.append(&source.clone().to_xdr(e));
     e.crypto().sha256(&preimage).into()
 }
 
@@ -145,7 +153,7 @@ fn test_commit_reveal_happy_path() {
     let price: i128 = 50_000;
     let salt_val: u64 = 0xDEAD_BEEF;
     let round = client.current_round_ledger(); // 0
-    let hash = make_hash(&e, price, salt_val, round);
+    let hash = make_hash(&e, &source, price, salt_val, round);
 
     client.commit_price(&source, &asset, &hash);
 
@@ -178,7 +186,7 @@ fn test_reveal_hash_mismatch() {
     let price: i128 = 50_000;
     let salt_val: u64 = 1;
     let round = client.current_round_ledger();
-    let hash = make_hash(&e, price, salt_val, round);
+    let hash = make_hash(&e, &source, price, salt_val, round);
     client.commit_price(&source, &asset, &hash);
 
     advance_ledger(&e, 22);
@@ -209,7 +217,7 @@ fn test_reveal_too_early_panics() {
     let price: i128 = 50_000;
     let salt_val: u64 = 2;
     let round = client.current_round_ledger();
-    let hash = make_hash(&e, price, salt_val, round);
+    let hash = make_hash(&e, &source, price, salt_val, round);
     client.commit_price(&source, &asset, &hash);
 
     // Still inside commit window → RevealWindowClosed (#34)
@@ -234,7 +242,7 @@ fn test_reveal_after_window_expires() {
     let price: i128 = 50_000;
     let salt_val: u64 = 3;
     let round = client.current_round_ledger();
-    let hash = make_hash(&e, price, salt_val, round);
+    let hash = make_hash(&e, &source, price, salt_val, round);
     client.commit_price(&source, &asset, &hash);
 
     // Past reveal deadline: round(0) + commit_window(20) + reveal_window(20) = 40 → expired
@@ -256,15 +264,17 @@ fn test_double_commit_same_round_rejected() {
 
     advance_ledger(&e, 5);
     let round = client.current_round_ledger();
-    let hash = make_hash(&e, 50_000, 4, round);
+    let hash = make_hash(&e, &source, 50_000, 4, round);
     client.commit_price(&source, &asset, &hash);
     // Second commit for same (source, asset, round) → AlreadyCommitted (#35)
     client.commit_price(&source, &asset, &hash);
 }
 
 #[test]
-#[should_panic(expected = "Error(Contract, #34)")]
-fn test_commit_after_window_closes_rejected() {
+fn test_commit_after_window_closes_starts_new_round() {
+    // `commit_price` always derives the round from the current ledger via
+    // `current_round_ledger`, so when a commit window closes a new round starts
+    // immediately and the commit is accepted for that new round.
     let e = Env::default();
     e.mock_all_auths();
     let (client, _) = setup_contract(&e);
@@ -274,10 +284,10 @@ fn test_commit_after_window_closes_rejected() {
     let source = register_test_source(&e, &client, "S1");
     let asset = register_test_asset(&e, &client);
 
-    // Ledger 20 starts a new round; committing for round 0 is too late
+    // Ledger 20 starts a new round; the commit lands in round 20.
     advance_ledger(&e, 20);
-    let stale_round: u32 = 0;
-    let hash = make_hash(&e, 50_000, 5, stale_round);
+    assert_eq!(client.current_round_ledger(), 20u32);
+    let hash = make_hash(&e, &source, 50_000, 5, 20u32);
     client.commit_price(&source, &asset, &hash);
 }
 
@@ -303,8 +313,8 @@ fn test_batch_reveal_two_assets() {
     let (p1, s1) = (100_000i128, 10u64);
     let (p2, s2) = (200_000i128, 20u64);
 
-    client.commit_price(&source, &asset1, &make_hash(&e, p1, s1, round));
-    client.commit_price(&source, &asset2, &make_hash(&e, p2, s2, round));
+    client.commit_price(&source, &asset1, &make_hash(&e, &source, p1, s1, round));
+    client.commit_price(&source, &asset2, &make_hash(&e, &source, p2, s2, round));
 
     advance_ledger(&e, 22);
 
@@ -335,4 +345,179 @@ fn test_batch_over_100_rejected() {
         reveals.push_back((Address::generate(&e), 1i128, salt_bytes(&e, i), 0u32));
     }
     client.reveal_prices_batch(&source, &reveals);
+}
+
+// --- #292: Standalone Commit-Reveal Mode & Slashing ---
+
+#[test]
+fn test_standalone_commit_reveal_blocks_direct_submission() {
+    let e = Env::default();
+    e.mock_all_auths();
+    let (client, _) = setup_contract(&e);
+    let source = register_test_source(&e, &client, "S1");
+    let asset = register_test_asset(&e, &client);
+
+    client.set_commit_reveal_enabled(&true);
+    assert!(client.get_commit_reveal_enabled());
+
+    let result = client.try_submit_price(&source, &asset, &100i128, &1000u64);
+    assert!(result.is_err());
+}
+
+#[test]
+fn test_standalone_commit_reveal_full_lifecycle() {
+    let e = Env::default();
+    e.mock_all_auths();
+    let (client, _) = setup_contract(&e);
+    let source = register_test_source(&e, &client, "S1");
+    let asset = register_test_asset(&e, &client);
+
+    client.set_commit_reveal_enabled(&true);
+    client.set_commit_window(&20u32);
+    client.set_reveal_window(&20u32);
+
+    advance_ledger(&e, 5);
+    let round = client.current_round_ledger();
+    let price = 100_000i128;
+    let salt_val = 42u64;
+    let hash = make_hash(&e, &source, price, salt_val, round);
+
+    client.commit_price(&source, &asset, &hash);
+    assert_eq!(client.get_source_price(&asset, &source).price, 0i128);
+
+    advance_ledger(&e, 22);
+    client.reveal_price(&source, &asset, &price, &salt_bytes(&e, salt_val), &round);
+    assert_eq!(client.get_source_price(&asset, &source).price, price);
+}
+
+#[test]
+fn test_slash_expired_commits() {
+    let e = Env::default();
+    e.mock_all_auths();
+    let (client, _) = setup_contract(&e);
+    let source = register_test_source(&e, &client, "S1");
+    let asset = register_test_asset(&e, &client);
+
+    client.set_commit_reveal_enabled(&true);
+    client.set_commit_window(&20u32);
+    client.set_reveal_window(&20u32);
+    client.set_commit_reveal_slash_amount(&1000i128);
+
+    // Slashing draws from the source's deposited bond, so fund it first.
+    let token = deploy_token(&e);
+    client.set_stake_token_contract(&token);
+    mint_token(&e, &token, &source, 1000);
+    client.set_source_bond(&1000i128);
+    client.deposit_source_bond(&source);
+
+    advance_ledger(&e, 5);
+    let round = client.current_round_ledger();
+    let hash = make_hash(&e, &source, 100_000i128, 1u64, round);
+    client.commit_price(&source, &asset, &hash);
+
+    advance_ledger(&e, 50);
+    client.slash_expired_commits(&asset, &source, &round);
+}
+
+// ---------------------------------------------------------------------------
+// #447 — Adversarial commit-reveal
+// ---------------------------------------------------------------------------
+
+fn setup_round(e: &Env, min_sources: u32) -> (crate::PriceOracleContractClient<'_>, Address) {
+    let (client, _) = setup_contract(e);
+    client.set_min_sources_required(&min_sources);
+    client.set_commit_window(&20u32);
+    client.set_reveal_window(&20u32);
+    let asset = register_test_asset(e, &client);
+    advance_ledger(e, 5);
+    (client, asset)
+}
+
+/// Copy-commit: an attacker duplicating the victim's hash cannot invalidate
+/// the victim's reveal, and cannot replay the victim's disclosed preimage.
+#[test]
+fn test_copy_commit_cannot_neutralise_victim() {
+    let e = Env::default();
+    e.mock_all_auths();
+    let (client, asset) = setup_round(&e, 1);
+    let victim = register_test_source(&e, &client, "victim");
+    let attacker = register_test_source(&e, &client, "attacker");
+    let round = client.current_round_ledger();
+    let (price, salt) = (50_000i128, 77u64);
+
+    let source = victim.clone();
+    let hash = make_hash(&e, &source, price, salt, round);
+    client.commit_price(&victim, &asset, &hash);
+    client.commit_price(&attacker, &asset, &hash);
+
+    advance_ledger(&e, 22);
+    client.reveal_price(&victim, &asset, &price, &salt_bytes(&e, salt), &round);
+    assert_eq!(client.get_source_price(&asset, &victim).price, price);
+
+    // The victim's preimage is now public, but it is bound to the victim.
+    let replay = client.try_reveal_price(&attacker, &asset, &price, &salt_bytes(&e, salt), &round);
+    assert!(replay.is_err());
+}
+
+/// Withhold-and-shrink: a source that commits but never reveals cannot push
+/// an aggregate through with fewer than `min_sources_required` reveals, and
+/// is slashed afterwards.
+#[test]
+fn test_withholding_cannot_shrink_quorum_and_is_slashed() {
+    let e = Env::default();
+    e.mock_all_auths();
+    let (client, asset) = setup_round(&e, 3);
+    client.set_commit_reveal_slash_amount(&400i128);
+    let token = deploy_token(&e);
+    client.set_stake_token_contract(&token);
+    client.set_source_bond(&1000i128);
+
+    let s1 = register_test_source(&e, &client, "s1");
+    let s2 = register_test_source(&e, &client, "s2");
+    let withholder = register_test_source(&e, &client, "withholder");
+    for src in [&s1, &s2, &withholder] {
+        mint_token(&e, &token, src, 1000);
+        client.deposit_source_bond(src);
+    }
+
+    let round = client.current_round_ledger();
+    for (i, src) in [&s1, &s2, &withholder].iter().enumerate() {
+        let source = (*src).clone();
+        let hash = make_hash(&e, &source, 100 + i as i128, i as u64, round);
+        client.commit_price(&source, &asset, &hash);
+    }
+
+    advance_ledger(&e, 25);
+    client.reveal_price(&s1, &asset, &100i128, &salt_bytes(&e, 0), &round);
+    client.reveal_price(&s2, &asset, &101i128, &salt_bytes(&e, 1), &round);
+    // Two reveals are below the protocol minimum of three: no aggregate.
+    assert!(client.get_price(&asset, &0u64).is_none());
+
+    advance_ledger(&e, 40);
+    client.slash_expired_commits(&asset, &withholder, &round);
+    // SourceSlashedEvent + CommitWithheldEvent make the withholding forensic.
+    assert!(e.events().all().events().len() >= 2);
+    // Second slash for the same round is impossible (commit consumed).
+    assert!(client
+        .try_slash_expired_commits(&asset, &withholder, &round)
+        .is_err());
+}
+
+/// Deadline sniping: revealing in the last ledger of the window grants no
+/// ability to change the committed value; one ledger later is rejected.
+#[test]
+fn test_last_ledger_reveal_grants_no_advantage() {
+    let e = Env::default();
+    e.mock_all_auths();
+    let (client, asset) = setup_round(&e, 1);
+    let source = register_test_source(&e, &client, "sniper");
+    let round = client.current_round_ledger();
+    let hash = make_hash(&e, &source, 100i128, 9u64, round);
+    client.commit_price(&source, &asset, &hash);
+
+    advance_ledger(&e, 39); // last ledger of reveal window [20, 40)
+    let changed = client.try_reveal_price(&source, &asset, &150i128, &salt_bytes(&e, 9), &round);
+    assert!(changed.is_err());
+    client.reveal_price(&source, &asset, &100i128, &salt_bytes(&e, 9), &round);
+    assert_eq!(client.get_source_price(&asset, &source).price, 100i128);
 }

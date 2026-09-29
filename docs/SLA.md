@@ -151,3 +151,36 @@ Changes to this SLA are subject to the governance proposal process described in 
 ## 8. Contact
 
 For SLA inquiries, incident reports, or integration agreements, open a GitHub issue or contact the maintainers via the repository's discussion board.
+
+---
+
+## 9. Machine-Enforceable Clause Map (Monitoring v2)
+
+Every clause below is checked by [`services/sla_monitor/monitor.py`](../services/sla_monitor/monitor.py).
+This table is parsed by `check_sla_consistency()` and CI fails if it drifts from
+`SLA_CLAUSES` in the monitor (`python -m services.sla_monitor.monitor --check-sla`).
+Violations are exported as `oracle_sla_violations_total{clause="…"}` and written to an
+automatic violation report that names the breached clause.
+
+| Clause | Metric | Owner | Threshold | Meaning |
+|--------|--------|-------|-----------|---------|
+| §1.2 | `oracle_sla_price_age_seconds` | oracle-ops | 60 | Aggregate refreshed within 60 s of source submissions |
+| §1.3 | `oracle_sla_timestamp_skew_seconds` | oracle-ops | 300 | Submission timestamps within ±300 s of the ledger clock |
+| §2 | `oracle_sla_counted_sources` | source-onboarding | 2 | At least 2 active sources counted in every aggregate |
+| §3 | `oracle_sla_reference_deviation_bps` | risk | 500 | Aggregate within `max_price_deviation` of an independent reference set |
+| §4.1 | `oracle_sla_freshness_burn_rate` | oracle-ops | 14.4 | 99.5 % freshness SLO; fast-burn alert when both 5-round and 60-round windows exceed 14.4× |
+| §4.2 | `oracle_sla_pause_duration_seconds` | governance | 7200 | Emergency pauses shorter than 2 hours |
+| §6.3 | `oracle_sla_accuracy_breach_bps` | risk | 1000 | Accuracy breach: deviation > 2× `max_price_deviation` |
+| §9.1 | `oracle_sla_aggregate_divergence` | core-contracts | 0 | Published aggregate equals the independent recomputation from counted inputs (checked in the same ledger) |
+| §9.2 | `oracle_sla_flatline_rounds` | oracle-ops | 10 | Aggregate not flatlined for 10 rounds while inputs move |
+| §9.3 | `oracle_sla_relationship_error_bps` | risk | 200 | Inverse and cross price relationships remain consistent |
+| §9.4 | `oracle_sla_uncounted_admitted_sources` | source-onboarding | 0 | No admitted source is silently excluded for a full 20-round window |
+| §9.5 | `oracle_sla_unadmitted_influence` | security | 0 | No source is counted without an on-chain admission (`SourceAdded`) event |
+
+### 9.1 Why agreement, not just uptime
+
+A minority of degraded sources can shift the median while every availability and
+freshness gauge stays green. Clauses §3 and §9.1 catch this: the aggregate is
+recomputed from raw inputs (bit-exact with `core_pricing::median_core`) and compared
+with an independent reference set. `test_minority_manipulation_fires_with_full_uptime`
+demonstrates the monitor firing while uptime is 100 %.

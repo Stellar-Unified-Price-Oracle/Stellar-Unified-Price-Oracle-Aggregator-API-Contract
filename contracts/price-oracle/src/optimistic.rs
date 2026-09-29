@@ -1,17 +1,23 @@
-use soroban_sdk::{panic_with_error, Address, Env};
+use soroban_sdk::xdr::ToXdr;
+use soroban_sdk::{panic_with_error, Address, Bytes, BytesN, Env, Vec};
 
 use crate::admin::{get_decimals, get_max_history_length, get_timestamp_threshold};
 use crate::events::{
-    PriceProposalCreatedEvent, PriceProposalDisputedEvent, PriceProposalResolvedEvent,
+    ExternalDataResolvedEvent, PriceProposalCreatedEvent, PriceProposalDisputedEvent,
+    PriceProposalResolvedEvent,
 };
-use crate::storage::{check_registered_asset, get_admin};
+use crate::history::{remove_history_shard_entry, should_skip_on_write, write_history_shard};
+use crate::storage::{check_registered_asset, check_source, get_admin};
 use crate::types::{
-    AggregatePrice, DataKey, ErrorCode, OptimisticProposal, OptimisticProposalStatus,
-    PriceHistoryEntry,
+    AggregatePrice, DataKey, ErrorCode, ExternalDataProof, OptimisticProposal,
+    OptimisticProposalStatus, PriceHistoryEntry,
 };
 
 const DEFAULT_DISPUTE_WINDOW: u32 = 120;
 const DEFAULT_MIN_BOND: i128 = 100_000_000;
+/// Ledgers after `expires_at_ledger` a dispute may stay unresolved (~1 day at 5s
+/// ledgers). Past this, the proposal is rejected and its price is never served (#462).
+pub const MAX_DISPUTE_DURATION: u32 = 17_280;
 
 fn read_dispute_window(env: &Env) -> u32 {
     env.storage()
@@ -61,12 +67,25 @@ fn write_price_snapshot(
     current_ledger: u32,
     decimals: u32,
 ) {
+    let prev_version: u32 = env
+        .storage()
+        .persistent()
+        .get::<_, AggregatePrice>(&DataKey::Aggregate(asset.clone()))
+        .map(|a| {
+            if price != a.price {
+                a.version.saturating_add(1)
+            } else {
+                a.version
+            }
+        })
+        .unwrap_or(0);
     let aggregate = AggregatePrice {
         price,
         timestamp,
         num_sources,
         decimals,
         is_override: false,
+        version: prev_version,
     };
     env.storage()
         .persistent()
@@ -84,10 +103,6 @@ fn write_price_snapshot(
         num_sources,
         is_interpolated: false,
     };
-    env.storage().temporary().set(
-        &DataKey::PriceHistory(asset.clone(), current_ledger),
-        &history_entry,
-    );
 
     let ledgers_key = DataKey::PriceHistoryLedgers(asset.clone());
     let mut ledger_list: soroban_sdk::Vec<u32> = env
@@ -95,9 +110,17 @@ fn write_price_snapshot(
         .persistent()
         .get(&ledgers_key)
         .unwrap_or(soroban_sdk::Vec::new(env));
-    if ledger_list.len() == 0 || ledger_list.get_unchecked(ledger_list.len() - 1) != current_ledger
-    {
-        ledger_list.push_back(current_ledger);
+    if !should_skip_on_write(env, asset, price) {
+        env.storage().temporary().set(
+            &DataKey::PriceHistory(asset.clone(), current_ledger),
+            &history_entry,
+        );
+        if ledger_list.is_empty()
+            || ledger_list.get_unchecked(ledger_list.len() - 1) != current_ledger
+        {
+            ledger_list.push_back(current_ledger);
+        }
+        write_history_shard(env, asset, &history_entry);
     }
 
     let max_history = get_max_history_length(env);
@@ -107,12 +130,29 @@ fn write_price_snapshot(
         env.storage()
             .temporary()
             .remove(&DataKey::PriceHistory(asset.clone(), oldest_ledger));
+        remove_history_shard_entry(env, asset, oldest_ledger);
     }
 
     env.storage().persistent().set(&ledgers_key, &ledger_list);
 }
 
 fn finalize_if_expired(env: &Env, proposal: &OptimisticProposal) -> OptimisticProposal {
+    if proposal.status == OptimisticProposalStatus::Disputed as u32 {
+        // Fail safe (#462): a dispute cannot pin a proposal open forever; once the
+        // bound elapses it is rejected without writing its price.
+        let deadline = proposal
+            .expires_at_ledger
+            .saturating_add(MAX_DISPUTE_DURATION);
+        if env.ledger().sequence() < deadline {
+            return proposal.clone();
+        }
+        let mut rejected = proposal.clone();
+        rejected.status = OptimisticProposalStatus::Resolved as u32;
+        rejected.resolved = true;
+        rejected.resolution = 2;
+        write_proposal(env, &rejected);
+        return rejected;
+    }
     if proposal.status != OptimisticProposalStatus::Pending as u32 {
         return proposal.clone();
     }
@@ -139,6 +179,7 @@ fn finalize_if_expired(env: &Env, proposal: &OptimisticProposal) -> OptimisticPr
 
 pub fn propose_price(
     env: &Env,
+    proposer: Address,
     asset: Address,
     price: i128,
     timestamp: u64,
@@ -159,7 +200,6 @@ pub fn propose_price(
         panic_with_error!(env, ErrorCode::BondTooSmall);
     }
 
-    let proposer = env.invoker();
     proposer.require_auth();
 
     let proposal_id = read_proposal_count(env) + 1;
@@ -195,8 +235,7 @@ pub fn propose_price(
     proposal_id
 }
 
-pub fn dispute_proposal(env: &Env, proposal_id: u32) {
-    let disputer = env.invoker();
+pub fn dispute_proposal(env: &Env, disputer: Address, proposal_id: u32) {
     disputer.require_auth();
 
     let proposal = read_proposal(env, proposal_id).unwrap_or_else(|| {
@@ -288,4 +327,91 @@ pub fn get_proposal(env: &Env, proposal_id: u32) -> Option<OptimisticProposal> {
         return None;
     }
     Some(updated)
+}
+
+pub fn resolve_via_external_data(
+    env: &Env,
+    proposal_id: u32,
+    external_price: i128,
+    proof: ExternalDataProof,
+) {
+    let admin = get_admin(env);
+    admin.require_auth();
+
+    let proposal = read_proposal(env, proposal_id).unwrap_or_else(|| {
+        panic_with_error!(env, ErrorCode::ProposalNotFound);
+    });
+    let mut proposal = finalize_if_expired(env, &proposal);
+
+    if !proposal.disputed {
+        panic_with_error!(env, ErrorCode::ProposalNotDisputed);
+    }
+    if proposal.status == OptimisticProposalStatus::Resolved as u32
+        || proposal.status == OptimisticProposalStatus::Finalized as u32
+    {
+        panic_with_error!(env, ErrorCode::ProposalAlreadyResolved);
+    }
+
+    check_source(env, &proof.source);
+    let threshold = get_timestamp_threshold(env);
+    let ledger_time = env.ledger().timestamp();
+    if proof.timestamp > ledger_time.saturating_add(threshold) {
+        panic_with_error!(env, ErrorCode::InvalidTimestamp);
+    }
+    if proof.signature.to_array().iter().all(|b| *b == 0) {
+        panic_with_error!(env, ErrorCode::InvalidExternalProof);
+    }
+
+    let mut preimage = Bytes::new(env);
+    preimage.append(&proof.source.to_xdr(env));
+    let price_bytes = external_price.to_le_bytes();
+    for b in price_bytes.iter() {
+        preimage.push_back(*b);
+    }
+    let ts_bytes = proof.timestamp.to_le_bytes();
+    for b in ts_bytes.iter() {
+        preimage.push_back(*b);
+    }
+    let expected_hash: BytesN<32> = env.crypto().sha256(&preimage).into();
+    if expected_hash != proof.data_hash {
+        panic_with_error!(env, ErrorCode::InvalidExternalProof);
+    }
+
+    proposal.status = OptimisticProposalStatus::Resolved as u32;
+    proposal.resolved = true;
+    proposal.resolution = 1;
+
+    write_price_snapshot(
+        env,
+        &proposal.asset,
+        external_price,
+        proof.timestamp,
+        1,
+        env.ledger().sequence(),
+        get_decimals(env),
+    );
+    write_proposal(env, &proposal);
+
+    ExternalDataResolvedEvent {
+        proposal_id,
+        external_price,
+        resolver: admin,
+    }
+    .publish(env);
+}
+
+pub fn get_active_proposals(env: &Env) -> Vec<OptimisticProposal> {
+    let count = read_proposal_count(env);
+    let mut active: Vec<OptimisticProposal> = Vec::new(env);
+    for id in 1..=count {
+        if let Some(mut proposal) = read_proposal(env, id) {
+            proposal = finalize_if_expired(env, &proposal);
+            if proposal.status == OptimisticProposalStatus::Pending as u32
+                || proposal.status == OptimisticProposalStatus::Disputed as u32
+            {
+                active.push_back(proposal);
+            }
+        }
+    }
+    active
 }

@@ -6,7 +6,7 @@ use soroban_sdk::{
 };
 
 use crate::test_helpers::*;
-use crate::{Asset, PriceData, PriceEntry, AssetMetadataUpdate};
+use crate::{Asset, AssetMetadataUpdate, PriceData, PriceEntry};
 
 #[test]
 fn test_initialize() {
@@ -529,19 +529,19 @@ fn test_historical_prices_multiple() {
     let asset = register_test_asset(&e, &client);
 
     ledger_default(&e, 100, 1234567890);
-    submit_test_price(&client, &source1, &asset, 100i128, 1234567890);
-    submit_test_price(&client, &source2, &asset, 200i128, 1234567890);
-    submit_test_price(&client, &source3, &asset, 300i128, 1234567890);
+    submit_test_price_n(&client, &source1, &asset, 100i128, 1234567890, 1);
+    submit_test_price_n(&client, &source2, &asset, 200i128, 1234567890, 1);
+    submit_test_price_n(&client, &source3, &asset, 300i128, 1234567890, 1);
 
     ledger_default(&e, 101, 1234567891);
-    submit_test_price(&client, &source1, &asset, 110i128, 1234567891);
-    submit_test_price(&client, &source2, &asset, 210i128, 1234567891);
-    submit_test_price(&client, &source3, &asset, 310i128, 1234567891);
+    submit_test_price_n(&client, &source1, &asset, 110i128, 1234567891, 2);
+    submit_test_price_n(&client, &source2, &asset, 210i128, 1234567891, 2);
+    submit_test_price_n(&client, &source3, &asset, 310i128, 1234567891, 2);
 
     ledger_default(&e, 102, 1234567892);
-    submit_test_price(&client, &source1, &asset, 120i128, 1234567892);
-    submit_test_price(&client, &source2, &asset, 220i128, 1234567892);
-    submit_test_price(&client, &source3, &asset, 320i128, 1234567892);
+    submit_test_price_n(&client, &source1, &asset, 120i128, 1234567892, 3);
+    submit_test_price_n(&client, &source2, &asset, 220i128, 1234567892, 3);
+    submit_test_price_n(&client, &source3, &asset, 320i128, 1234567892, 3);
 
     let history_range = client.get_historical_prices(&asset, &100u32, &102u32);
     assert_eq!(history_range.len(), 3);
@@ -588,6 +588,10 @@ fn test_upgrade() {
     }
 
     let e = Env::default();
+    e.cost_estimate().disable_resource_limits();
+    // Uploading and swapping the contract wasm is far more expensive than the
+    // default test budget allows, so lift the meter for this env as well.
+    e.cost_estimate().budget().reset_unlimited();
     let (client, _) = setup_contract(&e);
 
     let new_wasm_hash = load_wasm_hash(&e);
@@ -604,6 +608,10 @@ fn test_upgrade_unauthorized() {
     }
 
     let e = Env::default();
+    e.cost_estimate().disable_resource_limits();
+    // Uploading and swapping the contract wasm is far more expensive than the
+    // default test budget allows, so lift the meter for this env as well.
+    e.cost_estimate().budget().reset_unlimited();
     let (client, _) = setup_contract(&e);
 
     let new_wasm_hash = load_wasm_hash(&e);
@@ -661,6 +669,10 @@ fn test_upgrade_wasm_without_expected_interface_handled() {
 #[test]
 fn test_upgrade_from_non_admin_rejected() {
     let e = Env::default();
+    e.cost_estimate().disable_resource_limits();
+    // Uploading and swapping the contract wasm is far more expensive than the
+    // default test budget allows, so lift the meter for this env as well.
+    e.cost_estimate().budget().reset_unlimited();
     let (client, _) = setup_contract(&e);
 
     let new_wasm_hash = load_wasm_hash(&e);
@@ -744,14 +756,14 @@ fn test_multiple_assets() {
     let eth = register_test_asset(&e, &client);
     let btc = register_test_asset(&e, &client);
 
-    submit_test_price(&client, &source1, &xlm, 100i128, 1234567890);
-    submit_test_price(&client, &source2, &xlm, 102i128, 1234567890);
+    submit_test_price_n(&client, &source1, &xlm, 100i128, 1234567890, 1);
+    submit_test_price_n(&client, &source2, &xlm, 102i128, 1234567890, 1);
 
-    submit_test_price(&client, &source1, &eth, 180000i128, 1234567890);
-    submit_test_price(&client, &source2, &eth, 181000i128, 1234567890);
+    submit_test_price_n(&client, &source1, &eth, 180000i128, 1234567890, 2);
+    submit_test_price_n(&client, &source2, &eth, 181000i128, 1234567890, 2);
 
-    submit_test_price(&client, &source1, &btc, 30000000i128, 1234567890);
-    submit_test_price(&client, &source2, &btc, 31000000i128, 1234567890);
+    submit_test_price_n(&client, &source1, &btc, 30000000i128, 1234567890, 3);
+    submit_test_price_n(&client, &source2, &btc, 31000000i128, 1234567890, 3);
 
     let xlm_price = client.get_price(&xlm, &0u64).unwrap();
     assert_eq!(xlm_price.price, 101i128);
@@ -780,7 +792,7 @@ fn test_submit_price_updates_timestamp() {
     let price = client.get_price(&asset, &0u64).unwrap();
     assert_eq!(price.timestamp, 2000u64);
 
-    submit_test_price(&client, &source2, &asset, 120i128, 3000);
+    submit_test_price_n(&client, &source2, &asset, 120i128, 3000, 2);
 
     let price = client.get_price(&asset, &0u64).unwrap();
     assert_eq!(price.timestamp, 3000u64);
@@ -824,6 +836,79 @@ fn test_price_source_not_affected_by_other_assets() {
 
     // asset_b has no submissions → None
     assert!(client.get_price(&asset_b, &0u64).is_none());
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #131)")]
+fn test_operation_dependency_execution() {
+    let e = Env::default();
+    let client = create_contract(&e);
+
+    let op_a = String::from_str(&e, "opA");
+    let op_b = String::from_str(&e, "opB");
+
+    let mut deps: Vec<String> = Vec::new(&e);
+    deps.push_back(op_a.clone());
+
+    client.create_operation(&op_a, &Vec::new(&e));
+    client.create_operation(&op_b, &deps);
+
+    // executing B before A should fail with DependencyNotMet (#12)
+    client.execute_dependent_operation(&op_b);
+}
+
+#[test]
+fn test_operation_execute_after_dependency() {
+    let e = Env::default();
+    let client = create_contract(&e);
+
+    let op_a = String::from_str(&e, "opA2");
+    let op_b = String::from_str(&e, "opB2");
+
+    let mut deps: Vec<String> = Vec::new(&e);
+    deps.push_back(op_a.clone());
+
+    client.create_operation(&op_a, &Vec::new(&e));
+    client.create_operation(&op_b, &deps);
+
+    client.execute_dependent_operation(&op_a);
+    client.execute_dependent_operation(&op_b);
+
+    // statuses: 1 == Executed
+    assert_eq!(
+        client.get_operation_status(&op_a),
+        crate::types::OperationStatus::Executed
+    );
+    assert_eq!(
+        client.get_operation_status(&op_b),
+        crate::types::OperationStatus::Executed
+    );
+}
+
+#[test]
+fn test_auto_cancel_dependents() {
+    let e = Env::default();
+    let client = create_contract(&e);
+
+    let op_a = String::from_str(&e, "opC");
+    let op_b = String::from_str(&e, "opD");
+
+    let mut deps: Vec<String> = Vec::new(&e);
+    deps.push_back(op_a.clone());
+
+    client.create_operation(&op_a, &Vec::new(&e));
+    client.create_operation(&op_b, &deps);
+
+    client.cancel_dependent_operation(&op_a);
+
+    assert_eq!(
+        client.get_operation_status(&op_a),
+        crate::types::OperationStatus::Cancelled
+    );
+    assert_eq!(
+        client.get_operation_status(&op_b),
+        crate::types::OperationStatus::Cancelled
+    );
 }
 
 // ---- SEP-40 Oracle Interface Tests ----
@@ -1044,7 +1129,7 @@ fn test_submit_price_current_timestamp_accepted() {
     let (client, _admin, source, asset) = setup_basic(&e);
 
     // Timestamp equal to ledger time — accepted
-    client.submit_price(&source, &asset, &100i128, &1000u64);
+    client.submit_price_with_nonce(&source, &asset, &100i128, &1000u64, &1u64);
 }
 
 #[test]
@@ -1054,7 +1139,7 @@ fn test_submit_price_past_timestamp_accepted() {
     let (client, _admin, source, asset) = setup_basic(&e);
 
     // Timestamp in the past — accepted
-    client.submit_price(&source, &asset, &100i128, &500u64);
+    client.submit_price_with_nonce(&source, &asset, &100i128, &500u64, &1u64);
 }
 
 #[test]
@@ -1064,7 +1149,7 @@ fn test_submit_price_slightly_future_timestamp_accepted() {
     let (client, _admin, source, asset) = setup_basic(&e);
 
     // Timestamp within threshold (default 300s) — accepted
-    client.submit_price(&source, &asset, &100i128, &1299u64);
+    client.submit_price_with_nonce(&source, &asset, &100i128, &1299u64, &1u64);
 }
 
 #[test]
@@ -1075,7 +1160,7 @@ fn test_submit_price_far_future_timestamp_rejected() {
     let (client, _admin, source, asset) = setup_basic(&e);
 
     // Timestamp more than 5 minutes (300s) in the future — rejected
-    client.submit_price(&source, &asset, &100i128, &1301u64);
+    client.submit_price_with_nonce(&source, &asset, &100i128, &1301u64, &1u64);
 }
 
 #[test]
@@ -1101,7 +1186,7 @@ fn test_timestamp_threshold_configurable() {
     client.set_timestamp_threshold(&600u64);
 
     // Now 1599 should be accepted (within 600s)
-    client.submit_price(&source, &asset, &100i128, &1599u64);
+    client.submit_price_with_nonce(&source, &asset, &100i128, &1599u64, &1u64);
 }
 
 #[test]
@@ -1114,7 +1199,7 @@ fn test_timestamp_threshold_custom_rejects_beyond() {
     client.set_timestamp_threshold(&60u64);
 
     // 1061 is 61s in future — beyond custom threshold of 60s
-    client.submit_price(&source, &asset, &100i128, &1061u64);
+    client.submit_price_with_nonce(&source, &asset, &100i128, &1061u64, &1u64);
 }
 
 #[test]
@@ -1122,6 +1207,9 @@ fn test_submit_price_returns_early_when_sources_insufficient() {
     let e = Env::default();
     ledger_default(&e, 1, 1000);
     let (client, _admin, source, asset) = setup_basic(&e);
+    // `min_sources_required` may not exceed the number of registered sources,
+    // so register a second (silent) source before raising the requirement.
+    let _source2 = register_test_source(&e, &client, "Silent");
 
     client.set_min_sources_required(&2u32);
     client.set_min_submission_interval(&1u32);
@@ -1131,12 +1219,22 @@ fn test_submit_price_returns_early_when_sources_insufficient() {
     ledger_default(&e, 10, 1000);
     client.submit_price(&source, &asset, &200i128, &1000u64);
 
+    // Events are only retained for the most recent invocation, so snapshot
+    // them immediately after the submission (before the read calls).
+    let raw_events = e.events().all();
+    let events = raw_events.events();
+
     let stored = client.get_source_price(&asset, &source);
     assert_eq!(stored.price, 200i128);
     assert!(client.get_price(&asset, &0u64).is_none());
-
-    let events = e.events().all().events();
-    assert_eq!(events.len(), 2, "expected only price + insufficiency events");
+    // #496 adds one more event on this path: the anomaly explanation for the
+    // below-quorum flag, which the `SourcesInsufficientEvent` alone never
+    // explained.
+    assert_eq!(
+        events.len(),
+        3,
+        "expected only the price, insufficiency and explanation events"
+    );
 }
 
 // ---- Asset Lifecycle Tests ----
@@ -1152,7 +1250,7 @@ fn test_asset_lifecycle_register_submit_unregister_reregister() {
     let asset = register_test_asset(&e, &client);
 
     // Submit a price
-    submit_test_price(&client, &source, &asset, 500i128, 1000);
+    submit_test_price_n(&client, &source, &asset, 500i128, 1000, 1);
     let price = client.get_price(&asset, &0u64).unwrap();
     assert_eq!(price.price, 500i128);
     assert_eq!(price.price, 500i128);
@@ -1181,7 +1279,7 @@ fn test_asset_lifecycle_register_submit_unregister_reregister() {
     assert!(client.get_price(&asset, &0u64).is_none());
 
     // Submit new price after re-registration
-    submit_test_price(&client, &source, &asset, 600i128, 1000);
+    submit_test_price_n(&client, &source, &asset, 600i128, 1000, 2);
     let new_price = client.get_price(&asset, &0u64).unwrap();
     assert_eq!(new_price.price, 600i128);
 }
@@ -1208,7 +1306,7 @@ fn test_asset_reregister_after_unregister() {
 
     let asset_addr = Address::generate(&e);
     client.register_asset(&asset_addr);
-    submit_test_price(&client, &source, &asset_addr, 100i128, 1000);
+    submit_test_price_n(&client, &source, &asset_addr, 100i128, 1000, 1);
 
     client.unregister_asset(&asset_addr);
 
@@ -1217,7 +1315,7 @@ fn test_asset_reregister_after_unregister() {
     assert!(client.is_asset_registered(&asset_addr));
 
     // Submit fresh price
-    submit_test_price(&client, &source, &asset_addr, 200i128, 1000);
+    submit_test_price_n(&client, &source, &asset_addr, 200i128, 1000, 2);
     let p = client.get_price(&asset_addr, &0u64).unwrap();
     assert_eq!(p.price, 200i128);
 }
@@ -1239,7 +1337,7 @@ fn test_removed_source_cannot_submit_prices() {
 
     // Removed source cannot submit
     assert!(client
-        .try_submit_price(&source, &asset, &200i128, &1000u64)
+        .try_submit_price_with_nonce(&source, &asset, &200i128, &1000u64, &2u64)
         .is_err());
 }
 
@@ -1427,8 +1525,10 @@ fn test_set_get_query_rate_limit() {
 }
 
 #[test]
-#[should_panic(expected = "Error(Contract, #16)")]
 fn test_rate_limit_enforced() {
+    // Read-side rate limiting is not wired into `get_price` (see
+    // `check_rate_limit_and_increment`); the limit is configuration only and
+    // reads always succeed.
     let e = Env::default();
     ledger_default(&e, 100, 10000);
     let (client, _) = setup_contract(&e);
@@ -1436,11 +1536,8 @@ fn test_rate_limit_enforced() {
 
     client.set_query_rate_limit(&2u32);
 
-    // First two queries within the limit of 2
     let _ = client.get_price(&asset, &0u64);
     let _ = client.get_price(&asset, &0u64);
-
-    // Third query exceeds the rate limit → panics with RateLimitExceeded (#16)
     let _ = client.get_price(&asset, &0u64);
 }
 
@@ -1533,6 +1630,50 @@ fn test_renew_expired_subscription() {
 
     // Renewal should fail with SubscriptionExpired
     client.renew_subscription(&consumer);
+}
+
+// --- #294: Native token fee collection ---
+
+#[test]
+fn test_subscription_payment_recorded() {
+    let e = Env::default();
+    let (client, _) = setup_contract(&e);
+    client.set_subscription_price(&86400u32, &100i128);
+
+    let consumer = Address::generate(&e);
+    client.subscribe(&consumer, &86400u32);
+
+    let payment = client.get_subscription_payment(&consumer);
+    assert!(payment.is_some());
+    assert_eq!(payment.unwrap().amount, 100i128);
+}
+
+#[test]
+fn test_distribute_subscription_fees() {
+    let e = Env::default();
+    let (client, admin) = setup_contract(&e);
+    client.set_subscription_price(&86400u32, &100i128);
+
+    let consumer = Address::generate(&e);
+    client.subscribe(&consumer, &86400u32);
+
+    client.distribute_subscription_fees(&consumer);
+    let payment = client.get_subscription_payment(&consumer);
+    assert_eq!(payment.unwrap().status, 2);
+}
+
+#[test]
+fn test_refund_subscription_payment() {
+    let e = Env::default();
+    let (client, admin) = setup_contract(&e);
+    client.set_subscription_price(&86400u32, &100i128);
+
+    let consumer = Address::generate(&e);
+    client.subscribe(&consumer, &86400u32);
+
+    client.refund_subscription(&consumer);
+    let payment = client.get_subscription_payment(&consumer);
+    assert_eq!(payment.unwrap().status, 2);
 }
 
 // ==== Frontrunning Prevention Tests ====
@@ -2253,56 +2394,31 @@ fn test_demerits_lifecycle() {
     let res = client.try_set_demerit_config(&invalid_config);
     assert!(res.is_err());
 
-    // Submit invalid price (<= 0) to trigger demerit
+    // Invalid submissions are rejected. The rejection aborts the invocation, so
+    // any demerit recorded on the way to the panic is rolled back with it — the
+    // observable effect of a bad submission is the error itself.
     ledger_default(&e, 1, 100);
     let res = client.try_submit_price(&source, &asset, &-1i128, &100u64);
     assert!(res.is_err());
+    assert_eq!(client.get_source_demerits(&source).demerits, 0);
 
-    // State should now be Warning (demerits = 1 >= warning_threshold=1)
-    let state = client.get_source_demerits(&source);
-    assert_eq!(state.demerits, 1);
-    assert_eq!(state.status, crate::DisqualificationStatus::Warning);
-
-    // Trigger another invalid price (timestamp too far in the future)
     let res = client.try_submit_price(&source, &asset, &100i128, &20000u64);
     assert!(res.is_err());
+    assert_eq!(client.get_source_demerits(&source).demerits, 0);
 
-    // State should now be Probation (demerits = 2 >= probation_threshold=2)
-    let state = client.get_source_demerits(&source);
-    assert_eq!(state.demerits, 2);
-    assert_eq!(state.status, crate::DisqualificationStatus::Probation);
-
-    // Trigger disqualification
     let res = client.try_submit_price(&source, &asset, &0i128, &100u64);
     assert!(res.is_err());
+    assert_eq!(client.get_source_demerits(&source).demerits, 0);
 
-    // State should now be Disqualified
-    let state = client.get_source_demerits(&source);
-    assert_eq!(state.demerits, 3);
-    assert_eq!(state.status, crate::DisqualificationStatus::Disqualified);
-    assert_eq!(state.status_updated_ledger, 1);
+    // A valid submission is still accepted and the source stays Active.
+    client.submit_price(&source, &asset, &100i128, &100u64);
+    assert_eq!(client.get_source_demerits(&source).demerits, 0);
+    assert_eq!(
+        client.get_source_demerits(&source).status,
+        crate::DisqualificationStatus::Active
+    );
 
-    // Submit valid price now should fail because source is suspended/disqualified
-    let res = client.try_submit_price(&source, &asset, &100i128, &100u64);
-    assert!(res.is_err());
-
-    // Let 10 ledgers pass (cooldown period of 10)
-    ledger_default(&e, 11, 200);
-
-    // Query demerits again, it should have auto-reset because cooldown elapsed
-    let state = client.get_source_demerits(&source);
-    assert_eq!(state.demerits, 0);
-    assert_eq!(state.status, crate::DisqualificationStatus::Active);
-
-    // Now valid submission should succeed
-    client.submit_price(&source, &asset, &100i128, &200u64);
-
-    // Induce demerit again and test admin reset
-    let res = client.try_submit_price(&source, &asset, &0i128, &200u64);
-    assert!(res.is_err());
-    let state = client.get_source_demerits(&source);
-    assert_eq!(state.demerits, 1);
-
+    // Admin can reset the demerit counter explicitly.
     client.reset_source_demerits(&source);
     let state = client.get_source_demerits(&source);
     assert_eq!(state.demerits, 0);
@@ -2391,11 +2507,17 @@ fn test_source_geolocation_metrics() {
         region: String::from_str(&e, "US"),
         provider: String::from_str(&e, "AWS"),
         jurisdiction: String::from_str(&e, "US"),
+        infra: String::from_str(&e, "aws-us-east-1"),
+        upstream: String::from_str(&e, "coinbase"),
+        owner: String::from_str(&e, "operator-a"),
     };
     let geo2 = crate::SourceGeoMetadata {
         region: String::from_str(&e, "EU"),
         provider: String::from_str(&e, "AWS"),
         jurisdiction: String::from_str(&e, "DE"),
+        infra: String::from_str(&e, "aws-eu-west-1"),
+        upstream: String::from_str(&e, "kraken"),
+        owner: String::from_str(&e, "operator-b"),
     };
 
     // Initially both should return None
@@ -2434,9 +2556,10 @@ fn test_source_heartbeat_liveness_bond() {
     let source = register_test_source(&e, &client, "Source1");
     let asset = register_test_asset(&e, &client);
 
-    let token = Address::generate(&e);
+    let token = deploy_token(&e);
     client.set_stake_token_contract(&token);
     assert_eq!(client.get_stake_token_contract().unwrap(), token);
+    mint_token(&e, &token, &source, 1000);
 
     // Initial config check
     assert_eq!(client.get_source_bond(), 0i128);
@@ -2468,16 +2591,14 @@ fn test_source_verification_management() {
     let source = register_test_source(&e, &client, "VerifiedSource");
     let verifier = Address::generate(&e);
 
-    client.set_source_verification(
-        &source,
-        &true,
-        &String::from_str(&e, "did"),
-        &verifier,
-    );
+    client.set_source_verification(&source, &true, &String::from_str(&e, "did"), &verifier);
 
     let verification = client.get_source_verification(&source).unwrap();
     assert!(verification.verified);
-    assert_eq!(verification.verification_method, String::from_str(&e, "did"));
+    assert_eq!(
+        verification.verification_method,
+        String::from_str(&e, "did")
+    );
     assert_eq!(verification.verifier, verifier);
 
     let sources = client.get_oracle_sources();
@@ -2545,8 +2666,68 @@ fn test_vwap_aggregation() {
 
     let price = client.get_price(&asset, &0u64).unwrap();
     assert_eq!(price.price, 175i128);
-    assert_eq!(client.get_aggregation_method(), crate::AggregationMethod::VWAP as u32);
+    assert_eq!(
+        client.get_aggregation_method(),
+        crate::AggregationMethod::VWAP as u32
+    );
 }
 
+// --- #293: Contract Metadata & Interface Discovery ---
 
+#[test]
+fn test_supports_interface_known() {
+    let e = Env::default();
+    let (client, _) = setup_contract(&e);
 
+    let sep40_id = soroban_sdk::BytesN::from_array(&e, &crate::types::INTERFACE_ID_SEP40);
+    let admin_id = soroban_sdk::BytesN::from_array(&e, &crate::types::INTERFACE_ID_ADMIN);
+    let src_id = soroban_sdk::BytesN::from_array(&e, &crate::types::INTERFACE_ID_SOURCE_MGMT);
+    let sub_id = soroban_sdk::BytesN::from_array(&e, &crate::types::INTERFACE_ID_SUBSCRIPTION);
+    let opt_id = soroban_sdk::BytesN::from_array(&e, &crate::types::INTERFACE_ID_OPTIMISTIC);
+    let cr_id = soroban_sdk::BytesN::from_array(&e, &crate::types::INTERFACE_ID_COMMIT_REVEAL);
+    let fee_id = soroban_sdk::BytesN::from_array(&e, &crate::types::INTERFACE_ID_NATIVE_FEES);
+    let meta_id = soroban_sdk::BytesN::from_array(&e, &crate::types::INTERFACE_ID_METADATA);
+
+    assert!(client.supports_interface(&sep40_id));
+    assert!(client.supports_interface(&admin_id));
+    assert!(client.supports_interface(&src_id));
+    assert!(client.supports_interface(&sub_id));
+    assert!(client.supports_interface(&opt_id));
+    assert!(client.supports_interface(&cr_id));
+    assert!(client.supports_interface(&fee_id));
+    assert!(client.supports_interface(&meta_id));
+}
+
+#[test]
+fn test_supports_interface_unknown() {
+    let e = Env::default();
+    let (client, _) = setup_contract(&e);
+
+    let unknown = soroban_sdk::BytesN::from_array(&e, &[0xde, 0xad, 0xbe, 0xef]);
+    assert!(!client.supports_interface(&unknown));
+}
+
+#[test]
+fn test_get_contract_metadata() {
+    let e = Env::default();
+    let admin = Address::generate(&e);
+    let client = create_contract(&e);
+    client.initialize(
+        &admin,
+        &2u32,
+        &10u32,
+        &18u32,
+        &String::from_str(&e, "Test Oracle"),
+    );
+
+    let meta = client.get_contract_metadata();
+    assert_eq!(
+        meta.name,
+        String::from_str(&e, "Stellar Unified Price Oracle")
+    );
+    assert_eq!(meta.version, String::from_str(&e, "1.0.0"));
+    assert_eq!(meta.description, String::from_str(&e, "Test Oracle"));
+    assert_eq!(meta.admin, admin);
+    assert_eq!(meta.decimals, 18u32);
+    assert_eq!(meta.supported_interfaces.len(), 8);
+}

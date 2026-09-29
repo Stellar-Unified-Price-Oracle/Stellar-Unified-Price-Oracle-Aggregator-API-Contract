@@ -1,0 +1,16 @@
+[package]
+name = "minimal-oracle"
+version = "0.1.0"
+edition = "2021"
+publish = false
+license = "MIT"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+doctest = false
+
+[dependencies]
+soroban-sdk = { version = "26" }
+
+[dev-dependencies]
+soroban-sdk = { version = "26", features = ["testutils"] }

@@ -43,7 +43,9 @@ pub fn extend_asset_ttl(env: &Env, asset: Address, num_entries: u32) -> u32 {
     // Extend asset registration entry
     if extended_count < limit {
         let key = DataKey::AssetRegistered(asset.clone());
-        env.storage().persistent().extend_ttl(&key, LEDGER_THRESHOLD, LEDGER_BUMP);
+        env.storage()
+            .persistent()
+            .extend_ttl(&key, LEDGER_THRESHOLD, LEDGER_BUMP);
         extended_count += 1;
     }
 
@@ -51,7 +53,9 @@ pub fn extend_asset_ttl(env: &Env, asset: Address, num_entries: u32) -> u32 {
     if extended_count < limit {
         let key = DataKey::AssetMetadata(asset.clone());
         if env.storage().persistent().has(&key) {
-            env.storage().persistent().extend_ttl(&key, LEDGER_THRESHOLD, LEDGER_BUMP);
+            env.storage()
+                .persistent()
+                .extend_ttl(&key, LEDGER_THRESHOLD, LEDGER_BUMP);
             extended_count += 1;
         }
     }
@@ -60,7 +64,9 @@ pub fn extend_asset_ttl(env: &Env, asset: Address, num_entries: u32) -> u32 {
     if extended_count < limit {
         let key = DataKey::AssetMinPrice(asset.clone());
         if env.storage().persistent().has(&key) {
-            env.storage().persistent().extend_ttl(&key, LEDGER_THRESHOLD, LEDGER_BUMP);
+            env.storage()
+                .persistent()
+                .extend_ttl(&key, LEDGER_THRESHOLD, LEDGER_BUMP);
             extended_count += 1;
         }
     }
@@ -69,7 +75,9 @@ pub fn extend_asset_ttl(env: &Env, asset: Address, num_entries: u32) -> u32 {
     if extended_count < limit {
         let key = DataKey::Aggregate(asset.clone());
         if env.storage().persistent().has(&key) {
-            env.storage().persistent().extend_ttl(&key, LEDGER_THRESHOLD, LEDGER_BUMP);
+            env.storage()
+                .persistent()
+                .extend_ttl(&key, LEDGER_THRESHOLD, LEDGER_BUMP);
             extended_count += 1;
         }
     }
@@ -78,7 +86,9 @@ pub fn extend_asset_ttl(env: &Env, asset: Address, num_entries: u32) -> u32 {
     if extended_count < limit {
         let key = DataKey::AssetRotationSchedule(asset.clone());
         if env.storage().persistent().has(&key) {
-            env.storage().persistent().extend_ttl(&key, LEDGER_THRESHOLD, LEDGER_BUMP);
+            env.storage()
+                .persistent()
+                .extend_ttl(&key, LEDGER_THRESHOLD, LEDGER_BUMP);
             extended_count += 1;
         }
     }
@@ -87,7 +97,9 @@ pub fn extend_asset_ttl(env: &Env, asset: Address, num_entries: u32) -> u32 {
     if extended_count < limit {
         let key = DataKey::AssetActiveSourceSet(asset.clone());
         if env.storage().persistent().has(&key) {
-            env.storage().persistent().extend_ttl(&key, LEDGER_THRESHOLD, LEDGER_BUMP);
+            env.storage()
+                .persistent()
+                .extend_ttl(&key, LEDGER_THRESHOLD, LEDGER_BUMP);
             extended_count += 1;
         }
     }
@@ -95,7 +107,9 @@ pub fn extend_asset_ttl(env: &Env, asset: Address, num_entries: u32) -> u32 {
     if extended_count < limit {
         let key = DataKey::AssetStandbySourceSet(asset.clone());
         if env.storage().persistent().has(&key) {
-            env.storage().persistent().extend_ttl(&key, LEDGER_THRESHOLD, LEDGER_BUMP);
+            env.storage()
+                .persistent()
+                .extend_ttl(&key, LEDGER_THRESHOLD, LEDGER_BUMP);
             extended_count += 1;
         }
     }
@@ -103,7 +117,9 @@ pub fn extend_asset_ttl(env: &Env, asset: Address, num_entries: u32) -> u32 {
     if extended_count < limit {
         let key = DataKey::AssetNextRotationLedger(asset.clone());
         if env.storage().persistent().has(&key) {
-            env.storage().persistent().extend_ttl(&key, LEDGER_THRESHOLD, LEDGER_BUMP);
+            env.storage()
+                .persistent()
+                .extend_ttl(&key, LEDGER_THRESHOLD, LEDGER_BUMP);
             extended_count += 1;
         }
     }

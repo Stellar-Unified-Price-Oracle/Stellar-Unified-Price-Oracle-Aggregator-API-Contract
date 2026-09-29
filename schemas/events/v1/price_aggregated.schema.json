@@ -1,0 +1,15 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://stellar-unified-price-oracle/schemas/events/v1/price_aggregated.schema.json",
+  "title": "PriceAggregatedEvent",
+  "description": "Emitted each time a successful price aggregation occurs for an asset.",
+  "type": "object",
+  "properties": {
+    "asset": { "type": "string", "description": "Stellar address of the asset (topic)." },
+    "price": { "type": "string", "description": "Newly computed aggregate price (i128 decimal string)." },
+    "num_sources": { "type": "integer", "minimum": 0, "description": "Number of sources that contributed to this aggregate." },
+    "timestamp": { "type": "integer", "minimum": 0, "description": "Unix timestamp of the most-recent contributing submission." }
+  },
+  "required": ["asset", "price", "num_sources", "timestamp"],
+  "additionalProperties": false
+}

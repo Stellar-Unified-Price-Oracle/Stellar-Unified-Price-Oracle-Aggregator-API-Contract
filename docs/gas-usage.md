@@ -153,6 +153,38 @@ One-time admin operation. Cost is dominated by WASM hash lookup and storage upda
 
 ---
 
+## Load Test v2 — Adversarial Patterns (#413)
+
+Reproduce everything below with one command:
+
+```bash
+make load-test   # cargo test -p price-oracle --lib load_v2 -- --nocapture --test-threads=1
+```
+
+Source: `contracts/price-oracle/src/load_v2_tests.rs`. Each scenario prints
+`LOADV2 ...` lines; the numbers below are from that output (soroban-env-host
+26.1.3, CPU instructions are deterministic).
+
+### Survived
+
+| Scenario | Result |
+|---|---|
+| Byzantine minority, 9 sources, f = 0…4 all pushing +5% | Median stays inside the honest range for every f < n/2 (asserted). Deviation from honest centre: f=0: 2 bps, f=1: 2 bps, f=2: 6 bps, f=3: 11 bps, f=4: 15 bps. **Bound:** for f < n/2 the aggregate is always within `[min honest, max honest]`, i.e. at most the honest spread (here 36 bps). |
+| Governance race: `set_min_sources_required` flipped mid-round over 8 rounds | 8 aggregate writes, 0 torn — every aggregate satisfied the quorum rule in force for the transaction that wrote it (asserted). Soroban executes each invocation atomically, so a parameter is never half-applied. |
+| Diurnal + thundering-herd bursts, 5 assets × 60 rounds, 1 080 submissions | Quiet avg 10 295 605 CPU/submit, herd avg 10 909 202 (+6%), herd max 16 249 883. History length capped at `max_history_length` (50) — no unbounded storage growth. |
+
+### Requires mitigation
+
+| Finding | Numbers | Follow-up |
+|---|---|---|
+| Byzantine **majority** captures the median | f = 5/9 → median 1 050 000, 500 bps off | Expected for a median; mitigation is source-set governance / BFT filtering, not aggregation. |
+| **Hostile load degrades honest throughput**: once assets are fully populated, `submit_prices` can carry only one asset per transaction | 10 sources/asset: batch of 1 = 6 261 240 CPU; batch of 2 needs **152 footprint entries (> 100)**; batch of 20 needs 1 232 entries, 325 writes (> 50), 64 MB memory (> 40 MB). Reproduce: `gas_budget_tests` with `BATCH_LEN = 2`. | File: reduce per-asset footprint of `submit_prices` (shared reads, fewer per-source keys). |
+| `submit_price` becomes uncallable at 11 sources per asset | 11th submission needs 102 footprint entries (> 100). The "10–20 sources" guidance above is therefore unsafe above 10. | File: cap `max_sources` at 10 or bound the aggregation scan. |
+| No per-source submission rate limit | 50/50 same-source submissions accepted over 50 ledgers with `min_submission_interval = 5` (that setting is a staleness window, not a rate limit). | File: add a per-source submission rate limit. |
+| `query_rate_limit` is stored but not enforced | 250/250 `get_price` calls accepted over 50 ledgers with `query_rate_limit = 1`. | File: enforce the query rate limit or remove the setting. |
+
+---
+
 ## Further Reading
 
 - [Source Onboarding Guide](./source-onboarding.md)

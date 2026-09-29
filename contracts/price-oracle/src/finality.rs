@@ -141,6 +141,21 @@ pub fn mark_price_pending(env: &Env, asset: &Address, aggregate: &AggregatePrice
     let finality_ledgers = get_finality_ledgers(env);
     let finality_ledger = current_ledger + finality_ledgers;
 
+    // A retracted or finalized entry must never be reset to `Pending`; otherwise
+    // this permissionless call could resurrect a price the admin retracted.
+    let key = DataKey::PendingFinality(asset.clone(), current_ledger);
+    if let Some(existing) = env
+        .storage()
+        .persistent()
+        .get::<_, PendingFinalityEntry>(&key)
+    {
+        match existing.status {
+            FinalityStatus::Finalized => panic_with_error!(env, ErrorCode::AlreadyFinalized),
+            FinalityStatus::Retracted => panic_with_error!(env, ErrorCode::PriceRetracted),
+            FinalityStatus::Pending => {}
+        }
+    }
+
     // Snapshot the ledger hash for reorg detection.
     // In Soroban v26 we approximate by hashing the sequence number.
     // When the SDK exposes env.ledger().hash() this line becomes:
@@ -160,7 +175,6 @@ pub fn mark_price_pending(env: &Env, asset: &Address, aggregate: &AggregatePrice
         ledger_hash: lhash,
     };
 
-    let key = DataKey::PendingFinality(asset.clone(), current_ledger);
     env.storage().persistent().set(&key, &entry);
     // Keep the pending entry alive until after finalization.
     env.storage()
@@ -219,14 +233,29 @@ pub fn try_finalize_price(env: &Env, asset: &Address, committed_ledger: u32) -> 
         finalized_ledger: current_ledger,
     };
 
+    // Finalizing an older committed ledger after a newer one must not roll the
+    // finalized price back: the newest committed ledger always wins.
     let fin_key = DataKey::FinalizedPrice(asset.clone());
-    env.storage().persistent().set(&fin_key, &finalized);
+    let newer_finalized = env
+        .storage()
+        .persistent()
+        .get::<_, FinalizedPrice>(&fin_key)
+        .is_some_and(|f| f.committed_ledger > committed_ledger);
+    if !newer_finalized {
+        env.storage().persistent().set(&fin_key, &finalized);
+        env.storage()
+            .persistent()
+            .extend_ttl(&fin_key, LEDGER_THRESHOLD, LEDGER_BUMP);
+    }
+
+    // Keep the entry (marked finalized) so later retraction or finalization
+    // attempts can report `AlreadyFinalized` instead of `NoData`.
+    let mut finalized_entry = entry.clone();
+    finalized_entry.status = FinalityStatus::Finalized;
+    env.storage().persistent().set(&key, &finalized_entry);
     env.storage()
         .persistent()
-        .extend_ttl(&fin_key, LEDGER_THRESHOLD, LEDGER_BUMP);
-
-    // Clean up the pending entry.
-    env.storage().persistent().remove(&key);
+        .extend_ttl(&key, LEDGER_THRESHOLD, LEDGER_BUMP);
 
     crate::events::PriceFinalizedEvent {
         asset: asset.clone(),

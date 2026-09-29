@@ -115,6 +115,10 @@ Full metrics reference: [`docs/monitoring/README.md`](./monitoring/README.md)
 
 ### Prometheus alerting rules (`alerts.yml`)
 
+The full, canonical rule set (including `OracleAllSourcesDown`, `OracleStalePriceData`,
+and `OraclePriceSpike`) lives in [`docs/monitoring/alerts.yml`](monitoring/alerts.yml) —
+point Prometheus's `rule_files:` at it directly. Excerpt:
+
 ```yaml
 groups:
   - name: oracle
@@ -265,6 +269,20 @@ A ready-to-import Grafana dashboard is in [`docs/monitoring/grafana-dashboard.js
 1. Check submission activity: `rate(oracle_price_submissions_total[5m])`.
 2. If submissions are happening but price isn't updating, check `min_sources_required` — it may not be met.
 3. If no submissions, treat as OracleSourceDown.
+
+---
+
+## 7. v2: SLO Dashboards, Alerts & Exporter
+
+The metrics/alerting/dashboard trio above (v1) is now complemented by a v2
+stack built directly against [`docs/SLA.md`](SLA.md)'s freshness, deviation,
+and source-count commitments:
+
+- **Exporter**: [`scripts/metrics_exporter.py`](../scripts/metrics_exporter.py) replaces the sketch Node.js poller above with a runnable Python exporter and unit-tested event → metric derivation.
+- **Alert rules**: [`docs/monitoring/alerts-v2.yml`](monitoring/alerts-v2.yml), tiered by SLA §5 incident class (P0–P3), validated with `promtool test rules docs/monitoring/alerts-v2_test.yml`.
+- **Dashboards**: `docs/monitoring/grafana-dashboard-v2-{overview,sources,governance}.json`.
+
+Full details: [`docs/monitoring/README.md`](monitoring/README.md#v2-slo-dashboards-alerts--exporter).
 
 ---
 

@@ -32,7 +32,7 @@ use crate::types::{DataKey, ErrorCode, Role};
 /// `true` if the caller has the role, `false` otherwise.
 pub fn has_role(env: &Env, caller: &Address, role: Role) -> bool {
     let admin = get_admin(env);
-    
+
     // Admin implicitly has all roles
     if caller == &admin {
         return true;
@@ -86,9 +86,10 @@ pub fn delegate_role(env: &Env, delegatee: Address, role: Role) {
     let role_discriminant = role as u32;
 
     // Mark the role as granted (simple boolean flag approach)
-    env.storage()
-        .persistent()
-        .set(&DataKey::DelegatedRole(delegatee.clone(), role_discriminant), &1u32);
+    env.storage().persistent().set(
+        &DataKey::DelegatedRole(delegatee.clone(), role_discriminant),
+        &1u32,
+    );
 
     // Add to role holders list if not already present
     let mut holders: Vec<Address> = env
@@ -121,12 +122,7 @@ pub fn delegate_role(env: &Env, delegatee: Address, role: Role) {
     }
     .publish(env);
 
-    emit_admin_action(
-        env,
-        symbol_short!("delrole"),
-        admin,
-        Bytes::new(env),
-    );
+    emit_admin_action(env, symbol_short!("delrole"), admin, Bytes::new(env));
 }
 
 /// Revoke a role from an address.
@@ -150,12 +146,13 @@ pub fn revoke_role(env: &Env, delegatee: Address, role: Role) {
     let role_discriminant = role as u32;
 
     // Remove the role grant
-    env.storage()
-        .persistent()
-        .remove(&DataKey::DelegatedRole(delegatee.clone(), role_discriminant));
+    env.storage().persistent().remove(&DataKey::DelegatedRole(
+        delegatee.clone(),
+        role_discriminant,
+    ));
 
     // Remove from role holders list
-    let mut holders: Vec<Address> = env
+    let holders: Vec<Address> = env
         .storage()
         .persistent()
         .get(&DataKey::RoleHolders(role_discriminant))
@@ -182,12 +179,7 @@ pub fn revoke_role(env: &Env, delegatee: Address, role: Role) {
     }
     .publish(env);
 
-    emit_admin_action(
-        env,
-        symbol_short!("revrole"),
-        admin,
-        Bytes::new(env),
-    );
+    emit_admin_action(env, symbol_short!("revrole"), admin, Bytes::new(env));
 }
 
 /// Get all holders of a specific role.
@@ -202,7 +194,7 @@ pub fn revoke_role(env: &Env, delegatee: Address, role: Role) {
 /// Ordered list of addresses that have been granted this role.
 pub fn get_role_holders(env: &Env, role: Role) -> Vec<Address> {
     let role_discriminant = role as u32;
-    
+
     env.storage()
         .persistent()
         .get(&DataKey::RoleHolders(role_discriminant))
@@ -221,7 +213,7 @@ pub fn get_role_holders(env: &Env, role: Role) -> Vec<Address> {
 /// Vector of role discriminants (as u32) that the address holds.
 pub fn get_address_roles(env: &Env, holder: &Address) -> Vec<u32> {
     let admin = get_admin(env);
-    
+
     let mut roles = Vec::new(env);
 
     // Admin has all roles
@@ -243,6 +235,42 @@ pub fn get_address_roles(env: &Env, holder: &Address) -> Vec<u32> {
             .is_some()
         {
             roles.push_back(role_discriminant);
+        }
+    }
+
+    roles
+}
+
+/// Returns all roles held by a given address as `Role` enum values.
+pub fn get_roles_for_holder(env: &Env, holder: &Address) -> Vec<Role> {
+    let admin = get_admin(env);
+    let mut roles = Vec::new(env);
+
+    if holder == &admin {
+        roles.push_back(Role::SourceManager);
+        roles.push_back(Role::AssetManager);
+        roles.push_back(Role::PriceUpdater);
+        roles.push_back(Role::ConfigManager);
+        roles.push_back(Role::UpgradeManager);
+        return roles;
+    }
+
+    for role_discriminant in 0..5u32 {
+        if env
+            .storage()
+            .persistent()
+            .get::<_, u32>(&DataKey::DelegatedRole(holder.clone(), role_discriminant))
+            .is_some()
+        {
+            let role = match role_discriminant {
+                0 => Role::SourceManager,
+                1 => Role::AssetManager,
+                2 => Role::PriceUpdater,
+                3 => Role::ConfigManager,
+                4 => Role::UpgradeManager,
+                _ => continue,
+            };
+            roles.push_back(role);
         }
     }
 

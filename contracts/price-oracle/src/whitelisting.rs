@@ -389,9 +389,16 @@ pub fn distribute_subscription_fee(env: &Env, fee: i128) {
                 let share = (fee * source_submissions as i128) / total_submissions as i128;
                 if share > 0 {
                     let balance_key = DataKey::SourceFeeBalance(source.clone());
-                    let current_balance: i128 = env.storage().persistent().get(&balance_key).unwrap_or(0);
-                    env.storage().persistent().set(&balance_key, &(current_balance + share));
-                    env.storage().persistent().extend_ttl(&balance_key, LEDGER_THRESHOLD, LEDGER_BUMP);
+                    let current_balance: i128 =
+                        env.storage().persistent().get(&balance_key).unwrap_or(0);
+                    env.storage()
+                        .persistent()
+                        .set(&balance_key, &(current_balance + share));
+                    env.storage().persistent().extend_ttl(
+                        &balance_key,
+                        LEDGER_THRESHOLD,
+                        LEDGER_BUMP,
+                    );
 
                     distributed_fee += share;
 
@@ -403,14 +410,18 @@ pub fn distribute_subscription_fee(env: &Env, fee: i128) {
                 }
             }
         }
-        
+
         let remainder = fee - distributed_fee;
         if remainder > 0 {
             let source = oracle_sources.sources.get_unchecked(0);
             let balance_key = DataKey::SourceFeeBalance(source.clone());
             let current_balance: i128 = env.storage().persistent().get(&balance_key).unwrap_or(0);
-            env.storage().persistent().set(&balance_key, &(current_balance + remainder));
-            env.storage().persistent().extend_ttl(&balance_key, LEDGER_THRESHOLD, LEDGER_BUMP);
+            env.storage()
+                .persistent()
+                .set(&balance_key, &(current_balance + remainder));
+            env.storage()
+                .persistent()
+                .extend_ttl(&balance_key, LEDGER_THRESHOLD, LEDGER_BUMP);
 
             crate::events::SourceFeeCreditedEvent {
                 source: source.clone(),
@@ -425,9 +436,14 @@ pub fn distribute_subscription_fee(env: &Env, fee: i128) {
             for i in 0..total_sources {
                 let source = oracle_sources.sources.get_unchecked(i);
                 let balance_key = DataKey::SourceFeeBalance(source.clone());
-                let current_balance: i128 = env.storage().persistent().get(&balance_key).unwrap_or(0);
-                env.storage().persistent().set(&balance_key, &(current_balance + share));
-                env.storage().persistent().extend_ttl(&balance_key, LEDGER_THRESHOLD, LEDGER_BUMP);
+                let current_balance: i128 =
+                    env.storage().persistent().get(&balance_key).unwrap_or(0);
+                env.storage()
+                    .persistent()
+                    .set(&balance_key, &(current_balance + share));
+                env.storage()
+                    .persistent()
+                    .extend_ttl(&balance_key, LEDGER_THRESHOLD, LEDGER_BUMP);
 
                 distributed_fee += share;
 
@@ -441,9 +457,14 @@ pub fn distribute_subscription_fee(env: &Env, fee: i128) {
             if remainder > 0 {
                 let source = oracle_sources.sources.get_unchecked(0);
                 let balance_key = DataKey::SourceFeeBalance(source.clone());
-                let current_balance: i128 = env.storage().persistent().get(&balance_key).unwrap_or(0);
-                env.storage().persistent().set(&balance_key, &(current_balance + remainder));
-                env.storage().persistent().extend_ttl(&balance_key, LEDGER_THRESHOLD, LEDGER_BUMP);
+                let current_balance: i128 =
+                    env.storage().persistent().get(&balance_key).unwrap_or(0);
+                env.storage()
+                    .persistent()
+                    .set(&balance_key, &(current_balance + remainder));
+                env.storage()
+                    .persistent()
+                    .extend_ttl(&balance_key, LEDGER_THRESHOLD, LEDGER_BUMP);
 
                 crate::events::SourceFeeCreditedEvent {
                     source: source.clone(),
@@ -486,8 +507,9 @@ pub fn get_source_fee_balance(env: &Env, source: Address) -> i128 {
     crate::storage::check_source(env, &source);
     let key = DataKey::SourceFeeBalance(source);
     if env.storage().persistent().has(&key) {
-        env.storage().persistent().extend_ttl(&key, LEDGER_THRESHOLD, LEDGER_BUMP);
+        env.storage()
+            .persistent()
+            .extend_ttl(&key, LEDGER_THRESHOLD, LEDGER_BUMP);
     }
     env.storage().persistent().get(&key).unwrap_or(0i128)
 }
-

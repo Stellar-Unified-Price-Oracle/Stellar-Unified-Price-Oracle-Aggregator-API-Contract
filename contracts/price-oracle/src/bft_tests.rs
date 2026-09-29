@@ -2,7 +2,8 @@
 
 use soroban_sdk::{
     testutils::{Address as _, Ledger, LedgerInfo},
-    Address, Bytes, BytesN, Env,
+    xdr::ToXdr,
+    Address, Bytes, BytesN, Env, Vec,
 };
 
 use crate::test_helpers::*;
@@ -16,11 +17,17 @@ fn advance_ledger(e: &Env, seq: u32) {
         base_reserve: 10,
         min_temp_entry_ttl: 10,
         min_persistent_entry_ttl: 10,
-        max_entry_ttl: 6000,
+        max_entry_ttl: 6_312_000,
     });
 }
 
-fn make_hash(e: &Env, price: i128, salt_val: u64, round_ledger: u32) -> BytesN<32> {
+fn make_hash(
+    e: &Env,
+    source: &Address,
+    price: i128,
+    salt_val: u64,
+    round_ledger: u32,
+) -> BytesN<32> {
     let price_bytes = price.to_le_bytes();
     let salt_bytes = salt_val.to_le_bytes();
     let round_bytes = round_ledger.to_le_bytes();
@@ -35,6 +42,7 @@ fn make_hash(e: &Env, price: i128, salt_val: u64, round_ledger: u32) -> BytesN<3
     for b in round_bytes.iter() {
         preimage.push_back(*b);
     }
+    preimage.append(&source.clone().to_xdr(e));
     e.crypto().sha256(&preimage).into()
 }
 
@@ -75,7 +83,7 @@ fn test_bft_aggregation_filters_outlier_after_commit_reveal() {
         let source = sources.get_unchecked(i);
         let price = prices[i as usize];
         let salt = salts[i as usize];
-        let hash = make_hash(&e, price, salt, round_ledger);
+        let hash = make_hash(&e, &source, price, salt, round_ledger);
         client.commit_price(&source, &asset, &hash);
     }
 

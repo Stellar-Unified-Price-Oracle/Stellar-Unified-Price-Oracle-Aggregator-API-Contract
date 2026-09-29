@@ -16,7 +16,7 @@ use crate::types::DataKey;
 ///
 /// # Returns
 /// Vector of event identifiers (as Vec<u32>) involving the address.
-pub fn get_events_for_address(env: &Env, address: Address, limit: u32) -> Vec<u32> {
+pub fn get_events_for_address(env: &Env, _address: Address, _limit: u32) -> Vec<u32> {
     // Placeholder: in production, maintain a reverse index from address to event IDs
     // For now, return empty to indicate no indexed events
     Vec::new(env)
@@ -31,7 +31,7 @@ pub fn get_events_for_address(env: &Env, address: Address, limit: u32) -> Vec<u3
 ///
 /// # Returns
 /// Vector of event identifiers (as Vec<u32>) of the specified type.
-pub fn get_events_by_type(env: &Env, event_type: u32, limit: u32) -> Vec<u32> {
+pub fn get_events_by_type(env: &Env, _event_type: u32, _limit: u32) -> Vec<u32> {
     // Placeholder: in production, maintain a reverse index from event type to event IDs
     // For now, return empty to indicate no indexed events
     Vec::new(env)
@@ -45,7 +45,7 @@ pub fn get_events_by_type(env: &Env, event_type: u32, limit: u32) -> Vec<u32> {
 /// * `env` - Execution environment.
 /// * `event_type` - Type discriminant of the event.
 /// * `participants` - Addresses involved in this event (source, consumer, etc).
-pub fn index_event(env: &Env, event_type: u32, participants: Vec<Address>) {
+pub fn index_event(_env: &Env, _event_type: u32, _participants: Vec<Address>) {
     // Placeholder: in production:
     // 1. Assign unique event ID
     // 2. Store in DataKey::EventRegistry
@@ -63,7 +63,7 @@ pub fn get_event_type_registry(env: &Env) -> Vec<u32> {
     env.storage()
         .persistent()
         .get::<_, Vec<u32>>(&key)
-        .unwrap_or_else(Vec::new)
+        .unwrap_or_else(|| Vec::new(env))
 }
 
 /// Registers a new event type in the registry.
@@ -77,16 +77,14 @@ pub fn register_event_type(env: &Env, event_type: u32) {
         .storage()
         .persistent()
         .get::<_, Vec<u32>>(&key)
-        .unwrap_or_else(Vec::new);
+        .unwrap_or_else(|| Vec::new(env));
 
     // Check if already registered
-    if types.iter().any(|&t| t == event_type) {
+    if types.iter().any(|t| t == event_type) {
         return;
     }
 
     types.push_back(event_type);
     env.storage().persistent().set(&key, &types);
-    env.storage()
-        .persistent()
-        .extend_ttl(&key, 300000, 3600000);
+    env.storage().persistent().extend_ttl(&key, 300000, 3600000);
 }

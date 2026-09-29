@@ -1,0 +1,32 @@
+[package]
+name = "stellar-oracle-sdk"
+version = "0.1.0"
+edition = "2021"
+authors = ["Stellar Unified Price Oracle Contributors"]
+description = "Rust SDK for the Stellar Unified Price Oracle contract"
+repository = "https://github.com/Stellar-Unified-Price-Oracle/Stellar-Unified-Price-Oracle-Aggregator-API-Contract"
+license = "Apache-2.0"
+
+[dependencies]
+soroban-sdk = { version = "21.1.0", optional = true }
+serde = { version = "1.0", optional = true, features = ["derive"] }
+serde_json = { version = "1.0", optional = true }
+
+[dev-dependencies]
+
+[features]
+default = []
+soroban = ["soroban-sdk"]
+serde = ["dep:serde", "dep:serde_json"]
+
+[[example]]
+name = "query_price"
+path = "examples/query_price.rs"
+
+[[example]]
+name = "submit_price"
+path = "examples/submit_price.rs"
+
+[[example]]
+name = "governance"
+path = "examples/governance.rs"

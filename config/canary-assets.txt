@@ -1,0 +1,1 @@
+# One asset contract id per line, compared by the canary pipeline.

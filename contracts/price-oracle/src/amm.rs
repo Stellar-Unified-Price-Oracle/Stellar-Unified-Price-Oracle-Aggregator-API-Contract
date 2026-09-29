@@ -24,7 +24,7 @@
 //! `max_deviation_bps` the swap is reverted.
 
 use crate::storage::{LEDGER_BUMP, LEDGER_THRESHOLD};
-use crate::types::{AmmPool, DataKey, ErrorCode};
+use crate::types::{AmmPool, AmmWeightConfig, DataKey, ErrorCode, SoroswapPool};
 use soroban_sdk::{panic_with_error, symbol_short, Address, Env, Symbol};
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -102,7 +102,7 @@ fn compute_deviation_bps(a: u128, b: u128) -> u32 {
     if b == 0 {
         return u32::MAX;
     }
-    let diff = if a > b { a - b } else { b - a };
+    let diff = a.abs_diff(b);
     // Scale to BPS (multiply before divide to preserve precision)
     let bps = (diff.saturating_mul(10_000)) / b;
     if bps > u32::MAX as u128 {
@@ -166,8 +166,8 @@ pub fn init_amm(
     let pool = AmmPool {
         asset_x,
         asset_y,
-        reserve_x: initial_x,
-        reserve_y: initial_y,
+        reserve_x: rx,
+        reserve_y: ry,
         k,
         enabled: true,
         fee_bps: DEFAULT_FEE_BPS,
@@ -207,9 +207,9 @@ pub fn add_liquidity(env: &Env, caller: Address, asset: Symbol, amount_x: i128, 
     token_x.transfer(&caller, &contract_address, &amount_x);
     token_y.transfer(&caller, &contract_address, &amount_y);
 
-    pool.reserve_x = pool.reserve_x.saturating_add(amount_x);
-    pool.reserve_y = pool.reserve_y.saturating_add(amount_y);
-    pool.k = safe_mul_u128(env, pool.reserve_x as u128, pool.reserve_y as u128);
+    pool.reserve_x = pool.reserve_x.saturating_add(amount_x as u128);
+    pool.reserve_y = pool.reserve_y.saturating_add(amount_y as u128);
+    pool.k = safe_mul_u128(env, pool.reserve_x, pool.reserve_y);
 
     write_pool(env, &asset, &pool);
 
@@ -258,14 +258,14 @@ pub fn swap(
     };
 
     // Determine direction: X → Y or Y → X
-    let (reserve_in, reserve_out, x_to_y) = if from_asset == pool.asset_x && to_asset == pool.asset_y
-    {
-        (pool.reserve_x as u128, pool.reserve_y as u128, true)
-    } else if from_asset == pool.asset_y && to_asset == pool.asset_x {
-        (pool.reserve_y as u128, pool.reserve_x as u128, false)
-    } else {
-        panic_with_error!(env, ErrorCode::InvalidConfiguration)
-    };
+    let (reserve_in, reserve_out, x_to_y) =
+        if from_asset == pool.asset_x && to_asset == pool.asset_y {
+            (pool.reserve_x as u128, pool.reserve_y as u128, true)
+        } else if from_asset == pool.asset_y && to_asset == pool.asset_x {
+            (pool.reserve_y as u128, pool.reserve_x as u128, false)
+        } else {
+            panic_with_error!(env, ErrorCode::InvalidConfiguration)
+        };
 
     // Apply fee: amount_in_after_fee = amount_in * (10000 - fee_bps) / 10000
     let fee_bps = pool.fee_bps as u128;
@@ -277,9 +277,9 @@ pub fn swap(
     );
 
     // Constant-product output: dy = reserve_out - k / (reserve_in + amount_in_after_fee)
-    let new_reserve_in = reserve_in.checked_add(amount_in_after_fee).unwrap_or_else(|| {
-        panic_with_error!(env, ErrorCode::ArithmeticOverflow)
-    });
+    let new_reserve_in = reserve_in
+        .checked_add(amount_in_after_fee)
+        .unwrap_or_else(|| panic_with_error!(env, ErrorCode::ArithmeticOverflow));
     let new_reserve_out = safe_div_u128(env, pool.k, new_reserve_in);
     if new_reserve_out >= reserve_out {
         panic_with_error!(env, ErrorCode::InvalidPrice);
@@ -316,16 +316,14 @@ pub fn swap(
 
     // Update reserves
     if x_to_y {
-        pool.reserve_x = pool.reserve_x.saturating_add(amount_in);
-        pool.reserve_y = (pool.reserve_y as u128)
-            .saturating_sub(amount_out_u128) as i128;
+        pool.reserve_x = pool.reserve_x.saturating_add(amount_in as u128);
+        pool.reserve_y = pool.reserve_y.saturating_sub(amount_out_u128);
     } else {
-        pool.reserve_y = pool.reserve_y.saturating_add(amount_in);
-        pool.reserve_x = (pool.reserve_x as u128)
-            .saturating_sub(amount_out_u128) as i128;
+        pool.reserve_y = pool.reserve_y.saturating_add(amount_in as u128);
+        pool.reserve_x = pool.reserve_x.saturating_sub(amount_out_u128);
     }
     // Recompute k to stay consistent with updated reserves
-    pool.k = safe_mul_u128(env, pool.reserve_x as u128, pool.reserve_y as u128);
+    pool.k = safe_mul_u128(env, pool.reserve_x, pool.reserve_y);
 
     write_pool(env, &asset, &pool);
 
@@ -359,7 +357,8 @@ pub fn set_amm_status(env: &Env, asset: Symbol, enabled: bool) {
     pool.enabled = enabled;
     write_pool(env, &asset, &pool);
 
-    env.events().publish((symbol_short!("amm_stat"), asset), (enabled,));
+    env.events()
+        .publish((symbol_short!("amm_stat"), asset), (enabled,));
 }
 
 /// Returns the current state of a pool, or `None` if it does not exist.
@@ -388,4 +387,113 @@ pub fn set_amm_max_deviation_bps(env: &Env, bps: u32) {
 /// Returns the current AMM max-deviation setting (basis points). Default: 500.
 pub fn get_amm_max_deviation_bps(env: &Env) -> u32 {
     read_max_deviation_bps(env)
+}
+
+// -----------------------------------------------------------------------------
+// #281 — Soroswap Integration
+// -----------------------------------------------------------------------------
+
+/// Sets the AMM weight configuration for an asset. Admin-only.
+///
+/// # Panics
+///
+/// * [`ErrorCode::NotAuthorized`]        — caller is not admin.
+/// * [`ErrorCode::InvalidConfiguration`] — `weight_bps > 10_000`.
+pub fn set_amm_weight(env: &Env, asset: Address, weight_bps: u32, enabled: bool) {
+    let admin = crate::storage::get_admin(env);
+    admin.require_auth();
+
+    if weight_bps > 10_000 {
+        panic_with_error!(env, ErrorCode::InvalidConfiguration);
+    }
+
+    env.storage().persistent().set(
+        &DataKey::AmmWeight(asset.clone()),
+        &AmmWeightConfig {
+            asset,
+            weight_bps,
+            enabled,
+        },
+    );
+}
+
+/// Returns the AMM weight configuration for an asset, or `None` if not set.
+pub fn get_amm_weight(env: &Env, asset: Address) -> Option<AmmWeightConfig> {
+    env.storage().persistent().get(&DataKey::AmmWeight(asset))
+}
+
+/// Reads a Soroswap pool price for an asset pair.
+///
+/// Returns the spot price derived from pool reserves using the constant-product formula.
+/// Returns `None` if the pool is not registered or disabled.
+pub fn read_soroswap_price(env: &Env, asset_a: Address, asset_b: Address) -> Option<i128> {
+    let key = DataKey::SoroswapPool(asset_a.clone(), asset_b.clone());
+    let pool: Option<SoroswapPool> = env.storage().persistent().get(&key);
+    match pool {
+        Some(p) if p.enabled => {
+            if p.reserve_a <= 0 || p.reserve_b <= 0 {
+                return None;
+            }
+            let scale: u128 = 1_000_000_000_000_000_000; // 1e18
+            let price = (p.reserve_b as u128)
+                .saturating_mul(scale)
+                .saturating_div(p.reserve_a as u128);
+            Some(price as i128)
+        }
+        _ => None,
+    }
+}
+
+/// Registers a Soroswap pool configuration. Admin-only.
+///
+/// # Panics
+///
+/// * [`ErrorCode::NotAuthorized`]        — caller is not admin.
+/// * [`ErrorCode::InvalidConfiguration`] — either reserve is ≤ 0.
+pub fn register_soroswap_pool(
+    env: &Env,
+    asset_a: Address,
+    asset_b: Address,
+    reserve_a: i128,
+    reserve_b: i128,
+    fee_bps: u32,
+) {
+    let admin = crate::storage::get_admin(env);
+    admin.require_auth();
+
+    if reserve_a <= 0 || reserve_b <= 0 {
+        panic_with_error!(env, ErrorCode::InvalidConfiguration);
+    }
+
+    env.storage().persistent().set(
+        &DataKey::SoroswapPool(asset_a.clone(), asset_b.clone()),
+        &SoroswapPool {
+            asset_a,
+            asset_b,
+            reserve_a,
+            reserve_b,
+            fee_bps,
+            enabled: true,
+        },
+    );
+}
+
+/// Enables or disables a Soroswap pool. Admin-only.
+pub fn set_soroswap_pool_status(env: &Env, asset_a: Address, asset_b: Address, enabled: bool) {
+    let admin = crate::storage::get_admin(env);
+    admin.require_auth();
+
+    let key = DataKey::SoroswapPool(asset_a.clone(), asset_b.clone());
+    let pool: Option<SoroswapPool> = env.storage().persistent().get(&key);
+    if let Some(mut p) = pool {
+        p.enabled = enabled;
+        env.storage().persistent().set(&key, &p);
+    }
+}
+
+/// Returns the Soroswap pool configuration, or `None` if not found.
+pub fn get_soroswap_pool(env: &Env, asset_a: Address, asset_b: Address) -> Option<SoroswapPool> {
+    env.storage()
+        .persistent()
+        .get(&DataKey::SoroswapPool(asset_a, asset_b))
 }

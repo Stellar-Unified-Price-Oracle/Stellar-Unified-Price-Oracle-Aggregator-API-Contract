@@ -211,6 +211,7 @@ fn migrate_v1_to_v2(env: &Env, cursor: u32, batch_size: u32) -> (u32, bool) {
                 num_sources: 0,
                 decimals: crate::admin::get_decimals(env),
                 is_override: false,
+                version: 0,
             };
             env.storage().persistent().set(&agg_key, &zero_agg);
         }

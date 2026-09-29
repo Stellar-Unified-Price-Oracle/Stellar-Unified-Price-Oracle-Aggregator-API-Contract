@@ -109,7 +109,7 @@ pub fn set_min_priority_fee(env: &Env, min_fee: u128) {
     env.storage()
         .persistent()
         .set(&DataKey::FmMinPriorityFee, &min_fee);
-    crate::events::FmMinPriorityFeeChangedEvent { value: min_fee }.publish(env);
+    crate::events::FmMinPriorityFeeEvent { value: min_fee }.publish(env);
 }
 
 pub fn get_fee_distribution_ratio(env: &Env) -> u32 {
@@ -128,7 +128,7 @@ pub fn set_fee_distribution_ratio(env: &Env, ratio: u32) {
     env.storage()
         .persistent()
         .set(&DataKey::FmFeeDistributionRatio, &ratio);
-    crate::events::FmFeeDistributionRatioChangedEvent { value: ratio }.publish(env);
+    crate::events::FmFeeDistRatioChangedEvent { value: ratio }.publish(env);
 }
 
 pub fn get_treasury_address(env: &Env) -> Option<Address> {
@@ -194,8 +194,8 @@ pub fn enqueue_submission(
 
     let submission = FeeMarketSubmission {
         source,
-        asset,
-        price,
+        asset: asset_addr.clone(),
+        price: price as i128,
         timestamp,
         priority_fee,
         submitted_ledger: env.ledger().sequence(),
@@ -213,6 +213,7 @@ pub fn enqueue_submission(
 
     crate::events::FmSubmissionEnqueuedEvent {
         source: submission.source.clone(),
+        asset: submission.asset.clone(),
         priority_fee,
         queue_depth: queue.submissions.len(),
     }
@@ -260,17 +261,12 @@ pub fn process_fee_market(env: &Env) -> u32 {
         let sub = queue.submissions.get_unchecked(0);
         queue.submissions.remove(0);
 
-        let asset_addr = match &sub.asset {
-            Asset::Stellar(addr) => addr.clone(),
-            Asset::Other(_) => continue,
-        };
-
         // Submit price through core pricing logic (no extra auth needed — already validated at enqueue)
         crate::prices::submit_price_internal(
             env,
             sub.source.clone(),
-            asset_addr.clone(),
-            sub.price as i128,
+            sub.asset.clone(),
+            sub.price,
             sub.timestamp,
         );
 
@@ -289,7 +285,7 @@ pub fn process_fee_market(env: &Env) -> u32 {
 
         crate::events::FmSubmissionProcessedEvent {
             source: sub.source.clone(),
-            asset: asset_addr,
+            asset: sub.asset.clone(),
             price: sub.price as i128,
             priority_fee: fee,
             source_share,

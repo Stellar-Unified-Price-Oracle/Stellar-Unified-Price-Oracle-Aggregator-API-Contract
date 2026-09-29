@@ -25,7 +25,7 @@ fn set_ledger(e: &Env, seq: u32, ts: u64) {
         base_reserve: 10,
         min_temp_entry_ttl: 10,
         min_persistent_entry_ttl: 10,
-        max_entry_ttl: 4096,
+        max_entry_ttl: 6_312_000,
     });
 }
 
@@ -72,7 +72,10 @@ fn test_correlation_violation_flags_and_excludes() {
 
     // Aggregate should reflect ONLY src2's price (src1 is excluded).
     let agg = client.get_price(&base_asset, &0u64).unwrap();
-    assert_eq!(agg.price, normal_price, "flagged price must not affect aggregate");
+    assert_eq!(
+        agg.price, normal_price,
+        "flagged price must not affect aggregate"
+    );
 }
 
 /// After an admin clears the flag, the previously-flagged source contributes again.
@@ -93,7 +96,13 @@ fn test_clear_correlation_flag_restores_source() {
     client.submit_price(&src, &quote_asset, &1_000_i128, &1_000_000_u64);
 
     let rp: u128 = 10_000_000;
-    client.set_correlation_pair(&base_asset, &quote_asset, &(rp * 9 / 10), &(rp * 11 / 10), &true);
+    client.set_correlation_pair(
+        &base_asset,
+        &quote_asset,
+        &(rp * 9 / 10),
+        &(rp * 11 / 10),
+        &true,
+    );
 
     // Trigger a violation.
     client.submit_price(&src, &base_asset, &99_999_i128, &1_000_000_u64);
@@ -126,7 +135,13 @@ fn test_correlation_inband_not_flagged() {
     client.submit_price(&src, &quote_asset, &1_000_i128, &1_000_000_u64);
 
     let rp: u128 = 10_000_000;
-    client.set_correlation_pair(&base_asset, &quote_asset, &(rp * 9 / 10), &(rp * 11 / 10), &true);
+    client.set_correlation_pair(
+        &base_asset,
+        &quote_asset,
+        &(rp * 9 / 10),
+        &(rp * 11 / 10),
+        &true,
+    );
 
     // In-band price: ratio = 1.05 → should pass.
     client.submit_price(&src, &base_asset, &1_050_i128, &1_000_000_u64);
@@ -218,7 +233,10 @@ fn test_simulate_is_pure() {
 
     // Real aggregate must be unchanged.
     let after = client.get_price(&asset, &0u64).unwrap().price;
-    assert_eq!(before, after, "simulate_aggregation must not write to storage");
+    assert_eq!(
+        before, after,
+        "simulate_aggregation must not write to storage"
+    );
 }
 
 // ─── 3. submit_price_merkle ───────────────────────────────────────────────────
@@ -288,7 +306,11 @@ fn test_merkle_invalid_root_rejected() {
     // Provide all-zeroes root (wrong).
     let bad_root: BytesN<32> = BytesN::from_array(&e, &[0u8; 32]);
     let siblings: Vec<BytesN<32>> = Vec::new(&e);
-    let proof = MerkleProof { leaf, siblings, left_bitmap: 0 };
+    let proof = MerkleProof {
+        leaf,
+        siblings,
+        left_bitmap: 0,
+    };
     let mut proofs: Vec<MerkleProof> = Vec::new(&e);
     proofs.push_back(proof);
 
@@ -303,6 +325,7 @@ fn test_merkle_invalid_root_rejected() {
 #[test]
 fn test_batch_submit_prices_all_assets_aggregate() {
     let e = Env::default();
+    e.cost_estimate().disable_resource_limits();
     e.mock_all_auths();
     set_ledger(&e, 100, 1_000_000);
 
@@ -348,5 +371,5 @@ fn compute_leaf_hash(e: &Env, leaf: &MerkleLeaf) -> BytesN<32> {
     let mut data = Bytes::new(e);
     data.append(&Bytes::from_slice(e, &leaf.price.to_le_bytes()));
     data.append(&Bytes::from_slice(e, &leaf.timestamp.to_le_bytes()));
-    e.crypto().sha256(&data)
+    e.crypto().sha256(&data).into()
 }

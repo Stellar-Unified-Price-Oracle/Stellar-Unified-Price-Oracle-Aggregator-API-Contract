@@ -20,9 +20,7 @@
 
 use crate::storage::{LEDGER_BUMP, LEDGER_THRESHOLD};
 use crate::types::{DataKey, ErrorCode, StateChannel};
-use soroban_sdk::{
-    crypto::Hash, panic_with_error, symbol_short, Address, Bytes, BytesN, Env, Vec,
-};
+use soroban_sdk::{crypto::Hash, panic_with_error, symbol_short, Address, Bytes, BytesN, Env, Vec};
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Internal storage helpers
@@ -50,6 +48,28 @@ fn write_channel(env: &Env, channel: &StateChannel) {
 fn remove_channel(env: &Env, source: &Address) {
     let key = DataKey::StateChannel(source.clone());
     env.storage().persistent().remove(&key);
+    env.storage()
+        .persistent()
+        .remove(&DataKey::StateChannelSigner(source.clone()));
+}
+
+/// Checks `pubkey` against the key bound to `source`'s channel (#466).
+///
+/// The first source-authorized batch binds the key; afterwards, and always for
+/// the unauthenticated dispute path, only the bound key is accepted so a third
+/// party cannot settle a state signed with a key of their choosing.
+fn check_channel_signer(env: &Env, source: &Address, pubkey: &BytesN<32>, may_bind: bool) {
+    let key = DataKey::StateChannelSigner(source.clone());
+    match env.storage().persistent().get::<_, BytesN<32>>(&key) {
+        Some(bound) if bound == *pubkey => {}
+        None if may_bind => {
+            env.storage().persistent().set(&key, pubkey);
+            env.storage()
+                .persistent()
+                .extend_ttl(&key, LEDGER_THRESHOLD, LEDGER_BUMP);
+        }
+        _ => panic_with_error!(env, ErrorCode::NotAuthorized),
+    }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -63,7 +83,11 @@ fn remove_channel(env: &Env, source: &Address) {
 // This gives a deterministic 32-byte digest that the source signs off-chain.
 // ─────────────────────────────────────────────────────────────────────────────
 
-fn hash_batch_payload(env: &Env, source: &Address, batch: &Vec<crate::types::BatchItem>) -> BytesN<32> {
+fn hash_batch_payload(
+    env: &Env,
+    _source: &Address,
+    batch: &Vec<crate::types::BatchItem>,
+) -> BytesN<32> {
     // Build a flat byte buffer: for each item encode nonce(8) || price(16) || timestamp(8)
     let item_count = batch.len();
     // 32 bytes per item
@@ -239,6 +263,7 @@ pub fn submit_batch(
 
     // Verify Ed25519 signature over batch payload
     let digest = hash_batch_payload(env, &source, &batch);
+    check_channel_signer(env, &source, &source_pubkey, true);
     verify_ed25519(env, &source_pubkey, &digest, &signature);
 
     // Validate nonces and find the highest-nonce item
@@ -353,6 +378,7 @@ pub fn dispute_channel(
 
     // Verify Ed25519 signature — must be signed by the source's key
     let digest = hash_batch_payload(env, &source, &last_known_batch);
+    check_channel_signer(env, &source, &source_pubkey, false);
     verify_ed25519(env, &source_pubkey, &digest, &signature);
 
     // Find the highest nonce in the presented batch

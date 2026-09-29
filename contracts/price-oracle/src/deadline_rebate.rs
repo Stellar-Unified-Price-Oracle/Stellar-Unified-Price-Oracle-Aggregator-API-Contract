@@ -5,7 +5,7 @@
 
 use soroban_sdk::{Address, Env};
 
-use crate::events::{PriceSubmittedWithDeadlineEvent, RebateDistributedEvent};
+use crate::events::{PriceSubmitDeadlineEvent, RebateDistributedEvent};
 use crate::storage::LEDGER_BUMP;
 use crate::types::DataKey;
 
@@ -40,7 +40,7 @@ pub fn record_deadline_submission(
         .persistent()
         .extend_ttl(&rebate_key, 300000, LEDGER_BUMP);
 
-    PriceSubmittedWithDeadlineEvent {
+    PriceSubmitDeadlineEvent {
         source,
         asset,
         deadline_ledger,
@@ -83,11 +83,7 @@ pub fn claim_rebate(env: &Env, source: Address, asset: Address) -> i128 {
     }
 
     let rebate_key = DataKey::SubmissionRebate(source.clone(), asset.clone());
-    let rebate: i128 = env
-        .storage()
-        .persistent()
-        .get(&rebate_key)
-        .unwrap_or(0);
+    let rebate: i128 = env.storage().persistent().get(&rebate_key).unwrap_or(0);
 
     if rebate > 0 {
         // Clear the rebate so it can't be claimed twice
@@ -114,10 +110,7 @@ pub fn claim_rebate(env: &Env, source: Address, asset: Address) -> i128 {
 /// Total rebate balance in stroops.
 pub fn get_rebate_balance(env: &Env, source: &Address) -> i128 {
     let key = DataKey::RebateBalance(source.clone());
-    env.storage()
-        .persistent()
-        .get(&key)
-        .unwrap_or(0i128)
+    env.storage().persistent().get(&key).unwrap_or(0i128)
 }
 
 /// Adds rebate to a source's accumulated balance.
@@ -125,11 +118,7 @@ pub fn get_rebate_balance(env: &Env, source: &Address) -> i128 {
 /// Called internally when rebate is earned.
 pub fn add_rebate_balance(env: &Env, source: &Address, amount: i128) {
     let key = DataKey::RebateBalance(source.clone());
-    let current: i128 = env
-        .storage()
-        .persistent()
-        .get(&key)
-        .unwrap_or(0);
+    let current: i128 = env.storage().persistent().get(&key).unwrap_or(0);
 
     env.storage()
         .persistent()

@@ -81,13 +81,13 @@ fn test_description_no_truncation() {
 
 // ── Source Name ───────────────────────────────────────────────────────────────
 
-/// Source name at the Soroban String practical max (256 chars) succeeds.
+/// Source name at the contract's maximum length (64 chars) succeeds.
 #[test]
 fn test_source_name_at_max_length() {
     let e = Env::default();
     let (client, _) = setup_contract(&e);
     let source = Address::generate(&e);
-    let name = make_string(&e, 256);
+    let name = make_string(&e, 64);
     client.add_source(&source, &name);
     let sources = client.get_oracle_sources();
     assert_eq!(sources.metadata.get(source).unwrap(), name);
@@ -111,11 +111,11 @@ fn test_source_name_no_truncation() {
     let e = Env::default();
     let (client, _) = setup_contract(&e);
     let source = Address::generate(&e);
-    let name = make_string(&e, 200);
+    let name = make_string(&e, 64);
     client.add_source(&source, &name);
     let sources = client.get_oracle_sources();
     let stored = sources.metadata.get(source).unwrap();
-    assert_eq!(stored.len(), 200);
+    assert_eq!(stored.len(), 64);
     assert_eq!(stored, name);
 }
 
@@ -130,8 +130,8 @@ fn test_multiple_sources_different_name_lengths() {
     let s3 = Address::generate(&e);
 
     let n1 = String::from_str(&e, "A");
-    let n2 = make_string(&e, 128);
-    let n3 = make_string(&e, 256);
+    let n2 = make_string(&e, 32);
+    let n3 = make_string(&e, 64);
 
     client.add_source(&s1, &n1);
     client.add_source(&s2, &n2);

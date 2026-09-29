@@ -105,3 +105,33 @@ Consider adding Grafana alerts on:
 - `oracle_errors_total{error_name="InsufficientSources"}` rate > 0 for > 5 min — sources may be offline
 - `oracle_price_submissions_total` rate = 0 for > 15 min per source — source may be down
 - `oracle_latest_price` unchanged for > staleness window — stale price data
+
+### Runbook coverage
+
+Every **paging** alert (`severity: critical`, or SLA class `P0`/`P1`) in
+`alerts.yml` and `alerts-v2.yml` has an entry in
+[`docs/runbook.md`](../runbook.md) with its meaning, first check, mitigation,
+escalation, resolution, owner and review cadence. The mapping is enforced, not
+documented-and-hoped-for:
+
+```bash
+python -m services.runbook.check_runbook           # coverage gate
+python -m services.runbook.check_runbook --routing # {alert: {entry, url, owner}}
+```
+
+The `--routing` output is what an Alertmanager `runbook_url` templating step
+links from, so the responder's page carries a direct link to its entry. Rule
+files are discovered, so adding a new alert file without an entry fails CI.
+
+## Related off-chain services
+
+These services scrape into the same Prometheus/Grafana stack described above (add their
+`/metrics` endpoints as additional scrape targets):
+
+| Service | Metrics | Docs |
+|---|---|---|
+| Off-chain anomaly detection | `oracle_anomaly_alerts_total`, `oracle_anomaly_rounds_scored_total` | `docs/anomaly-detection.md` |
+| Volatility forecasting | `oracle_volatility_forecasts_total` | `docs/volatility-forecasting.md` |
+| Source reliability scoring | `oracle_reliability_scores_computed_total` | `docs/source-reliability-score.md` |
+
+`docs/monitoring/alerts.yml` includes alerting rules for all three.
