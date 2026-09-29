@@ -34,6 +34,7 @@ mod asset_inactivity;
 mod assets;
 mod auto_renewal;
 mod consensus_rounds;
+mod constant_time;
 mod derived_feeds;
 mod storage_tier;
 // The core module is always compiled (it has no Env deps).
@@ -54,6 +55,7 @@ mod contribution_quality;
 mod correlation;
 mod coverage;
 mod cross_reference;
+mod dead_man;
 mod deadline_rebate;
 mod degradation;
 mod dex;
@@ -220,6 +222,18 @@ mod cross_ref_tests;
 mod override_tests;
 
 #[cfg(test)]
+mod timing_shape_tests;
+
+#[cfg(test)]
+mod multisig_rotation_tests;
+
+#[cfg(test)]
+mod dead_man_switch_tests;
+
+#[cfg(test)]
+mod capability_matrix_tests;
+
+#[cfg(test)]
 mod prop_tests;
 
 // =============================================================================
@@ -320,32 +334,38 @@ mod issues_491_492_493_494_tests;
 
 pub use types::{
     AdminOpLimit, AdminOperationType, AggregatePrice, AggregationMethod, AggregationRound,
-    AlertSubscription, AmmPool, AmmWeightConfig, Asset, AssetDecimalConfig, AssetMetadata,
-    AssetMetadataUpdate, AssetPricingConfig, AssetProofRequirement, AssetType, AuditEntry,
-    BatchItem, BatchOperation, BatchSimulationResult, BftAggregationMethod, BridgeOracleConfig,
-    BridgedPrice, CallbackRegistration, Challenge, CompactionMetadata, ConfigSnapshot,
+    AlertSubscription, AmmPool, AmmWeightConfig, AnomalyExplanation, AnomalyRule, Asset,
+    AssetDecimalConfig, AssetMetadata, AssetMetadataUpdate, AssetPricingConfig,
+    AssetProofRequirement, AssetType, AuditEntry, AutoRenewRecord, BatchItem, BatchOperation,
+    BatchSimulationResult, BftAggregationMethod, BridgeOracleConfig, BridgedPrice,
+    CallbackRegistration, Challenge, CompactionMetadata, ConfigSnapshot, ConfirmedPrice,
     ConsumerAccessMode, ConsumerInfo, ConsumerTier, ContractMetadata, ContribQualityRecord,
-    CorrelationBand, CorrelationPair, CrossChainPriceEntry, CrossChainPricePayload,
-    CrossChainRelayConfig, CrossReferenceResult, DataKey, DecentralizationReport, DemeritConfig,
-    DeviationReport, DexPrice, DisqualificationStatus, DiversityThresholds, EcosystemMetadata,
-    EffectivePolicy, EmergencyPause, ErrorCode, ExportedEntry, ExportedHistorySnapshot,
-    ExternalDataProof, FeeMarketSubmission, FeedMetadata, FinalityStatus, FinalizedPrice,
-    ForeignAssetMapping, FreshnessCurve, FrozenPrice, GasRecord, Groth16Proof, Groth16VerifyingKey,
-    GuardianRecovery, HealthReport, MigrationState, MigrationStatus, MultiSigOperation,
-    NotificationPreference, Operation, OperationKind, OperationPriority, OperationSimulationResult,
-    OperationStatus, OperationTemplate, OperationType, OptimisticProposal,
-    OptimisticProposalStatus, OracleSources, PendingBatch, PendingFeeSubmissions,
-    PendingFinalityEntry, PendingOperation, PolicyOverride, PriceBounds, PriceCommit, PriceData,
-    PriceEntry, PriceEventPayload, PriceHistoryEntry, PriceOverrideEntry, PriceProof,
-    ReferenceOracleEntry, RelayedSubmission, RelayerAssetStat, RelayerDashboard,
-    RelayerFailureReason, RelayerInfo, Role, SimulationWarning, SoroswapPool, SourceDemeritState,
+    CorrelationBand, CorrelationPair, CoverageReport, CrossChainPriceEntry, CrossChainPricePayload,
+    CrossChainRelayConfig, CrossReferenceResult, DataKey, DeadManConfig, DeadManState,
+    DecentralizationReport, DegradationConfig, DegradationState, DegradationStats, DemeritConfig,
+    DerivedFeed, DerivedFeedInput, DerivedFeedKind, DeviationReport, DexPrice, DisagreementRecord,
+    DisqualificationStatus, DiversityThresholds, DriftReport, EcosystemMetadata, EffectivePolicy,
+    EmergencyPause, ErrorCode, ExportedEntry, ExportedHistorySnapshot, ExternalDataProof,
+    FeeMarketSubmission, FeedMetadata, FinalityStatus, FinalizedPrice, ForeignAssetMapping,
+    FreshnessCurve, FrozenPrice, GasRecord, Groth16Proof, Groth16VerifyingKey, GuardianRecovery,
+    HealthReport, HistoryStorageTier, LatencyReport, LatencySample, MigrationState,
+    MigrationStatus, MultiSigOperation, NotificationPreference, Operation, OperationKind,
+    OperationPriority, OperationSimulationResult, OperationStatus, OperationTemplate,
+    OperationType, OptimisticProposal, OptimisticProposalStatus, OracleSources, OutlierConfig,
+    OutlierExclusion, PendingBatch, PendingFeeSubmissions, PendingFinalityEntry, PendingOperation,
+    PolicyOverride, PriceBounds, PriceCommit, PriceData, PriceEntry, PriceEventPayload,
+    PriceHistoryEntry, PriceOverrideEntry, PriceProof, ProvenanceEntry, ProvenanceHead,
+    ProvenanceRecord, ReferenceOracleEntry, RelayedSubmission, RelayerAssetStat, RelayerDashboard,
+    RelayerFailureReason, RelayerInfo, RenewalAttempt, RenewalAuthorization, Role, RoundConfig,
+    RoundStatus, RoundTally, RoundVote, SimulationWarning, SoroswapPool, SourceDemeritState,
     SourceDidLink, SourceDiversityReport, SourceGeoMetadata, SourceGovernance, SourceHealthStatus,
     SourceProposal, SourceRelayerDelegation, SourceRotationSchedule, SourceStakeRecord,
     SourceVerification, StateAnalysis, StateChannel, StateDiff, StateDiffEntry, StateDump,
-    StellarHeader, StorageBatchRequest, StorageBatchResult, StorageBudget, StorageTtlEntry,
-    SubscriptionExpiry, SubscriptionPayment, SubscriptionPlan, SubscriptionPlans, TemplateStep,
-    TotalStorageBudget, TwapMethod, TwapResult, VersionedAggregatePrice, WeightedAggregate,
-    WormholeGuardianSet, WormholePricePayload, WormholeVaa, ZkPriceAttestation,
+    StellarHeader, StorageBatchRequest, StorageBatchResult, StorageBudget,
+    StorageTierDowngradeRequest, StorageTierInfo, StorageTtlEntry, SubscriptionExpiry,
+    SubscriptionPayment, SubscriptionPlan, SubscriptionPlans, TemplateStep, TotalStorageBudget,
+    TwapMethod, TwapResult, VersionedAggregatePrice, WeightedAggregate, WormholeGuardianSet,
+    WormholePricePayload, WormholeVaa, ZkPriceAttestation,
 };
 
 use soroban_sdk::{
@@ -4642,6 +4662,164 @@ impl PriceOracleContract {
     /// Sets the treasury address for fee disbursement. Admin only.
     pub fn fm_set_treasury_address(env: Env, treasury: Address) {
         fee_market::set_treasury_address(&env, treasury);
+    }
+
+    // =========================================================================
+    // #491 outlier filter, #492 latency analytics, #493 provenance,
+    // #494 disagreement index — restored by the build repair below.
+    // =========================================================================
+
+    /// Configures the robust outlier pre-filter for `asset`. Admin only.
+    ///
+    /// `detector`: `0` disables filtering, `1` selects the median absolute
+    /// deviation, `2` the interquartile range. `sensitivity_bps` is the
+    /// exclusion threshold in that detector's units (default `35000` = 3.5
+    /// MAD for detector 1, `15000` = 1.5 x IQR for detector 2).
+    /// `min_sources` is the source-count floor below which filtering is
+    /// skipped, in `4..=64`. Pass `None` to clear the override.
+    ///
+    /// # Errors
+    /// * [`ErrorCode::InvalidConfiguration`] — a bound above is violated.
+    pub fn set_outlier_config(env: Env, asset: Address, config: Option<types::OutlierConfig>) {
+        outlier_filter::set_config(&env, asset, config);
+    }
+
+    /// Returns the prices the pre-filter excluded during the most recent
+    /// aggregation of `asset`, with the score of each (#491).
+    pub fn get_outlier_exclusions(
+        env: Env,
+        asset: Address,
+    ) -> soroban_sdk::Vec<types::OutlierExclusion> {
+        outlier_filter::get_exclusions(&env, &asset)
+    }
+
+    /// Returns the robust pre-filter configuration of `asset`.
+    pub fn get_outlier_config(env: Env, asset: Address) -> types::OutlierConfig {
+        outlier_filter::get_config(&env, &asset)
+    }
+
+    /// Returns latency percentiles for a (source, asset) pair over the
+    /// rolling window of stored samples (#492).
+    ///
+    /// Every duration is in **ledgers**; `seconds_per_ledger` in the report
+    /// gives the nominal conversion. `never_counted` counts submissions that
+    /// were replaced before any aggregate counted them, and `window`
+    /// carries the raw samples so the percentiles can be recomputed.
+    pub fn get_latency_report(env: Env, source: Address, asset: Address) -> types::LatencyReport {
+        latency::get_report(&env, &source, &asset)
+    }
+
+    /// Returns the raw rolling latency samples for a (source, asset) pair,
+    /// oldest first (#492).
+    pub fn get_latency_samples(
+        env: Env,
+        source: Address,
+        asset: Address,
+    ) -> soroban_sdk::Vec<types::LatencySample> {
+        latency::get_samples(&env, &source, &asset)
+    }
+
+    /// Returns the provenance record of the aggregate published for
+    /// `asset` at `ledger`, naming every contributing submission, source
+    /// and weight (#493).
+    ///
+    /// # Errors
+    /// * [`ErrorCode::NoData`] — no record at that ledger. It was never
+    ///   written, or it was pruned along with the price history.
+    pub fn get_provenance(env: Env, asset: Address, ledger: u32) -> types::ProvenanceRecord {
+        provenance::get_record(&env, &asset, ledger)
+            .unwrap_or_else(|| panic_with_error!(&env, ErrorCode::NoData))
+    }
+
+    /// Verifies a provenance record: its commitment matches its contents and
+    /// it chains to its predecessor of the same asset (#493).
+    ///
+    /// Returns `false` for a record that was edited, replaced or back-dated.
+    pub fn verify_provenance(env: Env, asset: Address, ledger: u32) -> bool {
+        provenance::verify_link(&env, &asset, ledger)
+    }
+
+    /// Returns the pairwise disagreement index recorded by the most recent
+    /// aggregate of `asset` (#494).
+    pub fn get_disagreement_index(env: Env, asset: Address) -> Option<types::DisagreementIndex> {
+        disagreement::get_index(&env, &asset)
+    }
+
+    // =========================================================================
+    // #510 — Dead-Man Switch (liveness watchdog)
+    // =========================================================================
+
+    /// Arms the dead-man switch. Admin-only.
+    ///
+    /// `trigger_after = 0` disables the switch. While armed, the contract
+    /// enters a degraded state once no operator heartbeat has been seen for
+    /// `trigger_after` seconds, rejecting submissions and serving no price.
+    /// The degraded state is cleared by a recovery guardian, not by the admin
+    /// key, so it survives loss of the admin.
+    ///
+    /// # Errors
+    ///
+    /// * [`ErrorCode::NotAuthorized`] — caller is not the admin.
+    /// * [`ErrorCode::InvalidConfiguration`] — `warn_after >= trigger_after`,
+    ///   or no operator was supplied while arming.
+    pub fn dead_man_configure(
+        env: Env,
+        trigger_after: u64,
+        warn_after: u64,
+        operators: Vec<Address>,
+    ) {
+        dead_man::configure(&env, trigger_after, warn_after, operators);
+    }
+
+    /// Returns the dead-man switch configuration.
+    pub fn dead_man_get_config(env: Env) -> DeadManConfig {
+        dead_man::get_config(&env)
+    }
+
+    /// Records a liveness heartbeat from a registered operator.
+    ///
+    /// `operator` must authorize the call *and* be in the operator set, so a
+    /// heartbeat cannot be spoofed. A heartbeat does not clear the degraded
+    /// state — only the recovery path does.
+    ///
+    /// # Errors
+    ///
+    /// * [`ErrorCode::DeadManDisabled`] — the switch is not armed.
+    /// * [`ErrorCode::NotAuthorized`] — not a registered operator.
+    pub fn dead_man_heartbeat(env: Env, operator: Address) {
+        dead_man::heartbeat(&env, operator);
+    }
+
+    /// Evaluates the heartbeat deadline, entering the degraded state if it has
+    /// passed. Permissionless and idempotent.
+    ///
+    /// # Returns
+    ///
+    /// The resulting [`DeadManState`].
+    pub fn dead_man_evaluate(env: Env) -> u32 {
+        match dead_man::evaluate(&env) {
+            DeadManState::Operational => 0,
+            DeadManState::Degraded => 1,
+        }
+    }
+
+    /// Returns whether the contract is in the dead-man degraded state.
+    pub fn dead_man_is_degraded(env: Env) -> bool {
+        dead_man::is_degraded(&env)
+    }
+
+    /// Clears the degraded state and resumes serving.
+    ///
+    /// Callable by any registered recovery guardian, so recovery does not
+    /// depend on the admin key. The admin may also clear it while it holds the
+    /// key.
+    ///
+    /// # Errors
+    ///
+    /// * [`ErrorCode::NotDegraded`] — the contract is not degraded.
+    /// * [`ErrorCode::NotAuthorized`] — caller is neither admin nor guardian.
+    pub fn dead_man_recover(env: Env, guardian: Address) {
+        dead_man::recover(&env, guardian);
     }
 
     // =========================================================================

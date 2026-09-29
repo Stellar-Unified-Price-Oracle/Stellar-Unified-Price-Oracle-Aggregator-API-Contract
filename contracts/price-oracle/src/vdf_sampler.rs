@@ -153,22 +153,22 @@ pub fn verify_vdf_proof(
     // the first 16 bytes of `output` XOR'd with the first 16 bytes of `seed`.
     // This ensures the proof binds to both seed and output without full
     // modular exponentiation.
-    let computed_bytes: Bytes = computed.into();
-    let output_bytes: Bytes = output.into();
-    let seed_bytes: Bytes = seed.into();
-
-    for i in 0..16u32 {
-        let c = computed_bytes.get_unchecked(i);
-        let o = output_bytes.get_unchecked(i);
-        let s = seed_bytes.get_unchecked(i);
+    //
+    // The comparison is secret-dependent (a valid proof's bytes are attacker
+    // chosen), so all 16 positions are always inspected and the differences
+    // are folded into an accumulator: no early exit reveals, through the
+    // metered instruction count, how far a forged proof matched (#507).
+    let computed_arr = computed.to_array();
+    let output_arr = output.to_array();
+    let seed_arr = seed.to_array();
+    let mut diff: u8 = 0;
+    for i in 0..16usize {
         // Expected: computed[i] == output[i] ^ seed[i] ^ (iterations as u8 at position i%8)
         let iter_byte = ((iterations >> ((i % 8) * 8)) & 0xff) as u8;
-        if c != (o ^ s ^ iter_byte) {
-            return false;
-        }
+        diff |= computed_arr[i] ^ (output_arr[i] ^ seed_arr[i] ^ iter_byte);
     }
 
-    true
+    diff == 0
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
