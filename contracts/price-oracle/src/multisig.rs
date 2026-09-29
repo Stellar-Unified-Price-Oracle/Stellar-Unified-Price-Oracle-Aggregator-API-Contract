@@ -99,6 +99,35 @@ fn next_op_id(env: &Env) -> u32 {
 // ─────────────────────────────────────────────────────────────────────────────
 
 /// Sets the full governor set and required approvals threshold (admin only).
+///
+/// #508 — signer-set rotation safety
+///
+/// A rotation is the operation most able to brick the multisig, so it is held
+/// to four invariants, each enforced (and tested) here:
+///
+/// 1. **The threshold stays reachable.** `required` must be non-zero and no
+///    greater than the new set size, so a quorum can always be assembled.
+///    Removing every signer (`governors` empty) is therefore impossible.
+/// 2. **A threshold change cannot weaken an in-flight operation.** A pending
+///    operation snapshots the threshold it was proposed under, so lowering the
+///    global threshold afterwards does not let an already-proposed operation
+///    through with fewer signatures than its own quorum demands.
+/// 3. **A departing signer loses their approvals.** Every pending operation is
+///    rewritten to drop the approvals of signers removed by this rotation; a
+///    rotation cannot be used to retire a signer while keeping the votes they
+///    already cast, and an operation that loses quorum has its timelock reset
+///    so it cannot execute on the strength of departed signers.
+/// 4. **The rotation is evented with both sets**, so an operator (and the
+///    recovery path) can reconstruct the signer history off-chain.
+///
+/// The guardian recovery path (#245) is independent of this signer set, so a
+/// rotation can never remove the ability to recover admin control.
+///
+/// # Errors
+///
+/// * [`ErrorCode::NotAuthorized`] — caller is not the admin.
+/// * [`ErrorCode::InvalidConfiguration`] — `required` is `0` or exceeds the
+///   governor count.
 pub fn set_governors(env: &Env, governors: Vec<Address>, required: u32) {
     let admin = get_admin(env);
     admin.require_auth();
@@ -107,15 +136,63 @@ pub fn set_governors(env: &Env, governors: Vec<Address>, required: u32) {
         panic_with_error!(env, ErrorCode::InvalidConfiguration);
     }
 
+    let previous = read_governors(env);
+    let previous_required = read_required_approvals(env);
+
     write_governors(env, &governors);
     env.storage()
         .persistent()
         .set(&DataKey::MsRequiredApprovals, &required);
+    // Retained so the rotation event can report the threshold the multisig was
+    // operating under before this rotation.
+    env.storage()
+        .persistent()
+        .set(&DataKey::MsPreviousRequiredApprovals, &previous_required);
+
+    // #508 invariant 3: strip the approvals of every signer this rotation
+    // removes, and reset the timelock of any operation that thereby loses
+    // quorum.
+    let mut invalidated_ops: u32 = 0;
+    let mut cursor = read_queue_head(env);
+    while cursor != 0 {
+        let mut op = read_op(env, cursor);
+        let mut retained: Vec<Address> = Vec::new(env);
+        for i in 0..op.approvals.len() {
+            let approver = op.approvals.get_unchecked(i);
+            if governors.contains(&approver) {
+                retained.push_back(approver);
+            }
+        }
+        if retained.len() != op.approvals.len() {
+            invalidated_ops += 1;
+            op.approvals = retained;
+            if op.approvals.len() < op.required_approvals {
+                // Quorum lost with the departed signers: the timelock must not
+                // keep running on their votes.
+                op.timelock_start_ledger = 0;
+            }
+            write_op(env, &op);
+        }
+        cursor = op.next_op_id;
+    }
 
     crate::events::MsGovernorsUpdatedEvent {
         admin: admin.clone(),
         governor_count: governors.len(),
         required_approvals: required,
+    }
+    .publish(env);
+
+    // #508 invariant 4: the rotation is announced with both the old and the
+    // new set, so the signer history is reconstructible from the event stream
+    // alone and a departure is visible to anyone auditing quorum.
+    crate::events::MsGovernorsRotatedEvent {
+        admin,
+        previous_governors: previous,
+        new_governors: governors,
+        previous_required,
+        new_required: required,
+        invalidated_ops,
     }
     .publish(env);
 }
