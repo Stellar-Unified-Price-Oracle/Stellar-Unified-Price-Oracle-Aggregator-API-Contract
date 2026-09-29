@@ -74,6 +74,138 @@ jobs:
           command: check
           arguments: --config deny.toml
 
+  # #499: price-revision frequency and correction-rate metrics. Pure functions
+  # over the indexed event stream; the tests are the contract for the metric.
+  # See docs/price-revision-metrics.md.
+  revision-metrics:
+    name: Revision-rate metrics (#499)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install pytest
+      - name: Run revision-metric tests
+        run: python -m pytest services/revision_metrics -q
+      - name: Smoke-run the metric over a generated stream
+        run: |
+          python - <<'PY'
+          import json, sys
+          from services.common.synthetic import generate_submissions
+          from services.revision_metrics.metrics import compute_metrics, evaluate_alerts
+          events = generate_submissions(n_rounds=50)
+          bundle = compute_metrics(events)
+          json.dump({k: v.to_dict() for k, v in bundle["assets"].items()}, sys.stdout, indent=2)
+          print()
+          print(f"alerts: {len(evaluate_alerts(bundle))}")
+          PY
+
+  # #500: static analysis and SAST. Fails on a new advisory, on unsafe code
+  # beyond the committed baseline, and on an allowlist entry that has lost its
+  # owner or expired. The report is uploaded so a failure is triaged from the
+  # run page. See docs/static-analysis.md.
+  static-analysis:
+    name: Static analysis (SAST + advisories)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@1.91.0
+        with:
+          targets: wasm32v1-none
+      - name: Install cargo-audit and cargo-geiger
+        run: |
+          cargo install cargo-audit --locked
+          cargo install cargo-geiger --locked
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install pytest
+      # Dependency advisories, on top of the existing cargo-deny job.
+      - name: cargo audit (RustSec advisories)
+        run: |
+          cargo audit --file Cargo.lock --json > security-artifacts-cargo-audit.json || true
+      # Unsafe-code census for the same lockfile the contract builds with.
+      - name: cargo geiger (unsafe usage census)
+        run: |
+          cargo geiger --output-format Json . > security-artifacts-geiger.json || true
+      - name: SAST, baseline and advisory gate
+        run: python -m services.static_analysis.gate --report security-artifacts/static-analysis.md
+      - name: Run gate tests
+        run: python -m pytest services/static_analysis -q
+      - name: Publish summary
+        if: always()
+        run: cat security-artifacts/static-analysis.md >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: static-analysis-artifacts
+          path: security-artifacts/
+
+  # #502: secret scanning. Tree + full history, pre-commit parity, redacted
+  # report. See docs/secret-scanning.md (including the rotation playbook).
+  secret-scan:
+    name: Secret scan (tree + history)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # History scanning needs the full graph, not a shallow clone.
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install pytest
+      - name: Scan working tree and history
+        run: >
+          python -m services.secret_scan.scanner . --history
+          --report secret-artifacts/secret-scan.md
+      - name: Run scanner tests
+        run: python -m pytest services/secret_scan -q
+      - name: Publish summary
+        if: always()
+        run: cat secret-artifacts/secret-scan.md >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: secret-scan-artifacts
+          path: secret-artifacts/
+
+  # #501: exact dependency pins, committed+hashed lockfile, and two clean
+  # builds that must produce the same WASM digest. See
+  # docs/reproducible-builds.md.
+  reproducible-build:
+    name: Reproducible build (pins + double build)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@1.91.0
+        with:
+          targets: wasm32v1-none
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install pytest
+      - name: Every dependency pinned exactly, lockfile in sync
+        run: python -m services.pinned_deps.pin_check .
+      - name: Two clean builds, compared digests
+        run: ./scripts/reproducible-build.sh
+      - name: Run pinning tests
+        run: python -m pytest services/pinned_deps -q
+      - name: Publish summary
+        if: always()
+        run: cat build-artifacts/reproducible-build.md >> "$GITHUB_STEP_SUMMARY"
+      # The digests are the published artifact hashes an independent rebuild is
+      # compared against.
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: build-artifacts
+          path: build-artifacts/
+
   sla-monitor:
     name: SLA monitor (docs/SLA.md consistency + tests)
     runs-on: ubuntu-latest
