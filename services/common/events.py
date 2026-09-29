@@ -19,6 +19,9 @@ from typing import Any, Iterable, Iterator, Optional, Union
 # care about (see PriceSubmittedEvent / PriceAggregatedEvent).
 TOPIC_PRICE_SUBMITTED = "price_submitted"
 TOPIC_PRICE_AGGREGATED = "price_aggregated"
+# #499: `PriceCorrectedEvent` (contracts/price-oracle/src/corrections.rs) —
+# the only on-chain path that revises an already-published aggregate.
+TOPIC_PRICE_CORRECTED = "price_corrected"
 
 EventSource = Union[str, Path, Iterable[dict]]
 
@@ -107,6 +110,48 @@ def iter_aggregations(source: EventSource) -> Iterator[AggregationEvent]:
             asset=str(env.data["asset"]),
             price=int(env.data["price"]),
             num_sources=int(env.data.get("num_sources", 0)),
+        )
+
+
+@dataclass(frozen=True)
+class RevisionEvent:
+    """A revision of an already-published aggregate (`PriceCorrectedEvent`).
+
+    Mirrors the on-chain event: the actor that filed it, the mandatory reason,
+    the value before and after, the index in the immutable revision chain, and
+    whether the superseded value had already been consumed downstream. The
+    optional `source` names the oracle source the correction is attributed to
+    when the filing pipeline could determine one (#499); it is absent for a
+    correction that is not attributable to a single source.
+    """
+
+    ledger: int
+    timestamp: int
+    contract_id: str
+    asset: str
+    actor: str
+    reason: str
+    old_price: int
+    new_price: int
+    revision_index: int
+    affects_downstream: bool
+    source: Optional[str] = None
+
+
+def iter_revisions(source: EventSource) -> Iterator[RevisionEvent]:
+    for env in iter_envelopes(source, topics={TOPIC_PRICE_CORRECTED}):
+        yield RevisionEvent(
+            ledger=env.ledger,
+            timestamp=env.timestamp,
+            contract_id=env.contract_id,
+            asset=str(env.data["asset"]),
+            actor=str(env.data["actor"]),
+            reason=str(env.data.get("reason", "")),
+            old_price=int(env.data.get("old_price", 0)),
+            new_price=int(env.data.get("new_price", 0)),
+            revision_index=int(env.data.get("revision_index", 0)),
+            affects_downstream=bool(env.data.get("affects_downstream", False)),
+            source=(str(env.data["source"]) if env.data.get("source") else None),
         )
 
 
