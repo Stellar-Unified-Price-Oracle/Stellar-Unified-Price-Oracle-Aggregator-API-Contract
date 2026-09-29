@@ -6584,3 +6584,6 @@ mod invariant_harness_tests;
 
 #[cfg(test)]
 mod issues_483_486_tests;
+
+#[cfg(test)]
+mod sep40_conformance_tests;
