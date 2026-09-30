@@ -22,7 +22,7 @@ jobs:
       - run: python scripts/onboarding.py refresh
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      - uses: peter-evans/create-pull-request@v6
+      - uses: peter-evans/create-pull-request@v8
         with:
           branch: chore/onboarding-refresh
           title: "chore: refresh onboarding map"
