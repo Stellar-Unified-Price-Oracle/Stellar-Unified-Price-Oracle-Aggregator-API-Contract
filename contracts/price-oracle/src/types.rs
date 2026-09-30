@@ -812,6 +812,44 @@ pub enum DataKey {
     TwapMinCardinality,
 
     // -------------------------------------------------------------------------
+    // #479: Basket / index price feeds
+    // -------------------------------------------------------------------------
+    /// A basket's constituent list, weights and policies (`BasketConfig`).
+    Basket(Address),
+    /// Maximum age, in seconds, a constituent aggregate may have and still
+    /// count as fresh.
+    BasketMaxStaleness,
+
+    // -------------------------------------------------------------------------
+    // #481: Hysteresis circuit breaker
+    // -------------------------------------------------------------------------
+    /// Per-asset breaker thresholds and re-arm policy (`BreakerPolicy`).
+    BreakerPolicy(Address),
+    /// Ledger at which the current settle streak began, and its length.
+    BreakerSettleStreak(Address),
+    /// Ledger at which the asset's breaker last tripped.
+    BreakerArmedLedger(Address),
+    /// Number of times the asset's breaker has been escalated.
+    BreakerEscalations(Address),
+
+    // -------------------------------------------------------------------------
+    // #482: Volatility-bucketed adaptive quorum
+    // -------------------------------------------------------------------------
+    /// Volatility bucket boundaries, quorums and hysteresis settings.
+    AdaptiveQuorumConfig,
+    /// Per-asset current volatility bucket and the quorum it selects.
+    AdaptiveQuorumState(Address),
+    /// Quorum frozen at the start of a round, so a mid-round regime change
+    /// cannot alter it.
+    AdaptiveQuorumRound(Address, u32),
+    /// Rolling window of observed absolute returns (bps) per asset, used to
+    /// estimate volatility.
+    VolatilityWindow(Address),
+    /// The last price fed to the volatility estimator, used to compute the
+    /// next return.
+    VolatilityLastPrice(Address),
+
+    // -------------------------------------------------------------------------
     // #495: Degraded-mode serving analytics
     // -------------------------------------------------------------------------
     /// Instrumentation switch + sampling/window configuration.
@@ -3226,6 +3264,135 @@ pub struct TwapResult {
     pub concentrated: bool,
 }
 
+// ---------------------------------------------------------------------------
+// #479: Basket / index price feeds
+// ---------------------------------------------------------------------------
+
+/// Maximum number of constituents a single basket may hold.
+///
+/// Bounds the cost of every basket read: composition, value and contribution
+/// each walk the constituent list once, so an unbounded basket would let a
+/// single call exceed the invocation budget. Chosen to sit well inside the
+/// 100-entry ledger footprint the network enforces.
+pub const MAX_BASKET_CONSTITUENTS: u32 = 32;
+
+/// Weight scale for a basket: each constituent's weight is in parts per
+/// [`BASKET_WEIGHT_SCALE`], so a weight of `BASKET_WEIGHT_SCALE / n` is an
+/// equal-weight basket with `n` constituents.
+///
+/// Integer weights are used rather than `f64` because a weight must sum-check
+/// exactly: an off-by-one in a floating-point sum would let a basket publish a
+/// value scaled by a total that is not the intended one.
+pub const BASKET_WEIGHT_SCALE: u32 = 1_000_000;
+
+/// One constituent of a basket: an asset and its weight.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct BasketConstituent {
+    /// The asset whose aggregate feeds this constituent.
+    pub asset: Address,
+    /// Weight in parts per [`BASKET_WEIGHT_SCALE`]. Must be non-zero, so a
+    /// constituent can never be present-but-ignored.
+    pub weight: u32,
+}
+
+/// How a basket treats a constituent that is missing or stale.
+///
+/// This is the knob behind the issue's core requirement — that a missing
+/// constituent must *degrade or reject* the index, never be silently skipped.
+/// There is deliberately no `Ignore` variant.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub enum BasketStalenessPolicy {
+    /// Reject the whole index: [`ErrorCode::BasketConstituentStale`].
+    ///
+    /// The strict default. A basket that cannot be computed exactly reports
+    /// nothing, so no consumer can mistake a partial index for the real one.
+    Reject = 0,
+    /// Compute over the live constituents and mark the result explicitly
+    /// degraded via [`crate::basket::BasketValue::is_degraded`].
+    ///
+    /// The index value is *not* rescaled to the live weights: doing so would
+    /// silently redefine what the index means. A consumer that requires an
+    /// exact index must check `is_degraded` and refuse.
+    Degrade = 1,
+}
+
+/// Rebalance policy for a basket.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub enum BasketRebalancePolicy {
+    /// Weights are fixed until an admin re-prices them with `set_basket`.
+    Manual = 0,
+    /// Weights may be re-priced by any source, but only through
+    /// [`crate::basket::rebalance_basket`], which validates and applies the
+    /// whole weight vector in one storage write followed by one event.
+    AdminDriven = 1,
+}
+
+/// A basket's stored configuration.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct BasketConfig {
+    /// Ordered constituents. Order is part of the canonical form: the value is
+    /// a sum over this exact sequence, so a consumer can reproduce it.
+    pub constituents: soroban_sdk::Vec<BasketConstituent>,
+    /// Sum of all constituent weights, in parts per [`BASKET_WEIGHT_SCALE`].
+    /// Cached so the sum-check is verifiable without re-walking the list.
+    pub total_weight: u32,
+    /// What to do when a constituent is missing or stale.
+    pub staleness_policy: BasketStalenessPolicy,
+    /// How weights may be re-priced.
+    pub rebalance_policy: BasketRebalancePolicy,
+}
+
+/// One constituent's resolved state within a basket read.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct BasketContribution {
+    /// The constituent asset.
+    pub asset: Address,
+    /// Its weight in parts per [`BASKET_WEIGHT_SCALE`].
+    pub weight: u32,
+    /// The aggregate used, or `0` when the constituent had no price.
+    pub price: i128,
+    /// Timestamp of that aggregate, or `0` when missing.
+    pub timestamp: u64,
+    /// `weight * price / BASKET_WEIGHT_SCALE` — this constituent's additive
+    /// share of the index value.
+    pub contribution: i128,
+    /// Age of the constituent in seconds at read time.
+    pub staleness_secs: u64,
+    /// `false` when the constituent had no aggregate at all.
+    pub present: bool,
+    /// `false` when the constituent's aggregate is older than the configured
+    /// staleness bound.
+    pub fresh: bool,
+}
+
+/// The computed value of a basket.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct BasketValue {
+    /// The weighted index value, at the contract-wide `decimals`.
+    pub value: i128,
+    /// Decimal precision of `value`.
+    pub decimals: u32,
+    /// `true` when at least one constituent was missing or stale *and* the
+    /// policy is [`BasketStalenessPolicy::Degrade`]. Never `true` under
+    /// [`BasketStalenessPolicy::Reject`], which panics instead.
+    pub is_degraded: bool,
+    /// Constituents that contributed a usable price.
+    pub live_constituents: u32,
+    /// Constituents in the configuration.
+    pub total_constituents: u32,
+    /// Worst-case (maximum) staleness across all constituents, in seconds. A
+    /// basket is only as fresh as its stalest input.
+    pub staleness_secs: u64,
+    /// Per-constituent breakdown, in configuration order.
+    pub contributions: soroban_sdk::Vec<BasketContribution>,
+}
+
 /// Pairwise source disagreement index for one asset at one ledger (#494).
 ///
 /// Scale-invariant by construction: every deviation is divided by the
@@ -4006,4 +4173,130 @@ pub struct OutlierExclusion {
     /// Scale the score was measured in (scaled MAD or IQR); `0` when the
     /// scale collapsed and the value was excluded by the absolute floor.
     pub scale: i128,
+}
+
+// ---------------------------------------------------------------------------
+// #481: Hysteresis circuit breaker
+// ---------------------------------------------------------------------------
+
+/// A deviation breaker's thresholds and re-arm policy.
+///
+/// The two thresholds are what make the breaker a control rather than a
+/// flapping indicator: see `docs/breaker-hysteresis.md`.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct BreakerPolicy {
+    /// Deviation, in bps, at or above which the breaker trips.
+    pub trip_bps: u32,
+    /// Deviation, in bps, below which the market counts as settled. Must be
+    /// **strictly** below `trip_bps`; the gap is the deadband.
+    pub clear_bps: u32,
+    /// Consecutive ledgers the deviation must stay below `clear_bps` before the
+    /// breaker re-arms itself.
+    pub settle_ledgers: u32,
+    /// Ledgers the breaker may stay open before automatic re-arm is abandoned
+    /// in favour of escalation.
+    pub max_open_ledgers: u32,
+    /// `true` to enable the settle-based automatic re-arm for this asset.
+    pub auto_rearm: bool,
+}
+
+impl BreakerPolicy {
+    /// Sensible defaults: trip at 20 %, clear at 10 %, settle for 10 ledgers,
+    /// escalate after 1 000 ledgers, auto re-arm on.
+    ///
+    /// The deadband is half the trip threshold, which is wide enough that a
+    /// price oscillating either side of the trip line does not re-trip the
+    /// breaker the moment it clears.
+    pub fn default_policy() -> BreakerPolicy {
+        BreakerPolicy {
+            trip_bps: 2_000,
+            clear_bps: 1_000,
+            settle_ledgers: 10,
+            max_open_ledgers: 1_000,
+            auto_rearm: true,
+        }
+    }
+}
+
+/// A breaker's observable state.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct BreakerStatus {
+    /// `true` while the breaker is refusing submissions.
+    pub is_open: bool,
+    /// The configured policy.
+    pub policy: BreakerPolicy,
+    /// The deviation observed at the most recent evaluation, in bps.
+    pub last_deviation_bps: u32,
+    /// Consecutive ledgers the market has spent below `clear_bps`.
+    pub settle_ledgers: u32,
+    /// Ledgers the breaker has been open, or `0` when armed.
+    pub open_ledgers: u32,
+    /// `true` once the breaker has been open past `max_open_ledgers` and
+    /// automatic re-arm has been abandoned.
+    pub escalated: bool,
+}
+
+// ---------------------------------------------------------------------------
+// #482: Volatility-bucketed adaptive quorum
+// ---------------------------------------------------------------------------
+
+/// Number of volatility buckets. Bucket `0` is the calmest.
+pub const VOLATILITY_BUCKETS: u32 = 3;
+
+/// Volatility bucket boundaries, in basis points, ascending.
+///
+/// `bucket_of` returns the first index `i` with `volatility_bps <
+/// boundaries[i]`, or `VOLATILITY_BUCKETS - 1` when above every boundary. So
+/// `boundaries = [500, 2_000]` classifies `< 500` as bucket 0 (calm),
+/// `500..2_000` as bucket 1 and `>= 2_000` as bucket 2 (volatile).
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct VolatilityBuckets {
+    /// Ascending upper bounds, in bps. Must be strictly increasing.
+    pub boundaries: soroban_sdk::Vec<u32>,
+    /// Quorum required in each bucket. One entry per bucket.
+    pub quorums: soroban_sdk::Vec<u32>,
+    /// Additional consecutive observations required before the regime may be
+    /// *relaxed* into a lower bucket.
+    ///
+    /// Raising the quorum is immediate; lowering it is damped. That asymmetry is
+    /// the anti-manipulation property: one submission cannot talk the quorum
+    /// down, because the bucket has to hold for `relax_after` observations.
+    pub relax_after: u32,
+    /// Minimum observations required before the regime is classified at all.
+    pub min_samples: u32,
+    /// Rolling window of returns the estimate is taken over.
+    pub window: u32,
+}
+
+/// An asset's current regime and the quorum it implies.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct QuorumRegime {
+    /// The current bucket index.
+    pub bucket: u32,
+    /// The quorum this bucket requires.
+    pub quorum: u32,
+    /// The volatility estimate, in bps, behind the classification.
+    pub volatility_bps: u32,
+    /// Observations in the rolling window.
+    pub samples: u32,
+    /// Consecutive observations the estimate has sat in the current bucket.
+    pub streak: u32,
+}
+
+/// The quorum frozen for one round.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct RoundQuorum {
+    /// The round this quorum is pinned to.
+    pub round: u32,
+    /// The bucket in force at round start.
+    pub bucket: u32,
+    /// The quorum this round enforces, fixed for the round's lifetime.
+    pub quorum: u32,
+    /// The volatility estimate behind the decision.
+    pub volatility_bps: u32,
 }

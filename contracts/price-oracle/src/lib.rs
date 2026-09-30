@@ -24,6 +24,7 @@
 #[macro_use]
 extern crate std;
 
+mod adaptive_quorum;
 mod admin;
 mod admin_op_limits;
 mod alert_severity;
@@ -33,6 +34,8 @@ mod amm;
 mod asset_inactivity;
 mod assets;
 mod auto_renewal;
+mod basket;
+mod breaker;
 mod consensus_rounds;
 mod derived_feeds;
 mod storage_tier;
@@ -323,36 +326,39 @@ pub use types::{
     AdminOpLimit, AdminOperationType, AggregatePrice, AggregationMethod, AggregationRound,
     AlertSubscription, AmmPool, AmmWeightConfig, AnomalyExplanation, AnomalyRule, Asset,
     AssetDecimalConfig, AssetMetadata, AssetMetadataUpdate, AssetPricingConfig,
-    AssetProofRequirement, AssetType, AuditEntry, AutoRenewRecord, BatchItem, BatchOperation,
-    BatchSimulationResult, BftAggregationMethod, BridgeOracleConfig, BridgedPrice,
-    CallbackRegistration, Challenge, CompactionMetadata, ConfigSnapshot, ConfirmedPrice,
-    ConsumerAccessMode, ConsumerInfo, ConsumerTier, ContractMetadata, ContribQualityRecord,
-    CorrelationBand, CorrelationPair, CoverageReport, CrossChainPriceEntry, CrossChainPricePayload,
-    CrossChainRelayConfig, CrossReferenceResult, DataKey, DecentralizationReport,
-    DegradationConfig, DegradationState, DegradationStats, DemeritConfig, DerivedFeed,
-    DerivedFeedInput, DerivedFeedKind, DeviationReport, DexPrice, DisagreementRecord,
-    DisqualificationStatus, DiversityThresholds, DriftReport, EcosystemMetadata, EffectivePolicy,
-    EmergencyPause, ErrorCode, ExportedEntry, ExportedHistorySnapshot, ExternalDataProof,
-    FeeMarketSubmission, FeedMetadata, FinalityStatus, FinalizedPrice, ForeignAssetMapping,
-    FreshnessCurve, FrozenPrice, GasRecord, Groth16Proof, Groth16VerifyingKey, GuardianRecovery,
-    HealthReport, HistoryStorageTier, LatencyReport, LatencySample, MigrationState,
-    MigrationStatus, MultiSigOperation, NotificationPreference, Operation, OperationKind,
-    OperationPriority, OperationSimulationResult, OperationStatus, OperationTemplate,
-    OperationType, OptimisticProposal, OptimisticProposalStatus, OracleSources, OutlierConfig,
-    OutlierExclusion, PendingBatch, PendingFeeSubmissions, PendingFinalityEntry, PendingOperation,
-    PolicyOverride, PriceBounds, PriceCommit, PriceData, PriceEntry, PriceEventPayload,
-    PriceHistoryEntry, PriceOverrideEntry, PriceProof, ProvenanceEntry, ProvenanceHead,
-    ProvenanceRecord, ReferenceOracleEntry, RelayedSubmission, RelayerAssetStat, RelayerDashboard,
-    RelayerFailureReason, RelayerInfo, RenewalAttempt, RenewalAuthorization, Role, RoundConfig,
-    RoundStatus, RoundTally, RoundVote, SimulationWarning, SoroswapPool, SourceDemeritState,
-    SourceDidLink, SourceDiversityReport, SourceGeoMetadata, SourceGovernance, SourceHealthStatus,
-    SourceProposal, SourceRelayerDelegation, SourceRotationSchedule, SourceStakeRecord,
-    SourceVerification, StateAnalysis, StateChannel, StateDiff, StateDiffEntry, StateDump,
-    StellarHeader, StorageBatchRequest, StorageBatchResult, StorageBudget,
-    StorageTierDowngradeRequest, StorageTierInfo, StorageTtlEntry, SubscriptionExpiry,
-    SubscriptionPayment, SubscriptionPlan, SubscriptionPlans, TemplateStep, TotalStorageBudget,
-    TwapMethod, TwapResult, VersionedAggregatePrice, WeightedAggregate, WormholeGuardianSet,
-    WormholePricePayload, WormholeVaa, ZkPriceAttestation,
+    AssetProofRequirement, AssetType, AuditEntry, AutoRenewRecord, BasketConfig, BasketConstituent,
+    BasketContribution, BasketRebalancePolicy, BasketStalenessPolicy, BasketValue, BatchItem,
+    BatchOperation, BatchSimulationResult, BftAggregationMethod, BreakerPolicy, BreakerStatus,
+    BridgeOracleConfig, BridgedPrice, CallbackRegistration, Challenge, CompactionMetadata,
+    ConfigSnapshot, ConfirmedPrice, ConsumerAccessMode, ConsumerInfo, ConsumerTier,
+    ContractMetadata, ContribQualityRecord, CorrelationBand, CorrelationPair, CoverageReport,
+    CrossChainPriceEntry, CrossChainPricePayload, CrossChainRelayConfig, CrossReferenceResult,
+    DataKey, DecentralizationReport, DegradationConfig, DegradationState, DegradationStats,
+    DemeritConfig, DerivedFeed, DerivedFeedInput, DerivedFeedKind, DeviationReport, DexPrice,
+    DisagreementRecord, DisqualificationStatus, DiversityThresholds, DriftReport,
+    EcosystemMetadata, EffectivePolicy, EmergencyPause, ErrorCode, ExportedEntry,
+    ExportedHistorySnapshot, ExternalDataProof, FeeMarketSubmission, FeedMetadata, FinalityStatus,
+    FinalizedPrice, ForeignAssetMapping, FreshnessCurve, FrozenPrice, GasRecord, Groth16Proof,
+    Groth16VerifyingKey, GuardianRecovery, HealthReport, HistoryStorageTier, LatencyReport,
+    LatencySample, MigrationState, MigrationStatus, MultiSigOperation, NotificationPreference,
+    Operation, OperationKind, OperationPriority, OperationSimulationResult, OperationStatus,
+    OperationTemplate, OperationType, OptimisticProposal, OptimisticProposalStatus, OracleSources,
+    OutlierConfig, OutlierExclusion, PendingBatch, PendingFeeSubmissions, PendingFinalityEntry,
+    PendingOperation, PolicyOverride, PriceBounds, PriceCommit, PriceData, PriceEntry,
+    PriceEventPayload, PriceHistoryEntry, PriceOverrideEntry, PriceProof, ProvenanceEntry,
+    ProvenanceHead, ProvenanceRecord, QuorumRegime, ReferenceOracleEntry, RelayedSubmission,
+    RelayerAssetStat, RelayerDashboard, RelayerFailureReason, RelayerInfo, RenewalAttempt,
+    RenewalAuthorization, Role, RoundConfig, RoundQuorum, RoundStatus, RoundTally, RoundVote,
+    SimulationWarning, SoroswapPool, SourceDemeritState, SourceDidLink, SourceDiversityReport,
+    SourceGeoMetadata, SourceGovernance, SourceHealthStatus, SourceProposal,
+    SourceRelayerDelegation, SourceRotationSchedule, SourceStakeRecord, SourceVerification,
+    StateAnalysis, StateChannel, StateDiff, StateDiffEntry, StateDump, StellarHeader,
+    StorageBatchRequest, StorageBatchResult, StorageBudget, StorageTierDowngradeRequest,
+    StorageTierInfo, StorageTtlEntry, SubscriptionExpiry, SubscriptionPayment, SubscriptionPlan,
+    SubscriptionPlans, TemplateStep, TotalStorageBudget, TwapMethod, TwapResult,
+    VersionedAggregatePrice, VolatilityBuckets, WeightedAggregate, WormholeGuardianSet,
+    WormholePricePayload, WormholeVaa, ZkPriceAttestation, BASKET_WEIGHT_SCALE,
+    MAX_BASKET_CONSTITUENTS,
 };
 
 use soroban_sdk::{
@@ -6411,6 +6417,134 @@ impl PriceOracleContract {
     }
 
     // =========================================================================
+    // #479 — Basket / index price feeds
+    // =========================================================================
+
+    /// Creates or replaces a basket's constituent list, weights and policies.
+    /// Admin only. Weights are parts per million and must sum to exactly
+    /// 1_000_000.
+    pub fn set_basket(env: Env, basket: Address, config: BasketConfig) {
+        basket::set_basket(&env, basket, config);
+    }
+
+    /// Returns a basket's stored configuration.
+    pub fn get_basket(env: Env, basket: Address) -> BasketConfig {
+        basket::get_basket(&env, &basket)
+    }
+
+    /// Returns a basket's ordered constituent list with each leg's weight.
+    pub fn get_basket_composition(env: Env, basket: Address) -> Vec<BasketConstituent> {
+        basket::get_basket_composition(&env, &basket)
+    }
+
+    /// Re-prices a basket's weights atomically and emits the new vector.
+    /// Admin only.
+    pub fn rebalance_basket(env: Env, basket: Address, weights: Vec<u32>) {
+        basket::rebalance_basket(&env, basket, weights);
+    }
+
+    /// Computes a basket's index value, with per-constituent contributions and
+    /// an explicit degraded flag.
+    pub fn get_basket_value(env: Env, basket: Address) -> BasketValue {
+        basket::get_basket_value(&env, &basket)
+    }
+
+    /// Returns one constituent's weight and additive share of the index.
+    pub fn get_basket_contribution(env: Env, basket: Address, index: u32) -> BasketContribution {
+        basket::get_basket_contribution(&env, &basket, index)
+    }
+
+    /// Returns the maximum age a constituent aggregate may have and still count
+    /// as fresh.
+    pub fn get_basket_max_staleness(env: Env) -> u64 {
+        basket::get_basket_max_staleness(&env)
+    }
+
+    /// Sets the constituent staleness bound. Admin only.
+    pub fn set_basket_max_staleness(env: Env, max_staleness_secs: u64) {
+        basket::set_basket_max_staleness(&env, max_staleness_secs);
+    }
+
+    // =========================================================================
+    // #481 — Hysteresis circuit breaker with automatic re-arming
+    // =========================================================================
+
+    /// Configures an asset's breaker thresholds, settle window and escalation
+    /// bound. Admin only. `clear_bps` must be strictly below `trip_bps`.
+    pub fn set_breaker_policy(env: Env, asset: Address, policy: BreakerPolicy) {
+        breaker::set_breaker_policy(&env, asset, policy);
+    }
+
+    /// Returns an asset's breaker policy.
+    pub fn get_breaker_policy(env: Env, asset: Address) -> BreakerPolicy {
+        breaker::get_breaker_policy(&env, &asset)
+    }
+
+    /// Returns an asset's breaker state, including the settle streak, the
+    /// open duration and whether it has escalated.
+    pub fn get_breaker_status(env: Env, asset: Address) -> BreakerStatus {
+        breaker::get_breaker_status(&env, &asset)
+    }
+
+    /// Evaluates the automatic re-arm condition for an open breaker. Returns
+    /// `true` when it re-armed. Emits a re-arm *attempt* event on every
+    /// evaluation, so held and re-armed are distinguishable from the stream.
+    ///
+    /// Panics with `BreakerEscalationRequired` once the breaker has been open
+    /// past its escalation bound.
+    pub fn evaluate_breaker_rearm(env: Env, asset: Address, deviation_bps: u32) -> bool {
+        breaker::evaluate_rearm(&env, &asset, deviation_bps)
+    }
+
+    /// Manually clears the breaker. Admin only, and never blocked by the
+    /// automatic re-arm logic.
+    pub fn clear_breaker(env: Env, asset: Address) {
+        breaker::clear_breaker(&env, asset);
+    }
+
+    // =========================================================================
+    // #482 — Volatility-bucketed adaptive quorum
+    // =========================================================================
+
+    /// Configures the volatility buckets, per-bucket quorums and hysteresis.
+    /// Admin only.
+    pub fn set_adaptive_quorum_config(env: Env, config: VolatilityBuckets) {
+        adaptive_quorum::set_adaptive_quorum_config(&env, config);
+    }
+
+    /// Returns the adaptive-quorum configuration.
+    pub fn get_adaptive_quorum_config(env: Env) -> VolatilityBuckets {
+        adaptive_quorum::get_adaptive_quorum_config(&env)
+    }
+
+    /// Records a price observation, updates the volatility estimate and returns
+    /// the asset's new regime.
+    pub fn observe_volatility(env: Env, asset: Address, price: i128) -> QuorumRegime {
+        adaptive_quorum::observe_price(&env, &asset, price)
+    }
+
+    /// Returns an asset's current volatility bucket and the quorum it selects.
+    pub fn get_quorum_regime(env: Env, asset: Address) -> QuorumRegime {
+        adaptive_quorum::get_regime(&env, &asset)
+    }
+
+    /// Returns the quorum the asset's current regime implies.
+    pub fn get_effective_quorum(env: Env, asset: Address) -> u32 {
+        adaptive_quorum::effective_quorum(&env, &asset)
+    }
+
+    /// Freezes the effective quorum for a round. The pinned value is what the
+    /// round enforces, regardless of later regime changes.
+    pub fn pin_round_quorum(env: Env, asset: Address, round: u32) -> RoundQuorum {
+        adaptive_quorum::pin_round_quorum(&env, &asset, round)
+    }
+
+    /// Returns the quorum frozen for a round, if one was pinned.
+    pub fn get_round_quorum(env: Env, asset: Address, round: u32) -> Option<RoundQuorum> {
+        adaptive_quorum::get_round_quorum(&env, &asset, round)
+    }
+
+    // =========================================================================
     // #491 / #492 / #493 / #494 — robust filtering, latency, provenance, index
     //
     // These endpoints were dropped from this file by the same botched merge that
@@ -6509,6 +6643,15 @@ mod derived_feeds_tests;
 
 #[cfg(test)]
 mod median_determinism_tests;
+
+#[cfg(test)]
+mod basket_tests;
+
+#[cfg(test)]
+mod breaker_tests;
+
+#[cfg(test)]
+mod adaptive_quorum_tests;
 
 #[cfg(test)]
 mod test_helpers;

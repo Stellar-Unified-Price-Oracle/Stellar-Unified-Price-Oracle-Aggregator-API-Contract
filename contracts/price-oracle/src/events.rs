@@ -2976,3 +2976,187 @@ pub struct AnomalyExplainedEvent {
     pub threshold: i128,
     pub rejected: bool,
 }
+
+// ---------------------------------------------------------------------------
+// #479: Basket / index price feeds
+// ---------------------------------------------------------------------------
+
+/// Emitted when a basket's configuration is created or replaced.
+///
+/// Topics: `basket`
+#[contractevent]
+#[derive(Clone)]
+pub struct BasketConfiguredEvent {
+    #[topic]
+    pub basket: Address,
+    /// Number of constituents in the new configuration.
+    pub constituents: u32,
+    /// Sum of the constituent weights, in parts per million.
+    pub total_weight: u32,
+}
+
+/// Emitted when a basket's weights are re-priced.
+///
+/// The event carries the whole new weight vector so a rebalance is
+/// reconstructible from the event stream alone: a consumer replaying events
+/// sees exactly which basket changed to which weights, with no intermediate
+/// state in which the basket is half-repriced.
+///
+/// Topics: `basket`
+#[contractevent]
+#[derive(Clone)]
+pub struct BasketRebalancedEvent {
+    #[topic]
+    pub basket: Address,
+    /// Ledger the rebalance was applied at.
+    pub ledger: u32,
+    /// Unix timestamp of the rebalance.
+    pub timestamp: u64,
+    /// The full new weight vector, in configuration order.
+    pub weights: soroban_sdk::Vec<u32>,
+}
+
+/// Emitted when a basket value is computed with one or more unusable
+/// constituents under the `Degrade` policy.
+///
+/// Topics: `basket`
+#[contractevent]
+#[derive(Clone)]
+pub struct BasketDegradedEvent {
+    #[topic]
+    pub basket: Address,
+    /// The index value computed over the live constituents only.
+    pub value: i128,
+    /// Constituents that contributed a usable price.
+    pub live_constituents: u32,
+    /// Constituents in the configuration.
+    pub total_constituents: u32,
+    /// The largest constituent age observed, in seconds.
+    pub staleness_secs: u64,
+}
+
+// ---------------------------------------------------------------------------
+// #481: Hysteresis circuit breaker
+// ---------------------------------------------------------------------------
+
+/// Emitted when the deviation breaker trips, with the deviation that tripped it.
+///
+/// Topics: `asset`
+#[contractevent]
+#[derive(Clone)]
+pub struct BreakerTrippedEvent {
+    #[topic]
+    pub asset: Address,
+    /// The deviation that crossed the trip threshold, in basis points.
+    pub deviation_bps: u32,
+    /// The configured trip threshold, in basis points.
+    pub trip_bps: u32,
+    /// The configured clear threshold (the bottom of the deadband).
+    pub clear_bps: u32,
+    /// Ledger the breaker opened at.
+    pub ledger: u32,
+}
+
+/// Emitted on each automatic re-arm evaluation, whether or not it re-arms.
+///
+/// Emitting on *both* outcomes is what makes the state machine reconstructible
+/// from the event stream: a consumer sees that the settle condition was
+/// evaluated and why it did or did not fire, rather than inferring silence from
+/// the absence of a re-arm.
+///
+/// Topics: `asset`
+#[contractevent]
+#[derive(Clone)]
+pub struct BreakerRearmAttemptEvent {
+    #[topic]
+    pub asset: Address,
+    /// The deviation observed at evaluation time, in basis points.
+    pub deviation_bps: u32,
+    /// Consecutive settled ledgers observed so far.
+    pub settle_ledgers: u32,
+    /// Consecutive ledgers required before re-arming.
+    pub required_ledgers: u32,
+    /// `true` when this evaluation re-armed the breaker.
+    pub rearmed: bool,
+}
+
+/// Emitted when the breaker re-arms automatically after the market settles.
+///
+/// Topics: `asset`
+#[contractevent]
+#[derive(Clone)]
+pub struct BreakerRearmedEvent {
+    #[topic]
+    pub asset: Address,
+    /// The deviation that satisfied the settle condition, in basis points.
+    pub deviation_bps: u32,
+    /// Ledgers the market spent below the clear threshold.
+    pub settled_for_ledgers: u32,
+    /// Ledger the breaker re-armed at.
+    pub ledger: u32,
+}
+
+/// Emitted when a breaker has been open past its escalation bound.
+///
+/// The bound exists so a stuck breaker cannot silence an asset forever: past
+/// `max_open_ledgers` the contract stops attempting automatic re-arm and
+/// escalates, leaving the manual override as the only path forward.
+///
+/// Topics: `asset`
+#[contractevent]
+#[derive(Clone)]
+pub struct BreakerEscalatedEvent {
+    #[topic]
+    pub asset: Address,
+    /// Ledgers the breaker has been open.
+    pub open_ledgers: u32,
+    /// The configured escalation bound.
+    pub max_open_ledgers: u32,
+}
+
+// ---------------------------------------------------------------------------
+// #482: Volatility-bucketed adaptive quorum
+// ---------------------------------------------------------------------------
+
+/// Emitted when an asset moves between volatility buckets.
+///
+/// Topics: `asset`
+#[contractevent]
+#[derive(Clone)]
+pub struct QuorumBucketChangedEvent {
+    #[topic]
+    pub asset: Address,
+    /// The bucket the asset was in.
+    pub from_bucket: u32,
+    /// The bucket it moved to.
+    pub to_bucket: u32,
+    /// The volatility estimate, in basis points, that drove the transition.
+    pub volatility_bps: u32,
+    /// The quorum the new bucket selects.
+    pub quorum: u32,
+    /// `true` when the move relaxed the quorum.
+    pub relaxed: bool,
+}
+
+/// Emitted when an asset's effective quorum is pinned for a round.
+///
+/// The round's quorum is decided here, at round start, and cannot change for
+/// the life of the round. A consumer reading the quorum mid-round gets the
+/// value that will actually be enforced, not the one a later regime change
+/// would select.
+///
+/// Topics: `asset`
+#[contractevent]
+#[derive(Clone)]
+pub struct QuorumPinnedEvent {
+    #[topic]
+    pub asset: Address,
+    /// The round the quorum was pinned for.
+    pub round: u32,
+    /// The volatility bucket in force at round start.
+    pub bucket: u32,
+    /// The quorum this round will enforce.
+    pub quorum: u32,
+    /// The volatility estimate, in basis points, behind the bucket.
+    pub volatility_bps: u32,
+}

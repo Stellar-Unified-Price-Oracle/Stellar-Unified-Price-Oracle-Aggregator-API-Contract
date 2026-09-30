@@ -124,21 +124,30 @@ pub fn orderings(env: &Env, values: &[i128]) -> Vec<Vec<i128>> {
     let mut out: Vec<Vec<i128>> = Vec::new(env);
     out.push_back(to_env_vec(env, values));
 
-    let mut reversed = values.to_vec();
-    reversed.reverse();
-    out.push_back(to_env_vec(env, &reversed));
+    // Reverse by popping from the back and pushing to the front: the SDK `Vec`
+    // has no `reverse`, and the contract is `no_std` with no `alloc`.
+    let mut reversed: Vec<i128> = Vec::new(env);
+    for i in (0..values.len()).rev() {
+        reversed.push_back(values[i]);
+    }
+    out.push_back(reversed);
 
     if values.len() > 1 {
-        let mut rotated = values.to_vec();
-        rotated.rotate_left(1);
-        out.push_back(to_env_vec(env, &rotated));
+        // Rotate left by one: keeps every value but moves each across the
+        // median boundary.
+        let mut rotated = to_env_vec(env, values);
+        if let Some(first) = rotated.pop_front() {
+            rotated.push_back(first);
+        }
+        out.push_back(rotated);
 
         // Hoist the last value to the front. This is the shape a host produces
         // when it returns storage keys in a different order than insertion.
-        let mut hoisted = values.to_vec();
-        let last = hoisted.pop().unwrap();
-        hoisted.insert(0, last);
-        out.push_back(to_env_vec(env, &hoisted));
+        let mut hoisted = to_env_vec(env, values);
+        if let Some(last) = hoisted.pop_back() {
+            hoisted.insert(0, last);
+        }
+        out.push_back(hoisted);
     }
 
     out

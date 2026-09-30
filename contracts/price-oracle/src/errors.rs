@@ -26,6 +26,7 @@ use soroban_sdk::contracterror;
 /// | 122–125 | LayerZero integration |
 /// | 156–171 | #246 storage tier, #289 auto-renewal, #397 rounds, #478 derived feeds |
 /// | 172–181 | #484 bound tiers, #485 deferral, #486 corrections, restored misc |
+/// | 193–205 | #479 baskets, #481 breaker, #482 adaptive quorum |
 #[contracterror]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ErrorCode {
@@ -393,4 +394,38 @@ pub enum ErrorCode {
     DerivedFeedCycle = 170,
     /// The derivation graph depth bound would be exceeded (#478).
     DerivedFeedDepthExceeded = 171,
+
+    // ── 193–197: #479 basket / index price feeds ──────────────────────────────
+    /// A basket's weights do not sum to `BASKET_WEIGHT_SCALE`.
+    InvalidBasketWeights = 193,
+    /// A basket's constituent list is empty, oversized, or repeats an asset.
+    InvalidBasketComposition = 194,
+    /// A basket names itself as a constituent, directly or transitively.
+    RecursiveBasket = 195,
+    /// A constituent has no price, or one older than the staleness bound,
+    /// under the `Reject` policy.
+    BasketConstituentStale = 196,
+    /// No basket is configured at `basket`.
+    BasketNotFound = 197,
+
+    // ── 198–201: #481 hysteresis circuit breaker ──────────────────────────────
+    /// The breaker's clear threshold is not strictly below its trip threshold.
+    InvalidBreakerDeadband = 198,
+    /// The settle window or open-timeout is zero.
+    InvalidBreakerPolicy = 199,
+    /// The deviation is still at or above the clear threshold, so the breaker
+    /// may not re-arm automatically.
+    BreakerNotSettled = 200,
+    /// The breaker has been open longer than the escalation bound.
+    BreakerEscalationRequired = 201,
+
+    // ── 202–205: #482 volatility-bucketed adaptive quorum ─────────────────────
+    /// The adaptive-quorum configuration violates its documented bounds.
+    InvalidAdaptiveQuorum = 202,
+    /// Adaptive quorum is not enabled for this asset.
+    AdaptiveQuorumDisabled = 203,
+    /// Too few volatility observations to classify the regime.
+    InsufficientVolatilitySamples = 204,
+    /// The request refers to a round that is not the asset's current round.
+    AdaptiveQuorumRoundUnknown = 205,
 }
