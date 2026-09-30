@@ -24,9 +24,9 @@ use soroban_sdk::contracterror;
 /// | 116–118 | Cross-chain asset registry |
 /// | 119–121 | Axelar GMP integration |
 /// | 122–125 | LayerZero integration |
-/// | 156–171 | #246 storage tier, #289 auto-renewal, #397 rounds, #478 derived feeds |
-/// | 172–181 | #484 bound tiers, #485 deferral, #486 corrections, restored misc |
-/// | 193–205 | #479 baskets, #481 breaker, #482 adaptive quorum |
+/// | 156–157 | #484 bound tiers / #485 deferral |
+/// | 159–175 | Storage tiers, auto-renewal, consensus rounds, derived feeds (#246,#289,#397,#478) |
+/// | 180–184 | #486 price corrections (renumbered off the 159–162 collision, see below) |
 #[contracterror]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ErrorCode {
@@ -337,95 +337,85 @@ pub enum ErrorCode {
     /// The supplied diversity thresholds are invalid (e.g. max HHI > 10000).
     InvalidDiversityThresholds = 155,
 
-    // ── 172–178: #484 bound tiers, #485 deferral, #486 price corrections ──────
+    // ── 156–158: #484 bound tiers, #485 deferral ────────────────────────────
     /// The soft/hard bound ordering supplied for an asset is invalid (#484).
-    InvalidBoundOrdering = 172,
+    InvalidBoundOrdering = 185,
     /// The supplied deferral policy is outside its documented bounds (#485).
-    InvalidDeferralPolicy = 173,
+    InvalidDeferralPolicy = 186,
     /// `correct_price` was called with an empty or oversized reason (#486).
-    InvalidCorrectionReason = 174,
+    InvalidCorrectionReason = 187,
     /// The per-asset correction count cap has been reached (#486).
-    CorrectionLimitReached = 175,
+    CorrectionLimitReached = 188,
     /// The value supplied lies outside the asset's hard bounds (#484, #486).
-    AggregateRejectedByBounds = 176,
+    AggregateRejectedByBounds = 189,
     /// The aggregate being corrected is older than the correction window (#486).
-    CorrectionWindowExpired = 177,
+    CorrectionWindowExpired = 190,
     /// The requested revision index does not exist in the chain (#486).
-    RevisionNotFound = 178,
+    RevisionNotFound = 191,
 
-    // ── 179–181: Restored discriminants referenced by wired modules but
-    // absent from the enum, which left the crate uncompilable. ───────────────
-    /// A required configuration value has not been set.
-    ConfigMissing = 179,
-    /// Outstanding failure reports prevent the relayer bond from being locked.
-    RelayerBondLocked = 180,
-    /// The TWAP window holds fewer distinct observations than the floor.
-    TwapInsufficientObservations = 181,
-
-    // ── 156–171: #246 storage tier, #289 auto-renewal, #397 consensus
-    // rounds, #478 derived feeds. These ranges are the ones the modules' own
-    // test suites assert against, so they are restored verbatim. ────────────
-    /// A persistent → temporary tier downgrade was attempted without the required
-    /// multi-party approval and timelock having completed (#246).
-    StorageTierDowngradeNotReady = 156,
-    /// A renewal authorization was replayed after it had already been consumed (#289).
+    // ── 159–179: #246 storage tiers, #289 auto-renewal, #397 consensus
+    // rounds, #478 derived feeds. These variants existed before the merge of
+    // PR #571 replaced `errors.rs` and dropped them, which left the modules
+    // that reference them unable to compile. They are restored with their
+    // original discriminants, because `auto_renewal_tests` pins those numbers
+    // in its `should_panic` expectations. ───────────────────────────────────
+    /// A renewal authorization was replayed after it had already been consumed.
     RenewalAuthorizationReplay = 159,
-    /// No single-use renewal authorization exists for the requested period (#289).
+    /// No single-use renewal authorization exists for the requested period.
     RenewalAuthorizationMissing = 160,
-    /// The consumer has no standing auto-renewal authorization (#289).
+    /// The consumer has no standing auto-renewal authorization.
     AutoRenewalNotEnabled = 161,
-    /// The subscription was cancelled or superseded, so it cannot renew (#289).
+    /// The subscription was cancelled or superseded, so it cannot renew.
     AutoRenewalCancelled = 162,
-    /// The consumer's pre-approved allowance would be exceeded by this renewal (#289).
-    AutoRenewalAllowanceExceeded = 163,
-    /// The requested round is not the asset's current round (#397).
-    RoundNotFound = 164,
-    /// The round's deadline has passed; it can no longer accept observations (#397).
-    RoundExpired = 165,
-    /// The same observation was already used to satisfy an earlier round's quorum (#397).
-    RoundEvidenceReplay = 166,
-    /// The participant equivocated inside a round and was penalized (#397).
-    RoundEquivocation = 167,
-    /// A derived feed was requested with a zero denominator (#478).
-    DerivedFeedZeroDenominator = 168,
-    /// One (or more) of the requested pair/triplet is unknown or has no price (#478).
-    UnknownDerivedPair = 169,
-    /// The requested derivation would form a cycle in the derivation graph (#478).
-    DerivedFeedCycle = 170,
-    /// The derivation graph depth bound would be exceeded (#478).
-    DerivedFeedDepthExceeded = 171,
 
-    // ── 193–197: #479 basket / index price feeds ──────────────────────────────
-    /// A basket's weights do not sum to `BASKET_WEIGHT_SCALE`.
-    InvalidBasketWeights = 193,
-    /// A basket's constituent list is empty, oversized, or repeats an asset.
-    InvalidBasketComposition = 194,
-    /// A basket names itself as a constituent, directly or transitively.
-    RecursiveBasket = 195,
-    /// A constituent has no price, or one older than the staleness bound,
-    /// under the `Reject` policy.
-    BasketConstituentStale = 196,
-    /// No basket is configured at `basket`.
-    BasketNotFound = 197,
+    // ── 163–165: restored discriminants referenced by wired modules but
+    // absent from the enum. Numbers are taken from the registry note above
+    // and are never reused. ─────────────────────────────────────────────────
+    /// A required configuration value has not been set.
+    ConfigMissing = 192,
+    /// Outstanding failure reports prevent the relayer bond from being locked.
+    RelayerBondLocked = 193,
+    /// The TWAP window holds fewer distinct observations than the floor.
+    TwapInsufficientObservations = 165,
 
-    // ── 198–201: #481 hysteresis circuit breaker ──────────────────────────────
-    /// The breaker's clear threshold is not strictly below its trip threshold.
-    InvalidBreakerDeadband = 198,
-    /// The settle window or open-timeout is zero.
-    InvalidBreakerPolicy = 199,
-    /// The deviation is still at or above the clear threshold, so the breaker
-    /// may not re-arm automatically.
-    BreakerNotSettled = 200,
-    /// The breaker has been open longer than the escalation bound.
-    BreakerEscalationRequired = 201,
+    // ── 172–174: Configurable history storage tier (#246) ─────────────────────
+    /// A persistent -> temporary tier downgrade was attempted without the required
+    /// multi-party approval and timelock having completed.
+    StorageTierDowngradeNotReady = 172,
+    /// The requested storage tier value is not a known discriminant.
+    UnknownStorageTier = 173,
+    /// A history-tier migration could not be completed.
+    StorageTierMigrationFailed = 174,
 
-    // ── 202–205: #482 volatility-bucketed adaptive quorum ─────────────────────
-    /// The adaptive-quorum configuration violates its documented bounds.
-    InvalidAdaptiveQuorum = 202,
-    /// Adaptive quorum is not enabled for this asset.
-    AdaptiveQuorumDisabled = 203,
-    /// Too few volatility observations to classify the regime.
-    InsufficientVolatilitySamples = 204,
-    /// The request refers to a round that is not the asset's current round.
-    AdaptiveQuorumRoundUnknown = 205,
+    // ── 175–179: Subscription auto-renewal (#289) ─────────────────────────────
+    /// A renewal authorization was replayed after it had already been consumed.
+    RenewalAuthorizationReplay = 175,
+    /// No single-use renewal authorization exists for the requested period.
+    RenewalAuthorizationMissing = 176,
+    /// The consumer has no standing auto-renewal authorization.
+    AutoRenewalNotEnabled = 177,
+    /// The subscription was cancelled or superseded, so it cannot renew.
+    AutoRenewalCancelled = 178,
+    /// The consumer's pre-approved allowance would be exceeded by this renewal.
+    AutoRenewalAllowanceExceeded = 179,
+
+    // ── 180–183: Multi-round price confirmation (#397) ────────────────────────
+    /// The requested round is not the asset's current round.
+    RoundNotFound = 180,
+    /// The round's deadline has passed; it can no longer accept observations.
+    RoundExpired = 181,
+    /// The same observation was already used to satisfy an earlier round's quorum.
+    RoundEvidenceReplay = 182,
+    /// The participant equivocated inside a round and was penalized.
+    RoundEquivocation = 183,
+
+    // ── 184–187: Derived price feeds (#478) ────────────────────────────────────
+    /// A derived feed was requested with a zero denominator.
+    DerivedFeedZeroDenominator = 184,
+    /// One (or more) of the requested pair/triplet is unknown or has no price.
+    UnknownDerivedPair = 185,
+    /// The requested derivation would form a cycle in the derivation graph.
+    DerivedFeedCycle = 186,
+    /// The derivation graph depth bound would be exceeded.
+    DerivedFeedDepthExceeded = 187,
 }

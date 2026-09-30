@@ -1,2 +1,7 @@
 cargo fmt --manifest-path contracts/price-oracle/Cargo.toml -- --check
 cargo clippy -p price-oracle -- -D warnings
+# #502: refuse to commit a secret. Scans the staged files (source, config, CI
+# definitions and fixtures) and fails the commit, so a leaked credential never
+# reaches history. Bypass for a reviewed false positive with an allowlist entry
+# in config/secret-scan-allowlist.json — not with `git commit --no-verify`.
+python3 -m services.secret_scan.scanner --staged

@@ -1,0 +1,12 @@
+{
+  "contract": "price-oracle",
+  "abi_version": "1.0.0",
+  "functions": [
+    {"name": "decimals", "inputs": [], "output": "u32"},
+    {"name": "base", "inputs": [], "output": "Asset"},
+    {"name": "lastprice", "inputs": [{"name": "asset", "type": "Asset"}], "output": "Option<PriceData>"},
+    {"name": "price", "inputs": [{"name": "asset", "type": "Asset"}, {"name": "timestamp", "type": "u64"}], "output": "Option<PriceData>"},
+    {"name": "prices", "inputs": [{"name": "asset", "type": "Asset"}, {"name": "records", "type": "u32"}], "output": "Option<Vec<PriceData>>"},
+    {"name": "get_effective_config", "inputs": [{"name": "asset", "type": "Address"}], "output": "StagedConfig"}
+  ]
+}

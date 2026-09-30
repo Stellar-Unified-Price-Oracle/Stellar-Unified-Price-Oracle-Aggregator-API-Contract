@@ -3,6 +3,21 @@
 Harness: `contracts/price-oracle/src/invariant_harness_tests.rs` (runs in CI as part of
 `cargo test -p price-oracle --lib`).
 
+## Related verification layers
+
+This catalogue checks invariants during hostile sequences. It sits alongside
+three other layers, each of which catches what the others cannot:
+
+| Layer | Doc | Catches |
+|---|---|---|
+| Attack-regression corpus (#511) | [attack-regression-corpus.md](attack-regression-corpus.md) | a *specific* historical attack silently returning |
+| Bounded formal proofs (#512) | [formal-verification.md](formal-verification.md) | arithmetic violations across the whole bounded domain |
+| Model-based state machine (#513) | [state-machine-model.md](state-machine-model.md) | interactions across *sequences* of public calls |
+| Coverage-guided fuzzing (#514) | [fuzzing.md](fuzzing.md) | deep, structurally-unexpected inputs |
+
+A new invariant should normally be entered into this catalogue **and** the
+attack-regression corpus.
+
 A seeded hostile generator (xorshift64*) drives the public API with source
 admission/removal, asset registration, time advance, and submissions with extreme,
 zero, and negative prices. Safety invariants are asserted after **every** step;

@@ -1,0 +1,18 @@
+{
+  "name": "@stellar-unified-price-oracle/interface",
+  "version": "0.1.0",
+  "description": "Versioned contract interface (function signatures, error registry) for the Stellar Unified Price Oracle Aggregator",
+  "license": "MIT",
+  "files": ["interface.json", "errors.json", "versions.json", "index.js", "index.d.ts", "README.md"],
+  "main": "index.js",
+  "types": "index.d.ts",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Stellar-Unified-Price-Oracle/Stellar-Unified-Price-Oracle-Aggregator-API-Contract.git",
+    "directory": "interface"
+  },
+  "publishConfig": { "access": "public", "provenance": true },
+  "scripts": {
+    "prepack": "cp ../docs/errors/registry.json errors.json"
+  }
+}

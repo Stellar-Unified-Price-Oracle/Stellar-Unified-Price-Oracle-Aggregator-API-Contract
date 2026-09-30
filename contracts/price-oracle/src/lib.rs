@@ -37,8 +37,13 @@ mod auto_renewal;
 mod basket;
 mod breaker;
 mod consensus_rounds;
+mod constant_time;
 mod derived_feeds;
 mod storage_tier;
+pub mod param_registry;
+pub mod proposal_impact;
+pub mod transparency_report;
+pub mod treasury_budget;
 // The core module is always compiled (it has no Env deps).
 // When the `fuzz` feature is enabled it is also re-exported so that the
 // fuzz crate can call `price_oracle::core_pricing::*` directly.
@@ -57,6 +62,7 @@ mod contribution_quality;
 mod correlation;
 mod coverage;
 mod cross_reference;
+mod dead_man;
 mod deadline_rebate;
 mod degradation;
 mod dex;
@@ -80,9 +86,10 @@ mod flash_swing;
 mod freeze;
 mod gas_metering;
 mod health;
+// #506 — canonicalization & validation for every string/bytes parameter.
 mod history;
 mod incremental_aggregate;
-mod median_determinism;
+mod input_validation;
 mod metadata;
 mod migration;
 mod multisig;
@@ -116,6 +123,12 @@ mod state_channel;
 mod state_introspection;
 mod submission_deadline;
 mod subscription;
+// #246/#289/#397/#478 — storage tiers, auto-renewal, consensus rounds and
+// derived feeds.
+mod auto_renewal;
+mod consensus_rounds;
+mod derived_feeds;
+mod storage_tier;
 // #304 — Consumer contract authorization (wired in from disk).
 mod confidence_band;
 mod consumer_auth;
@@ -199,8 +212,28 @@ mod recompute;
 mod price_bounds;
 // #485: quorum-within-window deferred publication for illiquid assets.
 mod deferral;
+mod staged_rollout;
 // #486: authorized price corrections with an immutable revision chain.
 mod corrections;
+// #398: pre-aggregation data-quality pipeline.
+mod dq_pipeline;
+// #400: blackout / quiet-period windows.
+mod blackout;
+// #401: cross-source comparison dashboard data.
+mod source_comparison;
+// #402: source onboarding / offboarding lifecycle.
+#[cfg(test)]
+mod issues_398_400_401_402_tests;
+mod source_lifecycle;
+
+// #487: closed set of asset risk tiers that supply aggregation parameters.
+mod risk_tier;
+// #488: cross-asset consistency relations with reject/flag/quarantine actions.
+mod sanity_lattice;
+// #489: freshness-aware quorum that excludes expired submissions.
+mod freshness_quorum;
+// #490: per-source rolling accuracy scorecards against a leave-one-out reference.
+mod scorecards;
 
 #[cfg(test)]
 mod circuit_breaker_tests;
@@ -224,7 +257,25 @@ mod cross_ref_tests;
 mod override_tests;
 
 #[cfg(test)]
+mod timing_shape_tests;
+
+#[cfg(test)]
+mod multisig_rotation_tests;
+
+#[cfg(test)]
+mod dead_man_switch_tests;
+
+#[cfg(test)]
+mod capability_matrix_tests;
+
+#[cfg(test)]
 mod prop_tests;
+
+// #505 — independent reference implementation + differential suite against it.
+#[cfg(test)]
+mod reference_diff_tests;
+#[cfg(test)]
+mod reference_pricing;
 
 // =============================================================================
 // #370 — Governance Analytics Dashboard Tests
@@ -258,6 +309,14 @@ mod optimistic_oracle_tests;
 
 #[cfg(test)]
 mod string_boundary_tests;
+
+// #504 — the endpoint fuzz-surface manifest must match lib.rs.
+#[cfg(test)]
+mod fuzz_coverage_tests;
+
+// #506 — canonicalization & validation audit (completeness, boundary, adversarial).
+#[cfg(test)]
+mod input_validation_tests;
 
 #[cfg(test)]
 mod challenger_tests;
@@ -316,6 +375,24 @@ mod cross_contract_governance_tests;
 #[cfg(test)]
 mod delta_encoding_storage_tests;
 
+// #513 — Model-based state-machine tests: an independently written model of the
+// aggregate lifecycle, driven by deterministic random traces with shrinking.
+// See docs/security/state-machine-model.md.
+#[cfg(test)]
+mod model_state_machine_tests;
+
+// #512 — Bounded formal proofs (Kani) for the aggregation math. Compiled only
+// under `cfg(kani)`, so it costs nothing in the contract or test builds. Run
+// with `make kani-gate`. See docs/security/formal-verification.md.
+#[cfg(kani)]
+mod kani_proofs;
+
+// #511 — Attack-regression corpus. Runs as its own CI job (make attack-gate)
+// so the security corpus has an explicit time budget separate from the rest of
+// the suite. See docs/security/attack-regression-corpus.md.
+#[cfg(test)]
+mod attack_regression_tests;
+
 #[cfg(test)]
 mod wasm_binary_size_tests;
 
@@ -326,39 +403,36 @@ pub use types::{
     AdminOpLimit, AdminOperationType, AggregatePrice, AggregationMethod, AggregationRound,
     AlertSubscription, AmmPool, AmmWeightConfig, AnomalyExplanation, AnomalyRule, Asset,
     AssetDecimalConfig, AssetMetadata, AssetMetadataUpdate, AssetPricingConfig,
-    AssetProofRequirement, AssetType, AuditEntry, AutoRenewRecord, BasketConfig, BasketConstituent,
-    BasketContribution, BasketRebalancePolicy, BasketStalenessPolicy, BasketValue, BatchItem,
-    BatchOperation, BatchSimulationResult, BftAggregationMethod, BreakerPolicy, BreakerStatus,
-    BridgeOracleConfig, BridgedPrice, CallbackRegistration, Challenge, CompactionMetadata,
-    ConfigSnapshot, ConfirmedPrice, ConsumerAccessMode, ConsumerInfo, ConsumerTier,
-    ContractMetadata, ContribQualityRecord, CorrelationBand, CorrelationPair, CoverageReport,
-    CrossChainPriceEntry, CrossChainPricePayload, CrossChainRelayConfig, CrossReferenceResult,
-    DataKey, DecentralizationReport, DegradationConfig, DegradationState, DegradationStats,
-    DemeritConfig, DerivedFeed, DerivedFeedInput, DerivedFeedKind, DeviationReport, DexPrice,
-    DisagreementRecord, DisqualificationStatus, DiversityThresholds, DriftReport,
-    EcosystemMetadata, EffectivePolicy, EmergencyPause, ErrorCode, ExportedEntry,
-    ExportedHistorySnapshot, ExternalDataProof, FeeMarketSubmission, FeedMetadata, FinalityStatus,
-    FinalizedPrice, ForeignAssetMapping, FreshnessCurve, FrozenPrice, GasRecord, Groth16Proof,
-    Groth16VerifyingKey, GuardianRecovery, HealthReport, HistoryStorageTier, LatencyReport,
-    LatencySample, MigrationState, MigrationStatus, MultiSigOperation, NotificationPreference,
-    Operation, OperationKind, OperationPriority, OperationSimulationResult, OperationStatus,
-    OperationTemplate, OperationType, OptimisticProposal, OptimisticProposalStatus, OracleSources,
-    OutlierConfig, OutlierExclusion, PendingBatch, PendingFeeSubmissions, PendingFinalityEntry,
-    PendingOperation, PolicyOverride, PriceBounds, PriceCommit, PriceData, PriceEntry,
-    PriceEventPayload, PriceHistoryEntry, PriceOverrideEntry, PriceProof, ProvenanceEntry,
-    ProvenanceHead, ProvenanceRecord, QuorumRegime, ReferenceOracleEntry, RelayedSubmission,
-    RelayerAssetStat, RelayerDashboard, RelayerFailureReason, RelayerInfo, RenewalAttempt,
-    RenewalAuthorization, Role, RoundConfig, RoundQuorum, RoundStatus, RoundTally, RoundVote,
-    SimulationWarning, SoroswapPool, SourceDemeritState, SourceDidLink, SourceDiversityReport,
-    SourceGeoMetadata, SourceGovernance, SourceHealthStatus, SourceProposal,
-    SourceRelayerDelegation, SourceRotationSchedule, SourceStakeRecord, SourceVerification,
-    StateAnalysis, StateChannel, StateDiff, StateDiffEntry, StateDump, StellarHeader,
-    StorageBatchRequest, StorageBatchResult, StorageBudget, StorageTierDowngradeRequest,
-    StorageTierInfo, StorageTtlEntry, SubscriptionExpiry, SubscriptionPayment, SubscriptionPlan,
-    SubscriptionPlans, TemplateStep, TotalStorageBudget, TwapMethod, TwapResult,
-    VersionedAggregatePrice, VolatilityBuckets, WeightedAggregate, WormholeGuardianSet,
-    WormholePricePayload, WormholeVaa, ZkPriceAttestation, BASKET_WEIGHT_SCALE,
-    MAX_BASKET_CONSTITUENTS,
+    AssetProofRequirement, AssetType, AuditEntry, AutoRenewRecord, BatchItem, BatchOperation,
+    BatchSimulationResult, BftAggregationMethod, BridgeOracleConfig, BridgedPrice,
+    CallbackRegistration, Challenge, CompactionMetadata, ConfigSnapshot, ConfirmedPrice,
+    ConsumerAccessMode, ConsumerInfo, ConsumerTier, ContractMetadata, ContribQualityRecord,
+    CorrelationBand, CorrelationPair, CoverageReport, CrossChainPriceEntry, CrossChainPricePayload,
+    CrossChainRelayConfig, CrossReferenceResult, DataKey, DeadManConfig, DeadManState,
+    DecentralizationReport, DegradationConfig, DegradationState, DegradationStats, DemeritConfig,
+    DerivedFeed, DerivedFeedInput, DerivedFeedKind, DeviationReport, DexPrice, DisagreementRecord,
+    DisqualificationStatus, DiversityThresholds, DriftReport, EcosystemMetadata, EffectivePolicy,
+    EmergencyPause, ErrorCode, ExportedEntry, ExportedHistorySnapshot, ExternalDataProof,
+    FeeMarketSubmission, FeedMetadata, FinalityStatus, FinalizedPrice, ForeignAssetMapping,
+    FreshnessCurve, FrozenPrice, GasRecord, Groth16Proof, Groth16VerifyingKey, GuardianRecovery,
+    HealthReport, HistoryStorageTier, LatencyReport, LatencySample, MigrationState,
+    MigrationStatus, MultiSigOperation, NotificationPreference, Operation, OperationKind,
+    OperationPriority, OperationSimulationResult, OperationStatus, OperationTemplate,
+    OperationType, OptimisticProposal, OptimisticProposalStatus, OracleSources, OutlierConfig,
+    OutlierExclusion, PendingBatch, PendingFeeSubmissions, PendingFinalityEntry, PendingOperation,
+    PolicyOverride, PriceBounds, PriceCommit, PriceData, PriceEntry, PriceEventPayload,
+    PriceHistoryEntry, PriceOverrideEntry, PriceProof, ProvenanceEntry, ProvenanceHead,
+    ProvenanceRecord, ReferenceOracleEntry, RelayedSubmission, RelayerAssetStat, RelayerDashboard,
+    RelayerFailureReason, RelayerInfo, RenewalAttempt, RenewalAuthorization, Role, RoundConfig,
+    RoundStatus, RoundTally, RoundVote, SimulationWarning, SoroswapPool, SourceDemeritState,
+    SourceDidLink, SourceDiversityReport, SourceGeoMetadata, SourceGovernance, SourceHealthStatus,
+    SourceProposal, SourceRelayerDelegation, SourceRotationSchedule, SourceStakeRecord,
+    SourceVerification, StateAnalysis, StateChannel, StateDiff, StateDiffEntry, StateDump,
+    StellarHeader, StorageBatchRequest, StorageBatchResult, StorageBudget,
+    StorageTierDowngradeRequest, StorageTierInfo, StorageTtlEntry, SubscriptionExpiry,
+    SubscriptionPayment, SubscriptionPlan, SubscriptionPlans, TemplateStep, TotalStorageBudget,
+    TwapMethod, TwapResult, VersionedAggregatePrice, WeightedAggregate, WormholeGuardianSet,
+    WormholePricePayload, WormholeVaa, ZkPriceAttestation,
 };
 
 use soroban_sdk::{
@@ -624,6 +698,12 @@ impl PriceOracleContract {
         asset: Address,
         hypothetical_prices: Vec<(Address, i128)>,
     ) -> Option<i128> {
+        crate::input_validation::validate_list_len(
+            &env,
+            "simulate_aggregation",
+            "hypothetical_prices",
+            hypothetical_prices.len(),
+        );
         prices::simulate_aggregation(&env, asset, hypothetical_prices)
     }
 
@@ -633,6 +713,12 @@ impl PriceOracleContract {
         root: BytesN<32>,
         proofs: Vec<prices::MerkleProof>,
     ) {
+        crate::input_validation::validate_list_len(
+            &env,
+            "submit_price_merkle",
+            "proofs",
+            proofs.len(),
+        );
         prices::submit_price_merkle(&env, source, root, proofs);
     }
 
@@ -1314,6 +1400,12 @@ impl PriceOracleContract {
     /// Returns the unique batch ID. Each `BatchOperation` carries an `op_type` (0–7) and
     /// encoded `data` matching the same format as `propose_operation`.
     pub fn propose_batch(env: Env, operations: Vec<BatchOperation>) -> u32 {
+        crate::input_validation::validate_list_len(
+            &env,
+            "propose_batch",
+            "operations",
+            operations.len(),
+        );
         timelock::propose_batch(&env, operations)
     }
 
@@ -1339,6 +1431,12 @@ impl PriceOracleContract {
     /// A [`BatchSimulationResult`] with per-operation results, warning counts, and an
     /// `all_succeed` flag indicating whether the full batch is safe to submit.
     pub fn simulate_batch(env: Env, operations: Vec<BatchOperation>) -> BatchSimulationResult {
+        crate::input_validation::validate_list_len(
+            &env,
+            "simulate_batch",
+            "operations",
+            operations.len(),
+        );
         simulate_batch::simulate_batch(&env, operations)
     }
 
@@ -1459,6 +1557,12 @@ impl PriceOracleContract {
 
     pub fn add_source_with_assets(env: Env, source: Address, name: String, assets: Vec<Address>) {
         reentrancy::enter(&env);
+        crate::input_validation::validate_list_len(
+            &env,
+            "add_source_with_assets",
+            "assets",
+            assets.len(),
+        );
         sources::add_source_with_assets(&env, source, name, assets);
         reentrancy::exit(&env);
     }
@@ -1640,6 +1744,12 @@ impl PriceOracleContract {
 
     pub fn set_source_governance(env: Env, approvers: Vec<Address>, threshold: u32) {
         reentrancy::enter(&env);
+        crate::input_validation::validate_list_len(
+            &env,
+            "set_source_governance",
+            "approvers",
+            approvers.len(),
+        );
         sources::set_source_governance(&env, approvers, threshold);
         reentrancy::exit(&env);
     }
@@ -1863,6 +1973,114 @@ impl PriceOracleContract {
     pub fn reset_drift_window(env: Env, asset: Address) {
         reentrancy::enter(&env);
         drift::reset_window(&env, asset);
+        reentrancy::exit(&env);
+    }
+
+    // --- #398: Pre-aggregation data-quality pipeline ---
+
+    /// Sets the per-asset DQ thresholds. Admin-only.
+    pub fn set_dq_config(env: Env, asset: Address, config: dq_pipeline::DqConfig) {
+        reentrancy::enter(&env);
+        dq_pipeline::set_config(&env, asset, config);
+        reentrancy::exit(&env);
+    }
+
+    /// Removes the DQ thresholds for `asset`. Admin-only.
+    pub fn clear_dq_config(env: Env, asset: Address) {
+        reentrancy::enter(&env);
+        dq_pipeline::clear_config(&env, asset);
+        reentrancy::exit(&env);
+    }
+
+    pub fn get_dq_config(env: Env, asset: Address) -> Option<dq_pipeline::DqConfig> {
+        dq_pipeline::get_config(&env, &asset)
+    }
+
+    pub fn get_dq_anchor(env: Env, asset: Address) -> Option<dq_pipeline::DqAnchor> {
+        dq_pipeline::get_anchor(&env, &asset)
+    }
+
+    // --- #400: Blackout / quiet-period windows ---
+
+    /// Schedules a blackout window `[start, end)` for `asset`. Admin-only.
+    pub fn schedule_blackout(env: Env, asset: Address, start: u64, end: u64) {
+        reentrancy::enter(&env);
+        blackout::schedule(&env, asset, start, end);
+        reentrancy::exit(&env);
+    }
+
+    /// Extends the pending or active window for `asset`. Admin-only.
+    pub fn extend_blackout(env: Env, asset: Address, new_end: u64) {
+        reentrancy::enter(&env);
+        blackout::extend(&env, asset, new_end);
+        reentrancy::exit(&env);
+    }
+
+    /// Cancels the pending or active window for `asset`. Admin-only.
+    pub fn cancel_blackout(env: Env, asset: Address) {
+        reentrancy::enter(&env);
+        blackout::cancel(&env, asset);
+        reentrancy::exit(&env);
+    }
+
+    /// Records a volatility signal; opens a window at quorum.
+    pub fn signal_volatility(env: Env, source: Address, asset: Address) -> bool {
+        reentrancy::enter(&env);
+        let opened = blackout::signal_volatility(&env, source, asset);
+        reentrancy::exit(&env);
+        opened
+    }
+
+    pub fn set_volatility_quorum(env: Env, quorum: u32) {
+        blackout::set_volatility_quorum(&env, quorum);
+    }
+
+    pub fn get_blackout(env: Env, asset: Address) -> Option<blackout::BlackoutWindow> {
+        blackout::get_window(&env, &asset)
+    }
+
+    // --- #401: Cross-source comparison dashboard ---
+
+    /// Enables or disables per-round comparison indexing for `asset`. Admin-only.
+    pub fn set_source_comparison(env: Env, asset: Address, enabled: bool) {
+        source_comparison::set_enabled(&env, asset, enabled);
+    }
+
+    /// Deviation, collusion, influence and exclusion report for `asset`.
+    pub fn get_source_comparison(env: Env, asset: Address) -> source_comparison::ComparisonReport {
+        source_comparison::report(&env, &asset)
+    }
+
+    // --- #402: Source onboarding / offboarding lifecycle ---
+
+    pub fn set_lifecycle_config(env: Env, config: source_lifecycle::LifecycleConfig) {
+        source_lifecycle::set_config(&env, config);
+    }
+
+    /// Registers `source` bound to `identity` and starts probation. Admin-only.
+    pub fn onboard_source(env: Env, source: Address, name: String, identity: BytesN<32>) {
+        reentrancy::enter(&env);
+        source_lifecycle::onboard(&env, source, name, identity);
+        reentrancy::exit(&env);
+    }
+
+    /// Lifts probation once the probation period and bond steps pass.
+    pub fn graduate_source(env: Env, source: Address) {
+        source_lifecycle::graduate(&env, source);
+    }
+
+    pub fn get_onboarding_checklist(
+        env: Env,
+        source: Address,
+    ) -> source_lifecycle::OnboardingChecklist {
+        source_lifecycle::checklist(&env, &source)
+    }
+
+    /// Atomically offboards `source`, slashing its bond when `evidence_asset`
+    /// proves malfeasance. Admin-only.
+    pub fn offboard_source(env: Env, source: Address, evidence_asset: Option<Address>) {
+        reentrancy::enter(&env);
+        source_lifecycle::offboard(&env, source, evidence_asset);
         reentrancy::exit(&env);
     }
 
@@ -2266,6 +2484,12 @@ impl PriceOracleContract {
     ///
     /// Same error conditions as `submit_price`, applied per entry.
     pub fn submit_prices(env: Env, source: Address, asset_prices: Vec<(Address, i128, u64)>) {
+        crate::input_validation::validate_list_len(
+            &env,
+            "submit_prices",
+            "asset_prices",
+            asset_prices.len(),
+        );
         prices::submit_prices(&env, source, asset_prices);
     }
 
@@ -3735,6 +3959,12 @@ impl PriceOracleContract {
     /// * [`ErrorCode::BatchNotFeePrioritized`] — legs are not fee-ordered.
     /// * Any error `submit_price_relayed` raises for an individual leg.
     pub fn submit_prices_relayed(env: Env, relayer: Address, submissions: Vec<RelayedSubmission>) {
+        crate::input_validation::validate_list_len(
+            &env,
+            "submit_prices_relayed",
+            "submissions",
+            submissions.len(),
+        );
         relayer::submit_prices_relayed(&env, relayer, submissions);
     }
 
@@ -4658,6 +4888,164 @@ impl PriceOracleContract {
     }
 
     // =========================================================================
+    // #491 outlier filter, #492 latency analytics, #493 provenance,
+    // #494 disagreement index — restored by the build repair below.
+    // =========================================================================
+
+    /// Configures the robust outlier pre-filter for `asset`. Admin only.
+    ///
+    /// `detector`: `0` disables filtering, `1` selects the median absolute
+    /// deviation, `2` the interquartile range. `sensitivity_bps` is the
+    /// exclusion threshold in that detector's units (default `35000` = 3.5
+    /// MAD for detector 1, `15000` = 1.5 x IQR for detector 2).
+    /// `min_sources` is the source-count floor below which filtering is
+    /// skipped, in `4..=64`. Pass `None` to clear the override.
+    ///
+    /// # Errors
+    /// * [`ErrorCode::InvalidConfiguration`] — a bound above is violated.
+    pub fn set_outlier_config(env: Env, asset: Address, config: Option<types::OutlierConfig>) {
+        outlier_filter::set_config(&env, asset, config);
+    }
+
+    /// Returns the prices the pre-filter excluded during the most recent
+    /// aggregation of `asset`, with the score of each (#491).
+    pub fn get_outlier_exclusions(
+        env: Env,
+        asset: Address,
+    ) -> soroban_sdk::Vec<types::OutlierExclusion> {
+        outlier_filter::get_exclusions(&env, &asset)
+    }
+
+    /// Returns the robust pre-filter configuration of `asset`.
+    pub fn get_outlier_config(env: Env, asset: Address) -> types::OutlierConfig {
+        outlier_filter::get_config(&env, &asset)
+    }
+
+    /// Returns latency percentiles for a (source, asset) pair over the
+    /// rolling window of stored samples (#492).
+    ///
+    /// Every duration is in **ledgers**; `seconds_per_ledger` in the report
+    /// gives the nominal conversion. `never_counted` counts submissions that
+    /// were replaced before any aggregate counted them, and `window`
+    /// carries the raw samples so the percentiles can be recomputed.
+    pub fn get_latency_report(env: Env, source: Address, asset: Address) -> types::LatencyReport {
+        latency::get_report(&env, &source, &asset)
+    }
+
+    /// Returns the raw rolling latency samples for a (source, asset) pair,
+    /// oldest first (#492).
+    pub fn get_latency_samples(
+        env: Env,
+        source: Address,
+        asset: Address,
+    ) -> soroban_sdk::Vec<types::LatencySample> {
+        latency::get_samples(&env, &source, &asset)
+    }
+
+    /// Returns the provenance record of the aggregate published for
+    /// `asset` at `ledger`, naming every contributing submission, source
+    /// and weight (#493).
+    ///
+    /// # Errors
+    /// * [`ErrorCode::NoData`] — no record at that ledger. It was never
+    ///   written, or it was pruned along with the price history.
+    pub fn get_provenance(env: Env, asset: Address, ledger: u32) -> types::ProvenanceRecord {
+        provenance::get_record(&env, &asset, ledger)
+            .unwrap_or_else(|| panic_with_error!(&env, ErrorCode::NoData))
+    }
+
+    /// Verifies a provenance record: its commitment matches its contents and
+    /// it chains to its predecessor of the same asset (#493).
+    ///
+    /// Returns `false` for a record that was edited, replaced or back-dated.
+    pub fn verify_provenance(env: Env, asset: Address, ledger: u32) -> bool {
+        provenance::verify_link(&env, &asset, ledger)
+    }
+
+    /// Returns the pairwise disagreement index recorded by the most recent
+    /// aggregate of `asset` (#494).
+    pub fn get_disagreement_index(env: Env, asset: Address) -> Option<types::DisagreementIndex> {
+        disagreement::get_index(&env, &asset)
+    }
+
+    // =========================================================================
+    // #510 — Dead-Man Switch (liveness watchdog)
+    // =========================================================================
+
+    /// Arms the dead-man switch. Admin-only.
+    ///
+    /// `trigger_after = 0` disables the switch. While armed, the contract
+    /// enters a degraded state once no operator heartbeat has been seen for
+    /// `trigger_after` seconds, rejecting submissions and serving no price.
+    /// The degraded state is cleared by a recovery guardian, not by the admin
+    /// key, so it survives loss of the admin.
+    ///
+    /// # Errors
+    ///
+    /// * [`ErrorCode::NotAuthorized`] — caller is not the admin.
+    /// * [`ErrorCode::InvalidConfiguration`] — `warn_after >= trigger_after`,
+    ///   or no operator was supplied while arming.
+    pub fn dead_man_configure(
+        env: Env,
+        trigger_after: u64,
+        warn_after: u64,
+        operators: Vec<Address>,
+    ) {
+        dead_man::configure(&env, trigger_after, warn_after, operators);
+    }
+
+    /// Returns the dead-man switch configuration.
+    pub fn dead_man_get_config(env: Env) -> DeadManConfig {
+        dead_man::get_config(&env)
+    }
+
+    /// Records a liveness heartbeat from a registered operator.
+    ///
+    /// `operator` must authorize the call *and* be in the operator set, so a
+    /// heartbeat cannot be spoofed. A heartbeat does not clear the degraded
+    /// state — only the recovery path does.
+    ///
+    /// # Errors
+    ///
+    /// * [`ErrorCode::DeadManDisabled`] — the switch is not armed.
+    /// * [`ErrorCode::NotAuthorized`] — not a registered operator.
+    pub fn dead_man_heartbeat(env: Env, operator: Address) {
+        dead_man::heartbeat(&env, operator);
+    }
+
+    /// Evaluates the heartbeat deadline, entering the degraded state if it has
+    /// passed. Permissionless and idempotent.
+    ///
+    /// # Returns
+    ///
+    /// The resulting [`DeadManState`].
+    pub fn dead_man_evaluate(env: Env) -> u32 {
+        match dead_man::evaluate(&env) {
+            DeadManState::Operational => 0,
+            DeadManState::Degraded => 1,
+        }
+    }
+
+    /// Returns whether the contract is in the dead-man degraded state.
+    pub fn dead_man_is_degraded(env: Env) -> bool {
+        dead_man::is_degraded(&env)
+    }
+
+    /// Clears the degraded state and resumes serving.
+    ///
+    /// Callable by any registered recovery guardian, so recovery does not
+    /// depend on the admin key. The admin may also clear it while it holds the
+    /// key.
+    ///
+    /// # Errors
+    ///
+    /// * [`ErrorCode::NotDegraded`] — the contract is not degraded.
+    /// * [`ErrorCode::NotAuthorized`] — caller is neither admin nor guardian.
+    pub fn dead_man_recover(env: Env, guardian: Address) {
+        dead_man::recover(&env, guardian);
+    }
+
+    // =========================================================================
     // #178 — N-of-M Multi-Sig Governance & Ordered Timelock
     // =========================================================================
 
@@ -4667,6 +5055,12 @@ impl PriceOracleContract {
     /// * [`ErrorCode::NotAuthorized`] — caller is not admin.
     /// * [`ErrorCode::InvalidConfiguration`] — required is 0 or > governor count.
     pub fn ms_set_governors(env: Env, governors: Vec<Address>, required: u32) {
+        crate::input_validation::validate_list_len(
+            &env,
+            "ms_set_governors",
+            "governors",
+            governors.len(),
+        );
         multisig::set_governors(&env, governors, required);
     }
 
@@ -4846,6 +5240,13 @@ impl PriceOracleContract {
         proof: Groth16Proof,
         public_signals: Vec<soroban_sdk::BytesN<32>>,
     ) {
+        // #506 — elements are fixed width, but the caller controls the count.
+        crate::input_validation::validate_list_len(
+            &env,
+            "zk_submit_price",
+            "public_signals",
+            public_signals.len(),
+        );
         reentrancy::enter(&env);
         zk_verify::submit_zk_price(&env, source, asset, proof, public_signals);
         reentrancy::exit(&env);
@@ -4885,6 +5286,7 @@ impl PriceOracleContract {
         signature: BytesN<64>,
         source_pubkey: BytesN<32>,
     ) {
+        crate::input_validation::validate_list_len(&env, "sc_submit_batch", "batch", batch.len());
         reentrancy::enter(&env);
         state_channel::submit_batch(&env, source, batch, signature, source_pubkey);
         reentrancy::exit(&env);
@@ -4920,6 +5322,12 @@ impl PriceOracleContract {
         signature: BytesN<64>,
         source_pubkey: BytesN<32>,
     ) {
+        crate::input_validation::validate_list_len(
+            &env,
+            "sc_dispute_channel",
+            "last_known_batch",
+            last_known_batch.len(),
+        );
         reentrancy::enter(&env);
         state_channel::dispute_channel(&env, source, last_known_batch, signature, source_pubkey);
         reentrancy::exit(&env);
@@ -5202,6 +5610,19 @@ impl PriceOracleContract {
         validators: Vec<BytesN<32>>,
         signatures: Vec<BytesN<64>>,
     ) -> bool {
+        // #506 — bound both lists: each element is fixed width, the length is not.
+        crate::input_validation::validate_list_len(
+            &env,
+            "relay_verify_validator_set",
+            "validators",
+            validators.len(),
+        );
+        crate::input_validation::validate_list_len(
+            &env,
+            "relay_verify_validator_set",
+            "signatures",
+            signatures.len(),
+        );
         cross_chain_relay::verify_validator_set(&env, header_hash, validators, signatures)
     }
 
@@ -5214,6 +5635,13 @@ impl PriceOracleContract {
         proof: Vec<BytesN<32>>,
         event_data: PriceEventPayload,
     ) -> bool {
+        // #506 — bound the Merkle proof path supplied by the caller.
+        crate::input_validation::validate_list_len(
+            &env,
+            "relay_verify_event_proof",
+            "proof",
+            proof.len(),
+        );
         cross_chain_relay::verify_event_proof(&env, header_hash, proof, event_data)
     }
 
@@ -5236,6 +5664,12 @@ impl PriceOracleContract {
     /// * [`ErrorCode::NotAuthorized`] — caller is not admin.
     /// * [`ErrorCode::InvalidGuardianConfig`] — threshold is `0` or exceeds guardian count.
     pub fn recovery_set_guardians(env: Env, guardians: Vec<Address>, threshold: u32) {
+        crate::input_validation::validate_list_len(
+            &env,
+            "recovery_set_guardians",
+            "guardians",
+            guardians.len(),
+        );
         recovery::set_guardians(&env, guardians, threshold);
     }
 
@@ -5713,6 +6147,12 @@ impl PriceOracleContract {
         env: Env,
         requests: Vec<StorageBatchRequest>,
     ) -> Vec<StorageBatchResult> {
+        crate::input_validation::validate_list_len(
+            &env,
+            "get_storage_batch",
+            "requests",
+            requests.len(),
+        );
         batch_storage::get_storage_batch(&env, requests)
     }
 
@@ -5994,6 +6434,90 @@ impl PriceOracleContract {
         confidence_band::get_confidence_band(&env, &asset)
     }
 
+    // ── Robust outlier pre-filtering (#491) ──────────────────────────────────
+
+    /// Configures the robust outlier pre-filter for `asset`. Admin only.
+    ///
+    /// `detector`: `0` disables filtering, `1` selects the median absolute
+    /// deviation, `2` the interquartile range. `sensitivity_bps` is the
+    /// exclusion threshold in that detector's units (default `35000` = 3.5
+    /// MAD for detector 1, `15000` = 1.5 x IQR for detector 2).
+    /// `min_sources` is the source-count floor below which filtering is
+    /// skipped, in `4..=64`. Pass `None` to clear the override.
+    ///
+    /// # Errors
+    /// * [`ErrorCode::InvalidConfiguration`] — a bound above is violated.
+    pub fn set_outlier_config(env: Env, asset: Address, config: Option<types::OutlierConfig>) {
+        outlier_filter::set_config(&env, asset, config);
+    }
+
+    /// Returns the robust pre-filter configuration of `asset`.
+    pub fn get_outlier_config(env: Env, asset: Address) -> types::OutlierConfig {
+        outlier_filter::get_config(&env, &asset)
+    }
+
+    /// Returns the prices the pre-filter excluded during the most recent
+    /// aggregation of `asset`, with the score of each (#491).
+    pub fn get_outlier_exclusions(
+        env: Env,
+        asset: Address,
+    ) -> soroban_sdk::Vec<types::OutlierExclusion> {
+        outlier_filter::get_exclusions(&env, &asset)
+    }
+
+    // ── Submission-to-aggregate latency analytics (#492) ─────────────────────
+
+    /// Returns latency percentiles for a (source, asset) pair over the
+    /// rolling window of stored samples (#492).
+    ///
+    /// Every duration is in **ledgers**; `seconds_per_ledger` in the report
+    /// gives the nominal conversion. `never_counted` counts submissions that
+    /// were replaced before any aggregate counted them, and `window`
+    /// carries the raw samples so the percentiles can be recomputed.
+    pub fn get_latency_report(env: Env, source: Address, asset: Address) -> types::LatencyReport {
+        latency::get_report(&env, &source, &asset)
+    }
+
+    /// Returns the raw rolling latency samples for a (source, asset) pair,
+    /// oldest first (#492).
+    pub fn get_latency_samples(
+        env: Env,
+        source: Address,
+        asset: Address,
+    ) -> soroban_sdk::Vec<types::LatencySample> {
+        latency::get_samples(&env, &source, &asset)
+    }
+
+    // ── Aggregate provenance (#493) ─────────────────────────────────────────
+
+    /// Returns the provenance record of the aggregate published for
+    /// `asset` at `ledger`, naming every contributing submission, source
+    /// and weight (#493).
+    ///
+    /// # Errors
+    /// * [`ErrorCode::NoData`] — no record at that ledger. It was never
+    ///   written, or it was pruned along with the price history.
+    pub fn get_provenance(env: Env, asset: Address, ledger: u32) -> types::ProvenanceRecord {
+        provenance::get_record(&env, &asset, ledger)
+            .unwrap_or_else(|| panic_with_error!(&env, ErrorCode::NoData))
+    }
+
+    /// Verifies a provenance record: its commitment matches its contents and
+    /// it chains to its predecessor of the same asset (#493).
+    ///
+    /// Returns `false` for a record that was edited, replaced or back-dated.
+    pub fn verify_provenance(env: Env, asset: Address, ledger: u32) -> bool {
+        provenance::verify_link(&env, &asset, ledger)
+    }
+
+    // ── Pairwise disagreement index (#494) ──────────────────────────────────
+
+    /// Returns the pairwise disagreement index recorded by the most recent
+    /// aggregate of `asset` (#494).
+    pub fn get_disagreement_index(env: Env, asset: Address) -> Option<types::DisagreementIndex> {
+        disagreement::get_index(&env, &asset)
+    }
+
     // ── #483 Aggregate recomputation on source-set change ───────────────────
 
     /// Removes several oracle sources in one transaction, recomputing the
@@ -6003,6 +6527,12 @@ impl PriceOracleContract {
     /// is a pure function of the surviving source set.
     pub fn remove_sources(env: Env, sources: soroban_sdk::Vec<Address>) {
         reentrancy::enter(&env);
+        crate::input_validation::validate_list_len(
+            &env,
+            "remove_sources",
+            "sources",
+            sources.len(),
+        );
         sources::remove_sources(&env, sources);
         reentrancy::exit(&env);
     }
@@ -6090,6 +6620,48 @@ impl PriceOracleContract {
         deferral::get_status(&env, &asset)
     }
 
+    // ── #531 Staged percentage config rollout ─────────────────────────────
+
+    /// Starts a staged rollout of `candidate` to `percent` of assets (#531).
+    pub fn start_config_rollout(
+        env: Env,
+        candidate: staged_rollout::StagedConfig,
+        percent: u32,
+        gate: staged_rollout::HealthGate,
+    ) {
+        staged_rollout::start(&env, candidate, percent, gate);
+    }
+
+    /// Widens the active rollout to `percent` of assets (#531).
+    pub fn advance_config_rollout(env: Env, percent: u32) {
+        staged_rollout::advance(&env, percent);
+    }
+
+    /// Promotes the rollout candidate to the baseline (#531).
+    pub fn complete_config_rollout(env: Env) {
+        staged_rollout::complete(&env);
+    }
+
+    /// Rolls the active rollout back to the baseline (#531).
+    pub fn rollback_config_rollout(env: Env) {
+        staged_rollout::rollback(&env);
+    }
+
+    /// Records a health sample; returns `true` if it triggered rollback (#531).
+    pub fn report_rollout_health(env: Env, healthy: bool) -> bool {
+        staged_rollout::report_health(&env, healthy)
+    }
+
+    /// Configuration in force for `asset` under any active rollout (#531).
+    pub fn get_effective_config(env: Env, asset: Address) -> staged_rollout::StagedConfig {
+        staged_rollout::effective_config(&env, &asset)
+    }
+
+    /// The active rollout, if any (#531).
+    pub fn get_config_rollout(env: Env) -> Option<staged_rollout::Rollout> {
+        staged_rollout::active(&env)
+    }
+
     // ── #486 Price corrections with a revision audit trail ──────────────────
 
     /// Sets the correction limits: which assets may be corrected, how long a
@@ -6141,6 +6713,204 @@ impl PriceOracleContract {
     /// Returns the number of corrections applied to `asset` (#486).
     pub fn get_correction_count(env: Env, asset: Address) -> u32 {
         corrections::correction_count(&env, &asset)
+    }
+
+    // ── #487 Asset risk tiers ───────────────────────────────────────────────
+
+    /// Assigns a risk tier to `asset`, or clears it with `None` (#487).
+    ///
+    /// Admin only. A non-empty `reason` is mandatory and travels with the
+    /// `AssetTierChangedEvent`, so every tier move is attributable. The change
+    /// is atomic and affects only *future* aggregations: values already
+    /// published under the previous tier keep the meaning they had.
+    pub fn set_asset_risk_tier(env: Env, asset: Address, tier: Option<RiskTier>, reason: String) {
+        risk_tier::set_tier(&env, asset, tier, reason);
+    }
+
+    /// Returns the tier assigned to `asset`, if any (#487).
+    pub fn get_asset_risk_tier(env: Env, asset: Address) -> Option<RiskTier> {
+        risk_tier::get_tier(&env, &asset)
+    }
+
+    /// Returns `true` when `asset` has a valid tier (#487).
+    ///
+    /// This is the fail-closed predicate: `false` means the asset is
+    /// unconfigured and publishes nothing, not that it falls back to defaults.
+    pub fn has_asset_risk_tier(env: Env, asset: Address) -> bool {
+        risk_tier::require_tier(&env, &asset)
+    }
+
+    /// Makes a valid tier mandatory for every registered asset (#487).
+    ///
+    /// Admin only. Turning this on asserts that every registered asset already
+    /// carries a valid tier; if any does not, the call is refused. Once on, an
+    /// asset with no valid tier publishes nothing instead of falling back to
+    /// the global defaults.
+    pub fn set_risk_tier_enforcement(env: Env, enabled: bool) {
+        risk_tier::set_enforcement(&env, enabled);
+    }
+
+    /// Returns `true` when mandatory tier assignment is in force (#487).
+    pub fn get_risk_tier_enforcement(env: Env) -> bool {
+        risk_tier::enforcement_flag(&env)
+    }
+
+    /// Returns the fixed parameters of every tier, indexed by discriminant
+    /// (#487). The set is closed, so this is a complete view of the presets.
+    pub fn get_risk_tier_params(env: Env) -> soroban_sdk::Vec<TierParams> {
+        let mut out = soroban_sdk::Vec::new(&env);
+        for p in risk_tier::TIER_PARAMS.iter() {
+            out.push_back(*p);
+        }
+        out
+    }
+
+    /// Returns `asset`'s tier together with the parameters it resolves to after
+    /// the documented per-asset overrides (#487). `None` when unassigned.
+    pub fn get_resolved_asset_tier(env: Env, asset: Address) -> Option<ResolvedTier> {
+        let key = DataKey::AssetPolicy(asset.clone());
+        let over: PolicyOverride = env
+            .storage()
+            .persistent()
+            .get(&key)
+            .unwrap_or(PolicyOverride {
+                method: None,
+                min_sources: None,
+                freshness_secs: None,
+                max_deviation_bps: None,
+            });
+        risk_tier::resolve(&env, &asset, &over)
+    }
+
+    // ── #488 Cross-asset sanity lattice ─────────────────────────────────────
+
+    /// Declares a consistency relation for `asset` (#488).
+    ///
+    /// Admin only. Validated on write: the tolerance must be in
+    /// `1..=10000` bps, a peg ratio must have a positive numerator and
+    /// non-zero denominator, and a triangular cross must name three distinct
+    /// registered assets.
+    pub fn add_sanity_relation(env: Env, asset: Address, relation: types::SanityRelation) {
+        sanity_lattice::add_relation(&env, asset, relation);
+    }
+
+    /// Removes the relation between `asset` and `peer` of the given kind (#488).
+    pub fn remove_sanity_relation(
+        env: Env,
+        asset: Address,
+        peer: Address,
+        kind: types::SanityRelationKind,
+    ) {
+        sanity_lattice::remove_relation(&env, asset, peer, kind);
+    }
+
+    /// Returns the relations declared on `asset` (#488).
+    pub fn get_sanity_relations(
+        env: Env,
+        asset: Address,
+    ) -> soroban_sdk::Vec<types::SanityRelation> {
+        sanity_lattice::get_relations(&env, &asset)
+    }
+
+    /// Suspends every relation touching `asset` until `until_ledger` (#488).
+    ///
+    /// For a declared de-peg. The asset itself keeps aggregating, publishing
+    /// and serving — only the family checks stop applying.
+    pub fn declare_depeg(env: Env, asset: Address, until_ledger: u32, reason: String) {
+        sanity_lattice::declare_depeg(&env, asset, until_ledger, reason);
+    }
+
+    /// Lifts a de-peg suspension immediately (#488).
+    pub fn clear_depeg(env: Env, asset: Address) {
+        sanity_lattice::clear_depeg(&env, asset);
+    }
+
+    /// Returns `true` while a de-peg suspension is in force for `asset` (#488).
+    pub fn is_depeg_suspended(env: Env, asset: Address) -> bool {
+        sanity_lattice::is_suspended(&env, &asset)
+    }
+
+    /// Returns the last sanity-check outcome for `asset` (#488).
+    pub fn get_sanity_status(env: Env, asset: Address) -> Option<types::SanityStatus> {
+        sanity_lattice::get_status(&env, &asset)
+    }
+
+    /// Returns the assets reachable from `asset` through declared relations
+    /// (#488). Terminates on cycles: a visited asset is never expanded twice
+    /// and the total is capped.
+    pub fn get_sanity_peers(env: Env, asset: Address) -> soroban_sdk::Vec<Address> {
+        sanity_lattice::reachable(&env, &asset)
+    }
+
+    // ── #489 Freshness-aware quorum ─────────────────────────────────────────
+
+    /// Sets the global default freshness window, in seconds (#489). `0` clears
+    /// it. Windows above `604800` are rejected.
+    pub fn set_default_freshness_window(env: Env, secs: u64) {
+        freshness_quorum::set_default_window(&env, secs);
+    }
+
+    /// Returns the global default freshness window, in seconds (#489).
+    pub fn get_default_freshness_window(env: Env) -> u64 {
+        freshness_quorum::default_window(&env)
+    }
+
+    /// Sets an asset's own freshness window, in seconds (#489). `0` clears the
+    /// override, returning the asset to the tier/global default.
+    pub fn set_asset_freshness_window(env: Env, asset: Address, secs: u64) {
+        freshness_quorum::set_asset_window(&env, asset, secs);
+    }
+
+    /// Returns the freshness-filter outcome of the most recent aggregation of
+    /// `asset` (#489): how many submissions were fresh, how many were excluded
+    /// as stale, the quorum they were measured against and which window
+    /// applied. `None` until the asset has been through a gated pass.
+    pub fn get_freshness_status(env: Env, asset: Address) -> Option<types::FreshnessStatus> {
+        freshness_quorum::get_status(&env, &asset)
+    }
+
+    // ── #490 Per-source accuracy scorecards ─────────────────────────────────
+
+    /// Enables collection of per-source accuracy scorecards (#490). Off by
+    /// default, so the publication path pays nothing until asked.
+    pub fn enable_scorecards(env: Env) {
+        scorecards::enable(&env);
+    }
+
+    /// Disables scorecard collection (#490). Retained scorecards stay queryable.
+    pub fn disable_scorecards(env: Env) {
+        scorecards::disable(&env);
+    }
+
+    /// Sets the scorecard windows, cold-start threshold, hit tolerance and
+    /// per-sample outlier cap (#490). Bounds-checked on write.
+    pub fn set_scorecard_config(env: Env, config: types::ScorecardConfig) {
+        scorecards::set_config(&env, config);
+    }
+
+    /// Returns the active scorecard configuration (#490).
+    pub fn get_scorecard_config(env: Env) -> types::ScorecardConfig {
+        scorecards::config(&env)
+    }
+
+    /// Returns `source`'s rolling accuracy scorecard (#490). A source with too
+    /// little history is reported `cold_start` rather than scored as poor.
+    pub fn get_source_scorecard(env: Env, source: Address) -> types::SourceScorecard {
+        scorecards::get_scorecard(&env, &source)
+    }
+
+    /// Returns the 0–10000 (bps) accuracy score for `source`, with the
+    /// documented floor applied (#490). `0` while the source is cold-start.
+    pub fn get_source_accuracy_score(env: Env, source: Address) -> u32 {
+        scorecards::accuracy_score(&env, &source)
+    }
+
+    /// Returns the retained winsorized samples backing `source`'s windows,
+    /// oldest first (#490). These are exactly the values carried by
+    /// `SourceScorecardUpdatedEvent`, so the windows are reconstructible
+    /// off-chain from the event stream.
+    pub fn get_source_scorecard_samples(env: Env, source: Address) -> soroban_sdk::Vec<u32> {
+        scorecards::samples(&env, &source)
     }
 
     // ── TWAP observation cardinality ─────────────────────────────────────────
@@ -6416,170 +7186,8 @@ impl PriceOracleContract {
         derived_feeds::compute_derived_feed(&env, kind, base, quote, pivot)
     }
 
-    // =========================================================================
-    // #479 — Basket / index price feeds
-    // =========================================================================
-
-    /// Creates or replaces a basket's constituent list, weights and policies.
-    /// Admin only. Weights are parts per million and must sum to exactly
-    /// 1_000_000.
-    pub fn set_basket(env: Env, basket: Address, config: BasketConfig) {
-        basket::set_basket(&env, basket, config);
-    }
-
-    /// Returns a basket's stored configuration.
-    pub fn get_basket(env: Env, basket: Address) -> BasketConfig {
-        basket::get_basket(&env, &basket)
-    }
-
-    /// Returns a basket's ordered constituent list with each leg's weight.
-    pub fn get_basket_composition(env: Env, basket: Address) -> Vec<BasketConstituent> {
-        basket::get_basket_composition(&env, &basket)
-    }
-
-    /// Re-prices a basket's weights atomically and emits the new vector.
-    /// Admin only.
-    pub fn rebalance_basket(env: Env, basket: Address, weights: Vec<u32>) {
-        basket::rebalance_basket(&env, basket, weights);
-    }
-
-    /// Computes a basket's index value, with per-constituent contributions and
-    /// an explicit degraded flag.
-    pub fn get_basket_value(env: Env, basket: Address) -> BasketValue {
-        basket::get_basket_value(&env, &basket)
-    }
-
-    /// Returns one constituent's weight and additive share of the index.
-    pub fn get_basket_contribution(env: Env, basket: Address, index: u32) -> BasketContribution {
-        basket::get_basket_contribution(&env, &basket, index)
-    }
-
-    /// Returns the maximum age a constituent aggregate may have and still count
-    /// as fresh.
-    pub fn get_basket_max_staleness(env: Env) -> u64 {
-        basket::get_basket_max_staleness(&env)
-    }
-
-    /// Sets the constituent staleness bound. Admin only.
-    pub fn set_basket_max_staleness(env: Env, max_staleness_secs: u64) {
-        basket::set_basket_max_staleness(&env, max_staleness_secs);
-    }
-
-    // =========================================================================
-    // #481 — Hysteresis circuit breaker with automatic re-arming
-    // =========================================================================
-
-    /// Configures an asset's breaker thresholds, settle window and escalation
-    /// bound. Admin only. `clear_bps` must be strictly below `trip_bps`.
-    pub fn set_breaker_policy(env: Env, asset: Address, policy: BreakerPolicy) {
-        breaker::set_breaker_policy(&env, asset, policy);
-    }
-
-    /// Returns an asset's breaker policy.
-    pub fn get_breaker_policy(env: Env, asset: Address) -> BreakerPolicy {
-        breaker::get_breaker_policy(&env, &asset)
-    }
-
-    /// Returns an asset's breaker state, including the settle streak, the
-    /// open duration and whether it has escalated.
-    pub fn get_breaker_status(env: Env, asset: Address) -> BreakerStatus {
-        breaker::get_breaker_status(&env, &asset)
-    }
-
-    /// Evaluates the automatic re-arm condition for an open breaker. Returns
-    /// `true` when it re-armed. Emits a re-arm *attempt* event on every
-    /// evaluation, so held and re-armed are distinguishable from the stream.
-    ///
-    /// Panics with `BreakerEscalationRequired` once the breaker has been open
-    /// past its escalation bound.
-    pub fn evaluate_breaker_rearm(env: Env, asset: Address, deviation_bps: u32) -> bool {
-        breaker::evaluate_rearm(&env, &asset, deviation_bps)
-    }
-
-    /// Manually clears the breaker. Admin only, and never blocked by the
-    /// automatic re-arm logic.
-    pub fn clear_breaker(env: Env, asset: Address) {
-        breaker::clear_breaker(&env, asset);
-    }
-
-    // =========================================================================
-    // #482 — Volatility-bucketed adaptive quorum
-    // =========================================================================
-
-    /// Configures the volatility buckets, per-bucket quorums and hysteresis.
-    /// Admin only.
-    pub fn set_adaptive_quorum_config(env: Env, config: VolatilityBuckets) {
-        adaptive_quorum::set_adaptive_quorum_config(&env, config);
-    }
-
-    /// Returns the adaptive-quorum configuration.
-    pub fn get_adaptive_quorum_config(env: Env) -> VolatilityBuckets {
-        adaptive_quorum::get_adaptive_quorum_config(&env)
-    }
-
-    /// Records a price observation, updates the volatility estimate and returns
-    /// the asset's new regime.
-    pub fn observe_volatility(env: Env, asset: Address, price: i128) -> QuorumRegime {
-        adaptive_quorum::observe_price(&env, &asset, price)
-    }
-
-    /// Returns an asset's current volatility bucket and the quorum it selects.
-    pub fn get_quorum_regime(env: Env, asset: Address) -> QuorumRegime {
-        adaptive_quorum::get_regime(&env, &asset)
-    }
-
-    /// Returns the quorum the asset's current regime implies.
-    pub fn get_effective_quorum(env: Env, asset: Address) -> u32 {
-        adaptive_quorum::effective_quorum(&env, &asset)
-    }
-
-    /// Freezes the effective quorum for a round. The pinned value is what the
-    /// round enforces, regardless of later regime changes.
-    pub fn pin_round_quorum(env: Env, asset: Address, round: u32) -> RoundQuorum {
-        adaptive_quorum::pin_round_quorum(&env, &asset, round)
-    }
-
-    /// Returns the quorum frozen for a round, if one was pinned.
-    pub fn get_round_quorum(env: Env, asset: Address, round: u32) -> Option<RoundQuorum> {
-        adaptive_quorum::get_round_quorum(&env, &asset, round)
-    }
-
-    // =========================================================================
-    // #491 / #492 / #493 / #494 — robust filtering, latency, provenance, index
-    //
-    // These endpoints were dropped from this file by the same botched merge that
-    // dropped the matching `types` definitions, which left the crate's own test
-    // suite uncompilable. They are restored verbatim.
-    // =========================================================================
-
-    /// Configures the robust outlier pre-filter for `asset`. Admin only.
-    ///
-    /// `detector`: `0` disables filtering, `1` selects the median absolute
-    /// deviation, `2` the interquartile range. `sensitivity_bps` is the
-    /// exclusion threshold in that detector's units (default `35000` = 3.5
-    /// MAD for detector 1, `15000` = 1.5 x IQR for detector 2).
-    /// `min_sources` is the source-count floor below which filtering is
-    /// skipped, in `4..=64`. Pass `None` to clear the override.
-    ///
-    /// # Errors
-    /// * [`ErrorCode::InvalidConfiguration`] — a bound above is violated.
-    pub fn set_outlier_config(env: Env, asset: Address, config: Option<types::OutlierConfig>) {
-        outlier_filter::set_config(&env, asset, config);
-    }
-
-    /// Returns the robust pre-filter configuration of `asset`.
-    pub fn get_outlier_config(env: Env, asset: Address) -> types::OutlierConfig {
-        outlier_filter::get_config(&env, &asset)
-    }
-
-    /// Returns the prices the pre-filter excluded during the most recent
-    /// aggregation of `asset`, with the score of each (#491).
-    pub fn get_outlier_exclusions(
-        env: Env,
-        asset: Address,
-    ) -> soroban_sdk::Vec<types::OutlierExclusion> {
-        outlier_filter::get_exclusions(&env, &asset)
-    }
+    // ── #491–#494: data-quality endpoints restored after the merge of PR
+    // #571 dropped them from this impl block. ───────────────────────────────
 
     /// Returns the pairwise disagreement index recorded by the most recent
     /// aggregate of `asset` (#494).
@@ -6608,6 +7216,20 @@ impl PriceOracleContract {
         latency::get_samples(&env, &source, &asset)
     }
 
+    /// Returns the robust pre-filter configuration of `asset`.
+    pub fn get_outlier_config(env: Env, asset: Address) -> types::OutlierConfig {
+        outlier_filter::get_config(&env, &asset)
+    }
+
+    /// Returns the prices the pre-filter excluded during the most recent
+    /// aggregation of `asset`, with the score of each (#491).
+    pub fn get_outlier_exclusions(
+        env: Env,
+        asset: Address,
+    ) -> soroban_sdk::Vec<types::OutlierExclusion> {
+        outlier_filter::get_exclusions(&env, &asset)
+    }
+
     /// Returns the provenance record of the aggregate published for
     /// `asset` at `ledger`, naming every contributing submission, source
     /// and weight (#493).
@@ -6618,6 +7240,21 @@ impl PriceOracleContract {
     pub fn get_provenance(env: Env, asset: Address, ledger: u32) -> types::ProvenanceRecord {
         provenance::get_record(&env, &asset, ledger)
             .unwrap_or_else(|| panic_with_error!(&env, ErrorCode::NoData))
+    }
+
+    /// Configures the robust outlier pre-filter for `asset`. Admin only.
+    ///
+    /// `detector`: `0` disables filtering, `1` selects the median absolute
+    /// deviation, `2` the interquartile range. `sensitivity_bps` is the
+    /// exclusion threshold in that detector's units (default `35000` = 3.5
+    /// MAD for detector 1, `15000` = 1.5 x IQR for detector 2).
+    /// `min_sources` is the source-count floor below which filtering is
+    /// skipped, in `4..=64`. Pass `None` to clear the override.
+    ///
+    /// # Errors
+    /// * [`ErrorCode::InvalidConfiguration`] — a bound above is violated.
+    pub fn set_outlier_config(env: Env, asset: Address, config: Option<types::OutlierConfig>) {
+        outlier_filter::set_config(&env, asset, config);
     }
 
     /// Verifies a provenance record: its commitment matches its contents and
@@ -6731,3 +7368,6 @@ mod invariant_harness_tests;
 
 #[cfg(test)]
 mod issues_483_486_tests;
+
+#[cfg(test)]
+mod issues_487_490_tests;

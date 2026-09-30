@@ -3,6 +3,11 @@
 Covers issues #458, #459, #460 and #463. Tests live in
 `contracts/price-oracle/src/adversarial_security_tests.rs`.
 
+> These scenarios are also mirrored into the
+> [attack-regression corpus](attack-regression-corpus.md) (#511), which pins
+> every historical attack by class and runs as its own budgeted CI job. New
+> adversarial findings should be added there — see its intake process.
+
 ## #458 — Fee market (`fee_market.rs`)
 
 ### Rounding audit

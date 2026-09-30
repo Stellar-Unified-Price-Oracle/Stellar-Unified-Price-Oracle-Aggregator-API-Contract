@@ -1,0 +1,5 @@
+# Docs-freshness allowlist and baseline need maintainer review (#540).
+/docs/link-allowlist.txt          @Stellar-Unified-Price-Oracle/maintainers
+/docs/docs-freshness-baseline.txt @Stellar-Unified-Price-Oracle/maintainers
+# Onboarding mentors roster (#542).
+/docs/onboarding/                 @Stellar-Unified-Price-Oracle/maintainers
