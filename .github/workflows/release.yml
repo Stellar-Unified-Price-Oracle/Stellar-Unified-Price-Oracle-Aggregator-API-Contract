@@ -33,7 +33,7 @@ jobs:
           # Full history so the tagged commit can be resolved and attested.
           fetch-depth: 0
       - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@1.91.0
+        uses: dtolnay/rust-toolchain@1.120.0
         with:
           targets: wasm32v1-none
       - name: Cache dependencies
@@ -138,7 +138,7 @@ jobs:
           ref: ${{ inputs.tag || github.ref }}
           fetch-depth: 0
       - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@1.91.0
+        uses: dtolnay/rust-toolchain@1.120.0
         with:
           targets: wasm32v1-none
       - name: Cache dependencies

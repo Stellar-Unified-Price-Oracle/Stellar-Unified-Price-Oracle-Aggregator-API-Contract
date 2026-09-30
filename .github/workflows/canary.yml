@@ -41,7 +41,7 @@ jobs:
       id-token: write
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@1.91.0
+      - uses: dtolnay/rust-toolchain@1.120.0
         with:
           targets: wasm32v1-none
       - name: Install Stellar CLI
