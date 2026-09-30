@@ -264,6 +264,10 @@ See [`docs/error-codes.md`](docs/error-codes.md) for the full registry with caus
 | [Incident Management](docs/incident-management/README.md) | Blameless postmortem process, template, index and tracked action items (#528) |
 | [Backup and Restore](docs/backup-restore.md) | Off-chain state inventory, encrypted backups, point-in-time restore and reconciliation (#529) |
 | [Capacity Planning](docs/capacity-planning.md) | Ingest, storage and ledger-budget model with headroom targets and load shedding (#530) |
+| [Price Revision Metrics](docs/price-revision-metrics.md) | Correction-rate metric per asset and per source, cause separation, volume normalization and sustained-increase alerting (#499) |
+| [Static Analysis](docs/static-analysis.md) | SAST rules, dependency-advisory gate, owned+expiring allowlist and the re-baseline process (#500) |
+| [Reproducible Builds](docs/reproducible-builds.md) | Exact dependency pins, canonical containerized build environment, two-build digest check (#501) |
+| [Secret Scanning](docs/secret-scanning.md) | Pre-commit and CI secret scanning, history scan, allowlist process and the rotation playbook (#502) |
 
 ## Documentation
 
