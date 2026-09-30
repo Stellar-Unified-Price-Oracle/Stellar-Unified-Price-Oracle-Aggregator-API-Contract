@@ -4,6 +4,10 @@ Thanks for your interest in contributing to the Stellar Unified Price Oracle Agg
 
 ## Getting Started
 
+New here? Start with the [onboarding guide](docs/ONBOARDING.md) to pick a first task and a mentor.
+Fastest setup: `make dev` provisions everything and runs the suite ([details](docs/dev-environment.md)).
+
+
 1. Fork and clone the repo.
 2. Install Rust (stable) with the `wasm32v1-none` target:
    ```bash
