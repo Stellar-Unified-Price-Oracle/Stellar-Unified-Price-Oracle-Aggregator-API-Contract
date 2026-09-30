@@ -25,7 +25,7 @@ jobs:
         id: drills
         run: python -m services.dr_gameday.gameday --out gameday-report.json
         continue-on-error: true
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: gameday-report-${{ github.run_id }}

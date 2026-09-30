@@ -21,7 +21,7 @@ jobs:
           tool: cargo-mutants
       - name: Security-critical mutants (100% kill required)
         run: ./scripts/mutation-gate.sh critical
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: mutants-critical
@@ -55,7 +55,7 @@ jobs:
           GENERAL_THRESHOLD: "80"
           MUTANTS_ARGS: --shard ${{ matrix.shard }}/4 ${{ env.DIFF_ARGS }}
         run: ./scripts/mutation-gate.sh general
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: mutants-general-${{ matrix.shard }}
@@ -101,7 +101,7 @@ jobs:
         run: |
           set -euo pipefail
           ./scripts/mutation-gate.sh per-module
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: mutants-${{ matrix.module }}

@@ -21,7 +21,7 @@ jobs:
           cargo test -p price-oracle --lib gas_amplification -- --nocapture --test-threads=1 \
             | python3 scripts/gas_dashboard.py > gas-dashboard.md
           cat gas-dashboard.md >> "$GITHUB_STEP_SUMMARY"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: gas-dashboard
           path: gas-dashboard.md

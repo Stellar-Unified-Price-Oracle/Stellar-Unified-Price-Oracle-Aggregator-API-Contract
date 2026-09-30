@@ -73,7 +73,7 @@ jobs:
       # regression test — see docs/security/stride-threat-model.md (§8, #504).
       - name: Upload fuzz artifacts
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: fuzz-deep-crashes
           path: |

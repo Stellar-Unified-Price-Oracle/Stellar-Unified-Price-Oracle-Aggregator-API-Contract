@@ -91,7 +91,7 @@ jobs:
       - name: Generate ABI
         run: ./scripts/generate-abi.sh
       - name: Upload generated ABI
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: contract-abi
           path: docs/abi.json
@@ -202,7 +202,7 @@ jobs:
       - name: Publish summary
         if: always()
         run: cat security-artifacts/static-analysis.md >> "$GITHUB_STEP_SUMMARY"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: static-analysis-artifacts
@@ -231,7 +231,7 @@ jobs:
       - name: Publish summary
         if: always()
         run: cat secret-artifacts/secret-scan.md >> "$GITHUB_STEP_SUMMARY"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: secret-scan-artifacts
@@ -265,7 +265,7 @@ jobs:
         run: cat build-artifacts/reproducible-build.md >> "$GITHUB_STEP_SUMMARY"
       # The digests are the published artifact hashes an independent rebuild is
       # compared against.
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: build-artifacts
@@ -391,7 +391,7 @@ jobs:
       # ── Upload any crash artifacts ───────────────────────────────────────────
       - name: Upload fuzz artifacts on failure
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: fuzz-crashes
           path: |
@@ -421,7 +421,7 @@ jobs:
         run: cat hermetic-artifacts/summary.md >> "$GITHUB_STEP_SUMMARY"
       # Logs and Soroban ledger snapshots, so a failure can be diagnosed from
       # CI without re-running locally.
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: hermetic-integration-artifacts

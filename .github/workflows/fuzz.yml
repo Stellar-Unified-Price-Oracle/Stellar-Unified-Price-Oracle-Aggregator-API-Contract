@@ -79,7 +79,7 @@ jobs:
       # regression seed. `-error_exitcode=1` above makes this step fail too.
       - name: Upload crash artifacts
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: fuzz-crash-${{ matrix.target }}
           path: |
@@ -90,7 +90,7 @@ jobs:
       # minimizes and commits it so a discovered path is never lost.
       - name: Upload refreshed corpus
         if: success()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: fuzz-corpus-${{ matrix.target }}
           path: fuzz/corpus/${{ matrix.target }}/

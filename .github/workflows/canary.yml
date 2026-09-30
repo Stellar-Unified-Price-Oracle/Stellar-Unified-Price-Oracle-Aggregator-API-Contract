@@ -100,7 +100,7 @@ jobs:
             "${{ steps.deploy.outputs.green }}" config/canary-assets.txt canary-out
       - name: Retain divergence evidence
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: canary-record-${{ github.run_id }}
           path: canary-out/
@@ -125,7 +125,7 @@ jobs:
             canary-out/deployment-record.json > canary-out/promotion-record.json
         env:
           GH_TOKEN: ${{ github.token }}
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: promotion-record-${{ github.run_id }}
           path: canary-out/promotion-record.json

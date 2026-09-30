@@ -92,7 +92,7 @@ jobs:
               "^https://github.com/stellar-unified-price-oracle/stellar-unified-price-oracle-aggregator-api-contract/\.github/workflows/release\.yml@refs/tags/v[0-9].*$" \
             --certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
             "${ARTIFACT}.sig" "$ARTIFACT"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: contract-release
           path: |
@@ -162,7 +162,7 @@ jobs:
             --workflow-ref "$WORKFLOW_REF" \
             --report provenance-verification.md \
             | tee -a "$GITHUB_STEP_SUMMARY"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: provenance-verification-${{ github.run_id }}
