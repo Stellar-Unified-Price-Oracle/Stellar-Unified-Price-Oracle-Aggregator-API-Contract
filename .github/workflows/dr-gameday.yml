@@ -1,0 +1,43 @@
+name: DR game day
+
+# Weekly disaster-recovery drills (#532). Drills run against throwaway
+# sandboxes only; the workflow holds no production secrets.
+on:
+  schedule:
+    - cron: "0 6 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  gameday:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install pytest
+      - run: python -m pytest services/dr_gameday -q
+      - name: Run drills
+        id: drills
+        run: python -m services.dr_gameday.gameday --out gameday-report.json
+        continue-on-error: true
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: gameday-report-${{ github.run_id }}
+          path: gameday-report.json
+      - name: File an issue for every gap
+        if: steps.drills.outcome == 'failure'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          jq -c '.issues[]' gameday-report.json | while read -r i; do
+            gh issue create --title "$(jq -r .title <<<"$i")" --body "$(jq -r .body <<<"$i")" \
+              --label disaster-recovery --label game-day || gh issue create \
+              --title "$(jq -r .title <<<"$i")" --body "$(jq -r .body <<<"$i")"
+          done
+          exit 1

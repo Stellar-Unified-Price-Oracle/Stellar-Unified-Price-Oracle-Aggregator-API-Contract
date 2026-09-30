@@ -46,3 +46,33 @@ client.submit_price("CSOURCE...", "CBTC...", price=6500000000000000, timestamp=i
 ```
 
 Install: `cd sdk/python && pip install -e .`
+
+## Generated bindings (#534)
+
+`sdk/codegen/abi.json` is the single source of truth for the contract
+interface. Bindings are generated — never hand-written — into:
+
+| Language | Generated file |
+|----------|----------------|
+| TypeScript | `sdk/typescript/src/generated/bindings.ts` |
+| Python | `sdk/python/oracle_sdk/generated_bindings.py` |
+
+Regenerate after changing the contract interface:
+
+```bash
+./scripts/generate-abi.sh             # refresh docs/abi.json from the WASM
+# update sdk/codegen/abi.json to match, then:
+python -m sdk.codegen.generate
+python -m sdk.codegen.generate --check  # what CI runs (job: sdk-drift)
+```
+
+CI fails when a committed binding differs from the generator output or when
+an ABI function no longer exists in `contracts/price-oracle/src/lib.rs`.
+Packages publish on release with the version of the ABI they were generated
+from.
+
+### Version compatibility
+
+| ABI version | Contract | TypeScript SDK | Python SDK | Rust SDK | Go SDK |
+|-------------|----------|----------------|------------|----------|--------|
+| 1.0.0 | price-oracle (SEP-40 + staged rollout) | ≥ 0.2.0 | ≥ 0.2.0 | hand-written | hand-written |
