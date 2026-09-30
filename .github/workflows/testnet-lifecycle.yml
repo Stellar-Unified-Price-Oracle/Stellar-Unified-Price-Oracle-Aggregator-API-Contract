@@ -35,7 +35,7 @@ jobs:
       - name: Build contract
         run: make build
       - name: Restore previous run metrics
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@v6
         with:
           path: previous-metrics.json
           key: lifecycle-metrics-${{ github.run_id }}
@@ -64,7 +64,7 @@ jobs:
           cp lifecycle-metrics.json previous-metrics.json
       - name: Save metrics for next run
         if: success()
-        uses: actions/cache/save@v4
+        uses: actions/cache/save@v6
         with:
           path: previous-metrics.json
           key: lifecycle-metrics-${{ github.run_id }}
