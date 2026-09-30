@@ -760,8 +760,6 @@ fn aggregate_asset(env: &Env, asset: &Address, current_ledger: u32, decimals: u3
         let mut p = Vec::new(env);
         let mut v = Vec::new(env);
         let mut w = Vec::new(env);
-        let mut s = Vec::new(env);
-        let mut l = Vec::new(env);
         for i in 0..valid_prices.len() {
             let keep = outlier_mask.get_unchecked(i)
                 && (deviation_mask.is_empty() || deviation_mask.get_unchecked(i));
@@ -769,16 +767,18 @@ fn aggregate_asset(env: &Env, asset: &Address, current_ledger: u32, decimals: u3
                 p.push_back(valid_prices.get_unchecked(i));
                 v.push_back(valid_volumes.get(i).unwrap_or(0));
                 w.push_back(valid_weights.get(i).unwrap_or(1));
-                s.push_back(valid_sources.get_unchecked(i));
-                l.push_back(valid_sub_ledgers.get_unchecked(i));
             }
         }
-        valid_prices = p;
-        valid_volumes = v;
-        valid_weights = w;
-        valid_sources = s;
-        valid_sub_ledgers = l;
-        contributing_sources = valid_prices.len();
+        if p.len() != valid_prices.len() {
+            valid_prices = p;
+            valid_volumes = v;
+            valid_weights = w;
+            // The filtered source/ledger index is not read past this point: the
+            // aggregation iterates the registered source set and keys each
+            // contribution by source, so the mask only has to shrink the price,
+            // volume and weight vectors.
+            contributing_sources = valid_prices.len();
+        }
     }
 
     // #485: an asset that opted into deferral publishes only once quorum is

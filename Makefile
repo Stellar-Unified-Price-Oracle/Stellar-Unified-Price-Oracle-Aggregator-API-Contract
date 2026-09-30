@@ -18,6 +18,11 @@
 #   check-pins         - every dependency pinned exactly, lockfile in sync (#501)
 #   reproducible-build - two clean builds must produce identical WASM (#501)
 
+# Determinism & Interleaving Suite (#516)
+#
+# SEP-40 conformance (#515), event-schema golden snapshots (#518) and the
+# N-2..N upgrade matrix (#517) also have their own targets. All of them are
+# plain `cargo test` filters over the contract's test binary.
 .PHONY: all build test lint fmt check clean watch gas-gate load-test \
         mutation-gate mutation-per-module hermetic sast secret-scan \
         check-pins reproducible-build security
