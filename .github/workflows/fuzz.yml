@@ -1,0 +1,96 @@
+name: Coverage-guided fuzzing
+
+# #514 — coverage-guided fuzzing with a committed, minimized corpus.
+#
+# Two jobs with different cadences:
+#   corpus-gate  — every PR: fast, deterministic replay of the committed corpus
+#                  plus the corpus size budget. No new inputs are discovered.
+#   long-run     — weekly: deep coverage-guided runs that refresh the corpus
+#                  and upload any crash artifact for minimization.
+#
+# Crash reproducers found by the long run are minimized and committed back, so a
+# bug found once is never forgotten.
+
+on:
+  pull_request:
+    branches: [main]
+  schedule:
+    # Weekly, Monday 03:17 UTC (off the hour to avoid the scheduling spike).
+    - cron: "17 3 * * 1"
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  corpus-gate:
+    name: Corpus size + replay gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Corpus size budget
+        run: FUZZ_SKIP_REPLAY=1 ./scripts/fuzz-corpus-gate.sh
+
+      # cargo-fuzz needs nightly; rust-toolchain.toml pins 1.91.0, so set an
+      # explicit directory override for this job only.
+      - uses: dtolnay/rust-toolchain@nightly
+      - uses: Swatinem/rust-cache@v2
+      - name: Install cargo-fuzz
+        run: cargo install cargo-fuzz --locked --version "0.13.2"
+      - name: Force nightly for this job
+        run: rustup override set nightly
+
+      # Replays the committed corpus, so a crash is caught on the PR that
+      # introduces it rather than during the next weekly run.
+      - name: Replay committed corpus
+        run: ./scripts/fuzz-corpus-gate.sh
+
+  long-run:
+    name: Long coverage-guided run
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    # Only on the schedule or on demand: a long run is not a per-PR cost.
+    if: github.event_name != 'pull_request'
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [fuzz_aggregation, fuzz_quickselect, fuzz_aggregation_invariants, fuzz_storage_layer]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@nightly
+      - uses: Swatinem/rust-cache@v2
+      - name: Install cargo-fuzz
+        run: cargo install cargo-fuzz --locked --version "0.13.2"
+      - name: Force nightly for this job
+        run: rustup override set nightly
+
+      - name: Deep run (${{ matrix.target }})
+        run: |
+          cargo fuzz run ${{ matrix.target }} \
+            fuzz/corpus/${{ matrix.target }} \
+            -- \
+            -runs=5000000 \
+            -max_total_time=3600 \
+            -timeout=30 \
+            -error_exitcode=1
+
+      # Any crash is uploaded so it can be minimized and committed as a
+      # regression seed. `-error_exitcode=1` above makes this step fail too.
+      - name: Upload crash artifacts
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fuzz-crash-${{ matrix.target }}
+          path: |
+            fuzz/artifacts/
+            fuzz/corpus/${{ matrix.target }}/
+
+      # The refreshed corpus is uploaded as an artifact for review; a maintainer
+      # minimizes and commits it so a discovered path is never lost.
+      - name: Upload refreshed corpus
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fuzz-corpus-${{ matrix.target }}
+          path: fuzz/corpus/${{ matrix.target }}/

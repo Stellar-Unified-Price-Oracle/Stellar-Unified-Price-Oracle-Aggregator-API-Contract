@@ -339,9 +339,19 @@ pub enum ErrorCode {
 
     // ── 156–158: #484 bound tiers, #485 deferral ────────────────────────────
     /// The soft/hard bound ordering supplied for an asset is invalid (#484).
-    InvalidBoundOrdering = 156,
+    InvalidBoundOrdering = 185,
     /// The supplied deferral policy is outside its documented bounds (#485).
-    InvalidDeferralPolicy = 157,
+    InvalidDeferralPolicy = 186,
+    /// `correct_price` was called with an empty or oversized reason (#486).
+    InvalidCorrectionReason = 187,
+    /// The per-asset correction count cap has been reached (#486).
+    CorrectionLimitReached = 188,
+    /// The value supplied lies outside the asset's hard bounds (#484, #486).
+    AggregateRejectedByBounds = 189,
+    /// The aggregate being corrected is older than the correction window (#486).
+    CorrectionWindowExpired = 190,
+    /// The requested revision index does not exist in the chain (#486).
+    RevisionNotFound = 191,
 
     // ── 159–179: #246 storage tiers, #289 auto-renewal, #397 consensus
     // rounds, #478 derived feeds. These variants existed before the merge of
@@ -362,65 +372,50 @@ pub enum ErrorCode {
     // absent from the enum. Numbers are taken from the registry note above
     // and are never reused. ─────────────────────────────────────────────────
     /// A required configuration value has not been set.
-    ConfigMissing = 163,
+    ConfigMissing = 192,
     /// Outstanding failure reports prevent the relayer bond from being locked.
-    RelayerBondLocked = 164,
+    RelayerBondLocked = 193,
     /// The TWAP window holds fewer distinct observations than the floor.
     TwapInsufficientObservations = 165,
 
-    /// The consumer's pre-approved allowance would be exceeded by this renewal.
-    AutoRenewalAllowanceExceeded = 166,
-    /// A derived feed was requested with a zero denominator.
-    DerivedFeedZeroDenominator = 168,
-    /// One (or more) of the requested pair/triplet is unknown or has no price.
-    UnknownDerivedPair = 169,
-    /// The requested derivation would form a cycle in the derivation graph.
-    DerivedFeedCycle = 170,
-    /// The derivation graph depth bound would be exceeded.
-    DerivedFeedDepthExceeded = 171,
-    /// The same observation was already used to satisfy an earlier round's quorum.
-    RoundEvidenceReplay = 175,
-    /// The round's deadline has passed; it can no longer accept observations.
-    RoundExpired = 176,
-    /// The requested round is not the asset's current round.
-    RoundNotFound = 177,
-    /// The participant equivocated inside a round and was penalized.
-    RoundEquivocation = 178,
-    /// A persistent → temporary tier downgrade was attempted without the required
+    // ── 172–174: Configurable history storage tier (#246) ─────────────────────
+    /// A persistent -> temporary tier downgrade was attempted without the required
     /// multi-party approval and timelock having completed.
-    StorageTierDowngradeNotReady = 179,
+    StorageTierDowngradeNotReady = 172,
+    /// The requested storage tier value is not a known discriminant.
+    UnknownStorageTier = 173,
+    /// A history-tier migration could not be completed.
+    StorageTierMigrationFailed = 174,
 
-    // ── 180–184: #486 price corrections ─────────────────────────────────────
-    // These originally sat at 158–162. The merge of PR #571 handed 159–162 to
-    // the #289 auto-renewal codes, which its tests pin by number, so the #486
-    // variants moved here rather than displacing them. Every reference is
-    // symbolic (`ErrorCode::…`), so no caller had to change.
-    /// `correct_price` was called with an empty or oversized reason (#486).
-    InvalidCorrectionReason = 180,
-    /// The per-asset correction count cap has been reached (#486).
-    CorrectionLimitReached = 181,
-    /// The value supplied lies outside the asset's hard bounds (#484, #486).
-    AggregateRejectedByBounds = 182,
-    /// The aggregate being corrected is older than the correction window (#486).
-    CorrectionWindowExpired = 183,
-    /// The requested revision index does not exist in the chain (#486).
-    RevisionNotFound = 184,
+    // ── 175–179: Subscription auto-renewal (#289) ─────────────────────────────
+    /// A renewal authorization was replayed after it had already been consumed.
+    RenewalAuthorizationReplay = 175,
+    /// No single-use renewal authorization exists for the requested period.
+    RenewalAuthorizationMissing = 176,
+    /// The consumer has no standing auto-renewal authorization.
+    AutoRenewalNotEnabled = 177,
+    /// The subscription was cancelled or superseded, so it cannot renew.
+    AutoRenewalCancelled = 178,
+    /// The consumer's pre-approved allowance would be exceeded by this renewal.
+    AutoRenewalAllowanceExceeded = 179,
 
-    // ── 185–190: #487 risk tiers, #488 sanity lattice, #489 freshness
-    // quorum, #490 source scorecards ────────────────────────────────────────
-    /// The supplied risk tier discriminant is not one of the defined tiers.
-    InvalidRiskTier = 185,
-    /// A sanity relation names an asset that is not registered, or repeats an
-    /// asset in a way the relation kind cannot express (#488).
-    InvalidSanityRelation = 186,
-    /// A sanity tolerance is `0` or above `MAX_TOLERANCE_BPS` (#488).
-    InvalidSanityTolerance = 187,
-    /// The freshness window is `0` or above `MAX_FRESHNESS_WINDOW_SECS` (#489).
-    InvalidFreshnessWindow = 188,
-    /// A scorecard window/configuration value is outside its documented bounds
-    /// (#490).
-    InvalidScorecardConfig = 189,
-    /// The supplied ratio for a peg relation has a zero or negative denominator
-    /// (#488).
-    InvalidSanityRatio = 190,
+    // ── 180–183: Multi-round price confirmation (#397) ────────────────────────
+    /// The requested round is not the asset's current round.
+    RoundNotFound = 180,
+    /// The round's deadline has passed; it can no longer accept observations.
+    RoundExpired = 181,
+    /// The same observation was already used to satisfy an earlier round's quorum.
+    RoundEvidenceReplay = 182,
+    /// The participant equivocated inside a round and was penalized.
+    RoundEquivocation = 183,
+
+    // ── 184–187: Derived price feeds (#478) ────────────────────────────────────
+    /// A derived feed was requested with a zero denominator.
+    DerivedFeedZeroDenominator = 184,
+    /// One (or more) of the requested pair/triplet is unknown or has no price.
+    UnknownDerivedPair = 185,
+    /// The requested derivation would form a cycle in the derivation graph.
+    DerivedFeedCycle = 186,
+    /// The derivation graph depth bound would be exceeded.
+    DerivedFeedDepthExceeded = 187,
 }

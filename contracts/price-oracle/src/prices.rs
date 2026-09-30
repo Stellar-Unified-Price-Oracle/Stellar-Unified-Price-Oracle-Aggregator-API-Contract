@@ -629,6 +629,15 @@ fn aggregate_asset(env: &Env, asset: &Address, current_ledger: u32, decimals: u3
     // per-source / per-asset paths need to run at all.
     let guards = crate::price_bounds::guards(env);
     let filter_excluded = guards.any_source_excluded;
+    // #398: per-asset DQ screening context (None when not configured).
+    let dq_round = crate::dq_pipeline::begin(env, asset);
+    // #402: probation sources share a hard cap of counted values per round.
+    let probation_guard = crate::source_lifecycle::any_probation(env);
+    let mut probation_counted: u32 = 0;
+    // #401: admitted (source, value) pairs, indexed only when enabled.
+    let comparison = crate::source_comparison::is_enabled(env, asset);
+    let mut admitted_sources: Vec<Address> = Vec::new(env);
+    let mut admitted_prices: Vec<i128> = Vec::new(env);
 
     for i in 0..selected_count {
         let src = selected_sources.get_unchecked(i);
@@ -674,6 +683,10 @@ fn aggregate_asset(env: &Env, asset: &Address, current_ledger: u32, decimals: u3
             if crate::correlation::is_correlation_flagged(env, &src, asset) {
                 continue;
             }
+            if comparison {
+                admitted_sources.push_back(src.clone());
+                admitted_prices.push_back(entry_data.price);
+            }
             env.storage()
                 .persistent()
                 .extend_ttl(&sub_key, LEDGER_THRESHOLD, LEDGER_BUMP);
@@ -690,10 +703,16 @@ fn aggregate_asset(env: &Env, asset: &Address, current_ledger: u32, decimals: u3
             {
                 continue;
             }
-            let (window, _) = crate::freshness_quorum::window_for(env, asset);
-            if !crate::freshness_quorum::is_fresh(env, &entry_data, window) {
-                stale_sources += 1;
-                continue;
+            if let Some(round) = dq_round.as_ref() {
+                if !crate::dq_pipeline::screen(env, round, asset, &src, &entry_data) {
+                    continue;
+                }
+            }
+            if probation_guard && crate::source_lifecycle::on_probation(env, &src) {
+                if probation_counted >= crate::source_lifecycle::PROBATION_MAX_COUNTED {
+                    continue;
+                }
+                probation_counted += 1;
             }
             if entry_data.timestamp > latest_timestamp {
                 latest_timestamp = entry_data.timestamp;
@@ -766,7 +785,9 @@ fn aggregate_asset(env: &Env, asset: &Address, current_ledger: u32, decimals: u3
     // reached inside its window. Until then the asset is explicitly `Deferred`
     // (and, past `max_defer_secs`, `Stale`) and the previously published
     // aggregate is left untouched — deferral never publishes a thin result.
-    let deferred = !crate::deferral::should_publish(env, asset, guards);
+    // #400: an active blackout window withholds publication outright.
+    let deferred = crate::blackout::suppresses(env, asset)
+        || !crate::deferral::should_publish(env, asset, guards);
 
     if !deferred && contributing_sources >= min_required && !valid_prices.is_empty() {
         // The labelled block lets a hard-bound rejection (#484) abort the
@@ -839,9 +860,22 @@ fn aggregate_asset(env: &Env, asset: &Address, current_ledger: u32, decimals: u3
                 crate::events::ConfidenceBandEvent {
                     asset: asset.clone(),
                     price: band_centre,
-                    band,
+                    band: band.clone(),
                 }
                 .publish(env);
+
+                // #496: a collapsed band is a flag on the aggregate, not on any
+                // one source, so it is explained against the asset.
+                if band.low_confidence {
+                    crate::explanation::record_aggregate(
+                        env,
+                        crate::types::AnomalyRule::LowConfidenceBand,
+                        asset,
+                        band.upper - band.lower,
+                        0,
+                        min_required as i128,
+                    );
+                }
             }
 
             let agg_key = DataKey::Aggregate(asset.clone());
@@ -881,6 +915,16 @@ fn aggregate_asset(env: &Env, asset: &Address, current_ledger: u32, decimals: u3
                 LEDGER_THRESHOLD,
                 LEDGER_BUMP,
             );
+            if comparison {
+                crate::source_comparison::record(
+                    env,
+                    asset,
+                    median_price,
+                    &admitted_sources,
+                    &admitted_prices,
+                    &valid_sources,
+                );
+            }
 
             // Record gas usage for this aggregation run.
             let before_cpu = crate::gas_metering::cpu_usage(env);
@@ -899,6 +943,52 @@ fn aggregate_asset(env: &Env, asset: &Address, current_ledger: u32, decimals: u3
                 mem_delta,
             );
 
+            // ── #492 / #493 / #494: post-publication data-quality records ─────────
+            // All three read `valid_prices` *after* the robust pre-filter, so the
+            // latency accounting, the provenance record and the disagreement index
+            // all describe exactly the submissions the aggregate was built from.
+            let round_weights = crate::freshness_weight::capped(env, &valid_weights);
+            let influence = crate::influence_cap::influence_bps(env, &round_weights);
+            // Deferral is measured from the previous publication of this asset,
+            // so a deferred aggregate is not charged to the sources.
+            let deferral =
+                current_ledger.saturating_sub(crate::latency::last_aggregate_ledger(env, asset));
+
+            let mut contributors: soroban_sdk::Vec<crate::types::ProvenanceEntry> =
+                soroban_sdk::Vec::new(env);
+            let mut deferrals: soroban_sdk::Vec<u32> = soroban_sdk::Vec::new(env);
+            for i in 0..contributing_sources {
+                let src = valid_sources.get_unchecked(i);
+                let sub_ledger = valid_sub_ledgers.get_unchecked(i);
+                crate::latency::record_counted(
+                    env,
+                    &src,
+                    asset,
+                    sub_ledger,
+                    current_ledger,
+                    deferral,
+                );
+                contributors.push_back(crate::types::ProvenanceEntry {
+                    source: src,
+                    price: valid_prices.get_unchecked(i),
+                    weight_bps: influence.get(i).unwrap_or(0),
+                    submission_ledger: sub_ledger,
+                });
+                deferrals.push_back(deferral);
+            }
+            crate::provenance::record(
+                env,
+                asset,
+                current_ledger,
+                median_price,
+                latest_timestamp,
+                compute_median(&valid_prices),
+                policy.method,
+                contributors,
+                deferrals,
+            );
+            crate::disagreement::record(env, asset, current_ledger, &valid_prices);
+
             let history_entry = PriceHistoryEntry {
                 price: median_price,
                 timestamp: latest_timestamp,
@@ -907,10 +997,10 @@ fn aggregate_asset(env: &Env, asset: &Address, current_ledger: u32, decimals: u3
                 is_interpolated: false,
             };
             let skip_history = should_skip_on_write(env, asset, median_price);
-            env.storage().temporary().set(
-                &DataKey::PriceHistory(asset.clone(), current_ledger),
-                &history_entry,
-            );
+            // #246: route the snapshot to the asset's configured history storage
+            // tier (temporary by default, which is byte-for-byte the pre-#246
+            // behaviour).
+            crate::storage_tier::write_history_entry(env, asset, &history_entry);
 
             // Track ledger in history index for pruning. Avoid duplicate sequence entries
             // if aggregation is run more than once in the same ledger.
@@ -928,9 +1018,7 @@ fn aggregate_asset(env: &Env, asset: &Address, current_ledger: u32, decimals: u3
                 }
                 write_history_shard(env, asset, &history_entry);
             } else {
-                env.storage()
-                    .temporary()
-                    .remove(&DataKey::PriceHistory(asset.clone(), current_ledger));
+                crate::storage_tier::remove_history_entry(env, asset, current_ledger);
             }
 
             // Issue #92: check event budget before emitting prune events.
@@ -1861,6 +1949,13 @@ pub fn price(env: &Env, asset: Asset, timestamp: u64) -> Option<PriceData> {
 }
 
 pub fn prices(env: &Env, asset: Asset, records: u32) -> Option<Vec<PriceData>> {
+    // #510: while the dead-man switch is tripped the contract is in its
+    // degraded state, where nothing is served. A stored value handed out now
+    // would look live while nobody is attesting to its freshness, so the read
+    // returns `None` rather than the last aggregate.
+    if crate::dead_man::is_degraded(env) {
+        return None;
+    }
     let addr = match asset {
         Asset::Stellar(a) => a,
         Asset::Other(_) => return None,
