@@ -93,9 +93,30 @@ cargo test -p price-oracle --lib
 # 3. Check for lint/style issues
 cargo clippy -p price-oracle -- -D warnings
 cargo fmt --manifest-path contracts/price-oracle/Cargo.toml -- --check
+
+# 4. Run the security gates (each has its own time budget)
+make attack-gate   # #511 attack-regression corpus
+make fuzz-gate     # #514 corpus size + replay
+make kani-gate     # #512 bounded proofs (needs the Kani verifier)
 ```
 
-All **76 tests** must pass with zero compiler warnings and zero clippy warnings.
+All tests must pass with zero compiler warnings and zero clippy warnings.
+
+### Security gates
+
+Each gate is budgeted separately, because a security suite that cannot run on
+every PR is a suite that stops being run:
+
+| Gate | Issue | What it proves |
+|---|---|---|
+| `make attack-gate` | #511 | every historical attack is pinned as a test, by attack class, within a wall-clock budget |
+| `./scripts/attack-regression-mutation-check.sh` | #511 | the corpus actually **fails** when a historical fix is reverted |
+| `make kani-gate` | #512 | the aggregation properties hold over the whole bounded domain |
+| `cargo test -p price-oracle --lib model_state_machine` | #513 | an independent model matches the contract after every step of a random trace |
+| `make fuzz-gate` | #514 | the committed corpora are within budget and replay without crashing |
+
+See `docs/security/attack-regression-corpus.md` for how to add a new attack to
+the corpus.
 
 ## Key Constraints
 

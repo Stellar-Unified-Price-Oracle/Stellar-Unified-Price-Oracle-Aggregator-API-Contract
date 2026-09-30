@@ -318,6 +318,24 @@ mod cross_contract_governance_tests;
 #[cfg(test)]
 mod delta_encoding_storage_tests;
 
+// #513 — Model-based state-machine tests: an independently written model of the
+// aggregate lifecycle, driven by deterministic random traces with shrinking.
+// See docs/security/state-machine-model.md.
+#[cfg(test)]
+mod model_state_machine_tests;
+
+// #512 — Bounded formal proofs (Kani) for the aggregation math. Compiled only
+// under `cfg(kani)`, so it costs nothing in the contract or test builds. Run
+// with `make kani-gate`. See docs/security/formal-verification.md.
+#[cfg(kani)]
+mod kani_proofs;
+
+// #511 — Attack-regression corpus. Runs as its own CI job (make attack-gate)
+// so the security corpus has an explicit time budget separate from the rest of
+// the suite. See docs/security/attack-regression-corpus.md.
+#[cfg(test)]
+mod attack_regression_tests;
+
 #[cfg(test)]
 mod wasm_binary_size_tests;
 
