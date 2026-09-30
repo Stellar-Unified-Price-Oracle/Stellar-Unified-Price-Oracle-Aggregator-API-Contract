@@ -140,6 +140,12 @@ pub fn submit_cross_chain_price(
 ) {
     let admin = get_admin(env);
     admin.require_auth();
+    crate::input_validation::validate_string(
+        env,
+        "submit_cross_chain_price",
+        "chain_id",
+        &chain_id,
+    );
 
     store_cross_chain_price(
         env,

@@ -24,7 +24,9 @@ use soroban_sdk::contracterror;
 /// | 116–118 | Cross-chain asset registry |
 /// | 119–121 | Axelar GMP integration |
 /// | 122–125 | LayerZero integration |
-/// | 156–158 | Per-asset policy / TWAP cardinality / relayer bond lock |
+/// | 156–157 | #484 bound tiers / #485 deferral |
+/// | 159–175 | Storage tiers, auto-renewal, consensus rounds, derived feeds (#246,#289,#397,#478) |
+/// | 180–184 | #486 price corrections (renumbered off the 159–162 collision, see below) |
 #[contracterror]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ErrorCode {
@@ -335,39 +337,85 @@ pub enum ErrorCode {
     /// The supplied diversity thresholds are invalid (e.g. max HHI > 10000).
     InvalidDiversityThresholds = 155,
 
-    // ── 156–162: #484 bound tiers, #485 deferral, #486 price corrections ───────
+    // ── 156–158: #484 bound tiers, #485 deferral ────────────────────────────
     /// The soft/hard bound ordering supplied for an asset is invalid (#484).
-    InvalidBoundOrdering = 156,
+    InvalidBoundOrdering = 185,
     /// The supplied deferral policy is outside its documented bounds (#485).
-    InvalidDeferralPolicy = 157,
+    InvalidDeferralPolicy = 186,
     /// `correct_price` was called with an empty or oversized reason (#486).
-    InvalidCorrectionReason = 158,
+    InvalidCorrectionReason = 187,
     /// The per-asset correction count cap has been reached (#486).
-    CorrectionLimitReached = 159,
+    CorrectionLimitReached = 188,
     /// The value supplied lies outside the asset's hard bounds (#484, #486).
-    AggregateRejectedByBounds = 160,
+    AggregateRejectedByBounds = 189,
     /// The aggregate being corrected is older than the correction window (#486).
-    CorrectionWindowExpired = 161,
+    CorrectionWindowExpired = 190,
     /// The requested revision index does not exist in the chain (#486).
-    RevisionNotFound = 162,
+    RevisionNotFound = 191,
 
-    // ── Restored discriminants referenced by wired modules but absent from
-    // the enum, which left the crate uncompilable. Numbers are taken from the
-    // registry note above and are never reused. ──────────────────────────────
+    // ── 159–179: #246 storage tiers, #289 auto-renewal, #397 consensus
+    // rounds, #478 derived feeds. These variants existed before the merge of
+    // PR #571 replaced `errors.rs` and dropped them, which left the modules
+    // that reference them unable to compile. They are restored with their
+    // original discriminants, because `auto_renewal_tests` pins those numbers
+    // in its `should_panic` expectations. ───────────────────────────────────
+    /// A renewal authorization was replayed after it had already been consumed.
+    RenewalAuthorizationReplay = 159,
+    /// No single-use renewal authorization exists for the requested period.
+    RenewalAuthorizationMissing = 160,
+    /// The consumer has no standing auto-renewal authorization.
+    AutoRenewalNotEnabled = 161,
+    /// The subscription was cancelled or superseded, so it cannot renew.
+    AutoRenewalCancelled = 162,
+
+    // ── 163–165: restored discriminants referenced by wired modules but
+    // absent from the enum. Numbers are taken from the registry note above
+    // and are never reused. ─────────────────────────────────────────────────
     /// A required configuration value has not been set.
-    ConfigMissing = 163,
+    ConfigMissing = 192,
     /// Outstanding failure reports prevent the relayer bond from being locked.
-    RelayerBondLocked = 164,
+    RelayerBondLocked = 193,
     /// The TWAP window holds fewer distinct observations than the floor.
     TwapInsufficientObservations = 165,
-    /// Parameter write outside the registered bounds (#544).
-    ParamOutOfBounds = 166,
-    /// Parameter is not present in the registry (#544).
-    ParamNotRegistered = 167,
-    /// Critical proposal lacks a worst-case simulation (#545).
-    SimulationRequired = 168,
-    /// Proposal simulation flagged harmful impact (#545).
-    ProposalHarmful = 169,
-    /// Unknown treasury budget category (#546).
-    UnknownBudgetCategory = 170,
+
+    // ── 172–174: Configurable history storage tier (#246) ─────────────────────
+    /// A persistent -> temporary tier downgrade was attempted without the required
+    /// multi-party approval and timelock having completed.
+    StorageTierDowngradeNotReady = 172,
+    /// The requested storage tier value is not a known discriminant.
+    UnknownStorageTier = 173,
+    /// A history-tier migration could not be completed.
+    StorageTierMigrationFailed = 174,
+
+    // ── 175–179: Subscription auto-renewal (#289) ─────────────────────────────
+    /// A renewal authorization was replayed after it had already been consumed.
+    RenewalAuthorizationReplay = 175,
+    /// No single-use renewal authorization exists for the requested period.
+    RenewalAuthorizationMissing = 176,
+    /// The consumer has no standing auto-renewal authorization.
+    AutoRenewalNotEnabled = 177,
+    /// The subscription was cancelled or superseded, so it cannot renew.
+    AutoRenewalCancelled = 178,
+    /// The consumer's pre-approved allowance would be exceeded by this renewal.
+    AutoRenewalAllowanceExceeded = 179,
+
+    // ── 180–183: Multi-round price confirmation (#397) ────────────────────────
+    /// The requested round is not the asset's current round.
+    RoundNotFound = 180,
+    /// The round's deadline has passed; it can no longer accept observations.
+    RoundExpired = 181,
+    /// The same observation was already used to satisfy an earlier round's quorum.
+    RoundEvidenceReplay = 182,
+    /// The participant equivocated inside a round and was penalized.
+    RoundEquivocation = 183,
+
+    // ── 184–187: Derived price feeds (#478) ────────────────────────────────────
+    /// A derived feed was requested with a zero denominator.
+    DerivedFeedZeroDenominator = 184,
+    /// One (or more) of the requested pair/triplet is unknown or has no price.
+    UnknownDerivedPair = 185,
+    /// The requested derivation would form a cycle in the derivation graph.
+    DerivedFeedCycle = 186,
+    /// The derivation graph depth bound would be exceeded.
+    DerivedFeedDepthExceeded = 187,
 }

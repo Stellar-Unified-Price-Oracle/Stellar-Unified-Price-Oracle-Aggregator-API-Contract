@@ -1,0 +1,81 @@
+name: Fuzz Deep
+
+# #504: long-running coverage-guided fuzzing over the public endpoint surface.
+#
+# `ci.yml` runs a bounded 1M-iteration pass on every PR so a crash is caught
+# cheaply. This workflow runs the *same* targets for far longer on a schedule,
+# which is where coverage-guided fuzzing actually pays off: the extra depth
+# only becomes reachable after the corpus has been grown over many runs.
+#
+# Seeds are committed under `fuzz/corpus/`, so a crash found here is
+# reproducible from the artifact alone, and the artifact is uploaded so it can
+# be minimized and committed as a regression test.
+
+on:
+  schedule:
+    # 04:17 UTC daily — off the hour, to avoid the top-of-hour stampede.
+    - cron: "17 4 * * *"
+  workflow_dispatch:
+    inputs:
+      runs:
+        description: "Iterations per target"
+        default: "20000000"
+
+concurrency:
+  group: fuzz-deep
+  cancel-in-progress: true
+
+jobs:
+  fuzz_endpoints:
+    name: Deep fuzz — endpoint surface
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install nightly Rust (required by cargo-fuzz / libfuzzer-sys)
+        uses: dtolnay/rust-toolchain@nightly
+
+      # rust-toolchain.toml pins 1.91.0 and would override the nightly
+      # toolchain above, so set an explicit directory override (stronger
+      # than the toolchain file) for this job only.
+      - name: Force nightly for this job
+        run: rustup override set nightly
+
+      - name: Cache dependencies
+        uses: Swatinem/rust-cache@v2
+
+      # 0.12.0 no longer builds on current nightly; pin the current 0.13.x line.
+      - name: Install cargo-fuzz
+        run: cargo install cargo-fuzz --locked --version "0.13.2"
+
+      - name: Deep fuzz fuzz_endpoints
+        run: |
+          cargo fuzz run fuzz_endpoints \
+            fuzz/corpus/fuzz_endpoints \
+            -- \
+            -runs=${{ github.event.inputs.runs || 20000000 }} \
+            -max_len=4096 \
+            -timeout=60 \
+            -error_exitcode=1
+
+      - name: Deep fuzz fuzz_aggregation_invariants
+        run: |
+          cargo fuzz run fuzz_aggregation_invariants \
+            fuzz/corpus/fuzz_aggregation_invariants \
+            -- \
+            -runs=${{ github.event.inputs.runs || 20000000 }} \
+            -max_len=401 \
+            -timeout=60 \
+            -error_exitcode=1
+
+      # A crash found on the schedule must become a committed, minimized
+      # regression test — see docs/security/stride-threat-model.md (§8, #504).
+      - name: Upload fuzz artifacts
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fuzz-deep-crashes
+          path: |
+            fuzz/artifacts/
+            fuzz/corpus/
