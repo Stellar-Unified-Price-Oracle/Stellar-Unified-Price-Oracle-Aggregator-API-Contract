@@ -257,6 +257,10 @@ See [`docs/error-codes.md`](docs/error-codes.md) for the full registry with caus
 | [State-Machine Model](docs/security/state-machine-model.md) | Independently written model of the aggregate lifecycle, driven by shrinking random traces (#513) |
 | [Coverage-Guided Fuzzing](docs/security/fuzzing.md) | Fuzz targets, the committed minimized corpus, and the CI crash and size gates (#514) |
 | [Monitoring Dashboard](docs/monitoring/README.md) | Grafana dashboard setup and metrics reference |
+| [Quickstart Templates](examples/README.md) | CI-tested web (SEP-40), Python bot and indexer templates |
+| [Interface Package](docs/interface-versioning.md) | Versioned `@stellar-unified-price-oracle/interface` npm package, semver rules, deprecation policy |
+| [Error Registry](docs/errors/REGISTRY.md) | Every error code with meaning, cause and remediation ([JSON](docs/errors/registry.json)) |
+| [Migration Guides](docs/migrations/README.md) | Per-version guides for breaking changes and deprecation windows |
 | [Integration Case Studies](docs/case-studies.md) | Lending, DEX and payments integrations with threat models, worked exploits and countermeasures |
 | [Seam Invariant Catalogue](docs/seam-invariants.md) | Cross-module invariants and the regression tests that enforce them |
 | [SLA](docs/SLA.md) | Service levels and the machine-enforceable clause map checked by `services/sla_monitor` |
