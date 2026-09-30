@@ -13,18 +13,25 @@
 #   mutation-gate       - mutation gate self-test, no cargo-mutants needed (#520)
 #   mutation-per-module - per-module mutation scores and thresholds (#520)
 #   hermetic           - hermetic integration harness, verifies determinism (#519)
-#   dev                - one-command contributor setup + full test run (#541)
-#   docs-check         - docs freshness: links, snippets, interface (#540)
-#   onboarding         - refresh + validate the contributor onboarding map (#542)
+#   sast               - SAST + advisory + unsafe-baseline gate (#500)
+#   secret-scan        - secret scan of the tree, with a history report (#502)
+#   check-pins         - every dependency pinned exactly, lockfile in sync (#501)
+#   reproducible-build - two clean builds must produce identical WASM (#501)
 
+# Determinism & Interleaving Suite (#516)
+#
+# SEP-40 conformance (#515), event-schema golden snapshots (#518) and the
+# N-2..N upgrade matrix (#517) also have their own targets. All of them are
+# plain `cargo test` filters over the contract's test binary.
 .PHONY: all build test lint fmt check clean watch gas-gate load-test \
-        mutation-gate mutation-per-module hermetic dev docs-check onboarding
+        mutation-gate mutation-per-module hermetic sast secret-scan \
+        check-pins reproducible-build security
 
 all: build test
 
 # Compile the contract to wasm32v1-none release
 build:
-	cargo build -p price-oracle --target wasm32v1-none --release
+	cargo build -p price-oracle --target wasm32v1-none --release --locked
 
 # Run all unit tests
 test:
@@ -52,17 +59,26 @@ mutation-per-module:
 hermetic:
 	./scripts/hermetic-integration.sh
 
-# One-command contributor environment (docs/dev-environment.md)
-dev:
-	./scripts/dev-setup.sh
+# Static analysis gate: source-level SAST, the unsafe/finding baseline, and
+# dependency advisories (cargo-audit). Writes a report for the run artifacts.
+sast:
+	python3 -m services.static_analysis.gate --report security-artifacts/static-analysis.md
 
-# Docs freshness gate (docs/docs-freshness.md)
-docs-check:
-	python3 scripts/docs_freshness.py
+# Secret scanning: working tree + full history, redacted report.
+secret-scan:
+	python3 -m services.secret_scan.scanner . --history --report secret-artifacts/secret-scan.md
 
-# Onboarding map: validate and print current recommendations (docs/ONBOARDING.md)
-onboarding:
-	python3 scripts/onboarding.py check
+# Dependency pinning: exact requirements, committed + hashed lockfile, no drift.
+check-pins:
+	python3 -m services.pinned_deps.pin_check .
+
+# Byte-reproducibility: two clean builds, compared digests.
+reproducible-build:
+	./scripts/reproducible-build.sh
+
+# Everything the three hardening issues gate on, plus their test suites.
+security: sast secret-scan check-pins
+	python3 -m pytest services/static_analysis services/secret_scan services/pinned_deps -q
 
 # Run clippy linter
 lint:

@@ -20,6 +20,38 @@ equivalents (for Kafka/streaming consumers) live alongside them as
   truth; schema changes must accompany the corresponding Rust change in the
   same PR.
 
+## Golden snapshots (#518)
+
+`contracts/price-oracle/testdata/event_schema.golden` is a golden snapshot of the
+**topic and payload schema of every `#[contractevent]` struct in the crate** —
+topic symbols, topic fields, and every payload field with its type, in
+declaration order. The gate lives in
+`contracts/price-oracle/src/event_schema_snapshot.rs` and runs in CI:
+
+* `make event-snapshots` checks the committed snapshot against the code.
+* `make event-snapshots-regen` rewrites it. Regeneration is a **deliberate,
+  reviewed step**: the diff is part of the pull request, and CI never regenerates
+  (it only checks), so a snapshot can never be auto-accepted.
+* A change to an event's names, topic list, field order, field types, or the set
+  of events fails the build. To make one stick, bump `EVENT_SCHEMA_VERSION` in
+  the snapshot module, add `schemas/events/v<N+1>/` and regenerate — an
+  unversioned change is a build failure by design.
+* `every_event_is_covered_by_a_snapshot` is the completeness gate: the number of
+  snapshot entries must equal the number of `#[contractevent]` attributes in the
+  crate, so a new event cannot slip through unsnapshotted.
+* `snapshots_agree_with_the_event_schema_registry` cross-checks the table below
+  against the snapshot.
+
+### Topic naming: the `_event` suffix
+
+The `#[contractevent]` macro derives the leading topic from the struct name in
+snake_case and does **not** strip the `Event` suffix, so `PriceSubmittedEvent` is
+published under the topic `price_submitted_event`, while the schema file and the
+table below are named `price_submitted`. The cross-check accepts both spellings
+and fails on anything else; a consumer filtering events must use the on-chain
+topic (`<struct_name_snake_case>`) or an explicit
+`#[contractevent(topics = ["…"])]` override.
+
 ## Core events (v1)
 
 | Topic | Rust struct | Schema |

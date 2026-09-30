@@ -81,6 +81,12 @@ pub fn register_foreign_asset_mapping(
 ) {
     let admin = get_admin(env);
     admin.require_auth();
+    crate::input_validation::validate_string(
+        env,
+        "register_foreign_asset_mapping",
+        "chain",
+        &chain,
+    );
     check_registered_asset(env, &stellar_asset);
 
     let key = mapping_key(&chain, &foreign_address);
@@ -135,6 +141,7 @@ pub fn update_foreign_asset_mapping(
 ) {
     let admin = get_admin(env);
     admin.require_auth();
+    crate::input_validation::validate_string(env, "update_foreign_asset_mapping", "chain", &chain);
 
     let key = mapping_key(&chain, &foreign_address);
     let mut mapping: ForeignAssetMapping = env
@@ -169,6 +176,7 @@ pub fn update_foreign_asset_mapping(
 pub fn remove_foreign_asset_mapping(env: &Env, chain: String, foreign_address: BytesN<32>) {
     let admin = get_admin(env);
     admin.require_auth();
+    crate::input_validation::validate_string(env, "remove_foreign_asset_mapping", "chain", &chain);
 
     let key = mapping_key(&chain, &foreign_address);
     let mapping: ForeignAssetMapping = env
@@ -202,6 +210,10 @@ pub fn get_foreign_asset_mapping(
     chain: String,
     foreign_address: BytesN<32>,
 ) -> Option<ForeignAssetMapping> {
+    // A lookup key is still untrusted input: a canonical chain name means an
+    // attacker cannot probe for near-miss keys, and an oversized name is
+    // rejected instead of being hashed into a storage key.
+    crate::input_validation::validate_string(env, "get_foreign_asset_mapping", "chain", &chain);
     env.storage()
         .persistent()
         .get(&mapping_key(&chain, &foreign_address))

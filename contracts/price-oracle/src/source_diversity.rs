@@ -100,6 +100,11 @@ pub fn set_source_diversity(
 ) {
     let admin = get_admin(env);
     admin.require_auth();
+    // #506 — every persisted text field is bounded and canonicalized before
+    // it reaches storage; without this the source's geo record is unbounded.
+    crate::input_validation::validate_string(env, "set_source_diversity", "infra", &infra);
+    crate::input_validation::validate_string(env, "set_source_diversity", "upstream", &upstream);
+    crate::input_validation::validate_string(env, "set_source_diversity", "owner", &owner);
     if !env
         .storage()
         .persistent()

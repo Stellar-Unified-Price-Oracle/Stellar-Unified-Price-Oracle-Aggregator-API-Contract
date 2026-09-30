@@ -61,6 +61,75 @@ For proposals related to contract upgrades, parameter changes, source additions/
 
 Submit completed proposals as a GitHub issue or pull request for community review before any on-chain action is taken.
 
+## Contributor Ladder
+
+The contributor ladder is a security control as much as a recognition scheme. Access escalates
+only when a contributor demonstrates the judgment required to exercise that access safely.
+Contribution volume alone does not justify promotion.
+
+### Levels
+
+| Level | Permissions | Entry Criteria |
+|---|---|---|
+| **Contributor** | Fork, open PRs, file issues | First merged PR |
+| **Triager** | Label issues, request reviews, close stale issues | ≥3 merged PRs *and* at least one documented security-review action (see below) |
+| **Maintainer** | Merge PRs (non-upgrade paths), manage releases | ≥2 months as Triager, second Maintainer approval, documented security-judgment evidence |
+| **Core Maintainer** | Merge upgrade/admin-path PRs, rotate signing keys | Separate nomination; requires unanimous current Core Maintainer approval |
+
+### Least-Privilege Permission Map
+
+Each rung is limited to the minimum permissions required:
+
+- **Contributor** — no repository write access; no CI secrets access.
+- **Triager** — GitHub Triage role only; no merge rights; no secrets.
+- **Maintainer** — GitHub Write role; can merge to non-protected branches; no key/deploy access.
+- **Core Maintainer** — GitHub Admin role (scoped); upgrade-path merge rights; signing-key rotation.
+
+### Security Judgment Requirement
+
+Promotion to **Triager or above** requires at least one documented instance of security judgment. Examples:
+
+- Caught a validation gap or missing auth check in a PR review.
+- Rejected a plausible-but-unsafe change with a written rationale.
+- Identified a contract invariant violation in a proposed change.
+
+Document the instance in the promotion PR (reference the PR/issue number where the judgment was exercised).
+
+### Inactivity Expiry
+
+Privileged access (Triager and above) expires automatically after **90 days of inactivity**
+(no merged PR, no substantive review, no triaging action). On expiry:
+
+1. Access is downgraded one level automatically.
+2. The contributor is notified and may request reinstatement by demonstrating current activity.
+
+A dry run of the expiry process is performed quarterly by a Core Maintainer, with results documented as an issue.
+
+### Removal and Demotion
+
+Any maintainer may propose removal or demotion by opening an issue with:
+
+- The rung being revoked.
+- The specific trigger (inactivity, conduct, security incident, role change).
+- Evidence supporting the action.
+
+Removal is effective after 48 hours unless disputed. Disputed removals require a majority vote
+of Core Maintainers. Removed access is logged in the project's access-change history.
+
+### Security-Relevant Promotions
+
+Promotions to Maintainer or Core Maintainer require a **second Maintainer's approval** documented
+in the promotion PR. The approving Maintainer must not be the nominee's primary collaborator and
+must independently verify the security-judgment evidence.
+
+### Automated Recognition
+
+- GitHub Achievements and profile badges are assigned automatically on promotion.
+- The README contributor table is regenerated on each merge to `main`.
+- All access changes are logged as GitHub issues under the `access-change` label.
+
+---
+
 ## License
 
 By contributing, you agree that your contributions will be licensed under the MIT License.
