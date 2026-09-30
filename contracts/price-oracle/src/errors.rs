@@ -337,27 +337,27 @@ pub enum ErrorCode {
 
     // ── 156–162: #484 bound tiers, #485 deferral, #486 price corrections ───────
     /// The soft/hard bound ordering supplied for an asset is invalid (#484).
-    InvalidBoundOrdering = 156,
+    InvalidBoundOrdering = 185,
     /// The supplied deferral policy is outside its documented bounds (#485).
-    InvalidDeferralPolicy = 157,
+    InvalidDeferralPolicy = 186,
     /// `correct_price` was called with an empty or oversized reason (#486).
-    InvalidCorrectionReason = 158,
+    InvalidCorrectionReason = 187,
     /// The per-asset correction count cap has been reached (#486).
-    CorrectionLimitReached = 159,
+    CorrectionLimitReached = 188,
     /// The value supplied lies outside the asset's hard bounds (#484, #486).
-    AggregateRejectedByBounds = 160,
+    AggregateRejectedByBounds = 189,
     /// The aggregate being corrected is older than the correction window (#486).
-    CorrectionWindowExpired = 161,
+    CorrectionWindowExpired = 190,
     /// The requested revision index does not exist in the chain (#486).
-    RevisionNotFound = 162,
+    RevisionNotFound = 191,
 
     // ── Restored discriminants referenced by wired modules but absent from
     // the enum, which left the crate uncompilable. Numbers are taken from the
     // registry note above and are never reused. ──────────────────────────────
     /// A required configuration value has not been set.
-    ConfigMissing = 163,
+    ConfigMissing = 192,
     /// Outstanding failure reports prevent the relayer bond from being locked.
-    RelayerBondLocked = 164,
+    RelayerBondLocked = 193,
     /// The TWAP window holds fewer distinct observations than the floor.
     TwapInsufficientObservations = 165,
 
