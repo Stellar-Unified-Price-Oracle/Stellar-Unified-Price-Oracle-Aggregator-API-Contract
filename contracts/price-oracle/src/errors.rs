@@ -24,7 +24,8 @@ use soroban_sdk::contracterror;
 /// | 116–118 | Cross-chain asset registry |
 /// | 119–121 | Axelar GMP integration |
 /// | 122–125 | LayerZero integration |
-/// | 156–158 | Per-asset policy / TWAP cardinality / relayer bond lock |
+/// | 156–171 | #246 storage tier, #289 auto-renewal, #397 rounds, #478 derived feeds |
+/// | 172–181 | #484 bound tiers, #485 deferral, #486 corrections, restored misc |
 #[contracterror]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ErrorCode {
@@ -335,29 +336,61 @@ pub enum ErrorCode {
     /// The supplied diversity thresholds are invalid (e.g. max HHI > 10000).
     InvalidDiversityThresholds = 155,
 
-    // ── 156–162: #484 bound tiers, #485 deferral, #486 price corrections ───────
+    // ── 172–178: #484 bound tiers, #485 deferral, #486 price corrections ──────
     /// The soft/hard bound ordering supplied for an asset is invalid (#484).
-    InvalidBoundOrdering = 156,
+    InvalidBoundOrdering = 172,
     /// The supplied deferral policy is outside its documented bounds (#485).
-    InvalidDeferralPolicy = 157,
+    InvalidDeferralPolicy = 173,
     /// `correct_price` was called with an empty or oversized reason (#486).
-    InvalidCorrectionReason = 158,
+    InvalidCorrectionReason = 174,
     /// The per-asset correction count cap has been reached (#486).
-    CorrectionLimitReached = 159,
+    CorrectionLimitReached = 175,
     /// The value supplied lies outside the asset's hard bounds (#484, #486).
-    AggregateRejectedByBounds = 160,
+    AggregateRejectedByBounds = 176,
     /// The aggregate being corrected is older than the correction window (#486).
-    CorrectionWindowExpired = 161,
+    CorrectionWindowExpired = 177,
     /// The requested revision index does not exist in the chain (#486).
-    RevisionNotFound = 162,
+    RevisionNotFound = 178,
 
-    // ── Restored discriminants referenced by wired modules but absent from
-    // the enum, which left the crate uncompilable. Numbers are taken from the
-    // registry note above and are never reused. ──────────────────────────────
+    // ── 179–181: Restored discriminants referenced by wired modules but
+    // absent from the enum, which left the crate uncompilable. ───────────────
     /// A required configuration value has not been set.
-    ConfigMissing = 163,
+    ConfigMissing = 179,
     /// Outstanding failure reports prevent the relayer bond from being locked.
-    RelayerBondLocked = 164,
+    RelayerBondLocked = 180,
     /// The TWAP window holds fewer distinct observations than the floor.
-    TwapInsufficientObservations = 165,
+    TwapInsufficientObservations = 181,
+
+    // ── 156–171: #246 storage tier, #289 auto-renewal, #397 consensus
+    // rounds, #478 derived feeds. These ranges are the ones the modules' own
+    // test suites assert against, so they are restored verbatim. ────────────
+    /// A persistent → temporary tier downgrade was attempted without the required
+    /// multi-party approval and timelock having completed (#246).
+    StorageTierDowngradeNotReady = 156,
+    /// A renewal authorization was replayed after it had already been consumed (#289).
+    RenewalAuthorizationReplay = 159,
+    /// No single-use renewal authorization exists for the requested period (#289).
+    RenewalAuthorizationMissing = 160,
+    /// The consumer has no standing auto-renewal authorization (#289).
+    AutoRenewalNotEnabled = 161,
+    /// The subscription was cancelled or superseded, so it cannot renew (#289).
+    AutoRenewalCancelled = 162,
+    /// The consumer's pre-approved allowance would be exceeded by this renewal (#289).
+    AutoRenewalAllowanceExceeded = 163,
+    /// The requested round is not the asset's current round (#397).
+    RoundNotFound = 164,
+    /// The round's deadline has passed; it can no longer accept observations (#397).
+    RoundExpired = 165,
+    /// The same observation was already used to satisfy an earlier round's quorum (#397).
+    RoundEvidenceReplay = 166,
+    /// The participant equivocated inside a round and was penalized (#397).
+    RoundEquivocation = 167,
+    /// A derived feed was requested with a zero denominator (#478).
+    DerivedFeedZeroDenominator = 168,
+    /// One (or more) of the requested pair/triplet is unknown or has no price (#478).
+    UnknownDerivedPair = 169,
+    /// The requested derivation would form a cycle in the derivation graph (#478).
+    DerivedFeedCycle = 170,
+    /// The derivation graph depth bound would be exceeded (#478).
+    DerivedFeedDepthExceeded = 171,
 }
