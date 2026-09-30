@@ -929,6 +929,65 @@ pub enum DataKey {
     GovernorOpGrant(String),
     /// Minimum distinct TWAP observations required (u32).
     TwapMinCardinality,
+    // Configuration keys referenced by policy.rs / prices.rs /
+    // external_governance.rs
+    /// Minimum distinct observations a TWAP window needs (u32).
+    /// External-governor authorization epoch (u32); bumping it revokes every grant.
+    /// Epoch at which an operation name was allow-listed for the external governor.
+    /// Per-asset freshness decay curve (FreshnessCurve).
+    /// Asset-class id an asset is assigned to (u32).
+    /// Per-asset policy override (`Option<PolicyOverride>`).
+    /// Per-asset-class policy override (`Option<PolicyOverride>`).
+    // #246: Per-asset price-history storage tier
+    /// The [`StorageTier`] (temporary/persistent) an asset's history is written to.
+    AssetStorageTier(Address),
+    /// A pending, multi-party-approved downgrade request for an asset's history tier.
+    AssetStorageTierDowngrade(Address),
+    /// Ledger of the last completed history-tier migration for an asset.
+    AssetStorageTierMigrated(Address),
+    // #289: Subscription auto-renewal
+    /// The standing [`AutoRenewRecord`] a consumer granted for auto-renewal.
+    SubscriptionAutoRenew(Address),
+    /// A single-use, per-period renewal authorization for a consumer.
+    SubscriptionRenewalAuthorization(Address, u64),
+    /// Marker recording that a consumer's renewal for a period was already spent.
+    SubscriptionRenewalSpent(Address, u64),
+    // #397: Multi-round price confirmation (consensus rounds)
+    /// Per-asset consensus-round configuration.
+    ConsensusRoundConfig(Address),
+    /// Monotonic round counter for an asset (the current round identity).
+    ConsensusRoundCounter(Address),
+    /// Ledger at which a given round for an asset became live.
+    ConsensusRoundStart(Address, u32),
+    /// A source's signed observation inside one round.
+    ConsensusRoundVote(Address, u32, Address),
+    /// The distinct sources that have voted in a round, in submission order.
+    ///
+    /// Enumerating a round's voters through this index keeps the per-round cost
+    /// `O(votes)` rather than `O(registered sources)`, and makes "quorum
+    /// distinct sources" a check over actual votes rather than a count of
+    /// everyone who could have voted (#397).
+    ConsensusRoundVoteIndex(Address, u32),
+    /// The tally (median + vote count) recorded for a round that reached quorum.
+    ConsensusRoundTally(Address, u32),
+    /// The observation id (BytesN<32>) a round consumed, used to reject replay.
+    ConsensusRoundEvidence(Address, u32, BytesN<32>),
+    /// Maps an observation id to the first round that consumed it.
+    ConsensusRoundEvidenceOwner(Address, BytesN<32>),
+    /// Set when a source is barred from a round for equivocation.
+    ConsensusRoundEquivocation(Address, u32, Address),
+    /// Lifetime equivocation counter for a source on a given asset.
+    ConsensusEquivocationCount(Address, Address),
+    /// The confirmed price produced by a finalized confirmation run.
+    ConsensusConfirmedPrice(Address),
+    /// The consecutive confirmed rounds backing `ConsensusConfirmedPrice`.
+    ConsensusConfirmedRounds(Address),
+    /// Number of times a stalled round was abandoned (bounded-abandonment counter).
+    ConsensusRoundAbandoned(Address),
+    // #478: On-chain derived price feeds
+    /// Admin-set canonical base price for an asset, used by the derivation engine
+    /// in preference to the live aggregate when present.
+    DerivedFeedBase(Address),
 }
 
 /// A price submission from a single oracle source for a specific asset.
