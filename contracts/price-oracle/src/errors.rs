@@ -359,56 +359,46 @@ pub enum ErrorCode {
     /// Outstanding failure reports prevent the relayer bond from being locked.
     RelayerBondLocked = 193,
     /// The TWAP window holds fewer distinct observations than the floor.
-    TwapInsufficientObservations = 194,
+    TwapInsufficientObservations = 165,
 
-    // ── 166–168: Configurable history storage tier (#246) ─────────────────────
-    /// A persistent → temporary tier downgrade was attempted without the required
+    // ── 172–174: Configurable history storage tier (#246) ─────────────────────
+    /// A persistent -> temporary tier downgrade was attempted without the required
     /// multi-party approval and timelock having completed.
-    StorageTierDowngradeNotReady = 156,
-    /// The requested storage tier value is not a known storage-tier discriminant.
-    UnknownStorageTier = 157,
+    StorageTierDowngradeNotReady = 172,
+    /// The requested storage tier value is not a known discriminant.
+    UnknownStorageTier = 173,
     /// A history-tier migration could not be completed.
-    StorageTierMigrationFailed = 158,
+    StorageTierMigrationFailed = 174,
 
-    // ── 169–173: Subscription auto-renewal (#289) ─────────────────────────────
+    // ── 175–179: Subscription auto-renewal (#289) ─────────────────────────────
     /// A renewal authorization was replayed after it had already been consumed.
-    RenewalAuthorizationReplay = 159,
+    RenewalAuthorizationReplay = 175,
     /// No single-use renewal authorization exists for the requested period.
-    RenewalAuthorizationMissing = 160,
+    RenewalAuthorizationMissing = 176,
     /// The consumer has no standing auto-renewal authorization.
-    AutoRenewalNotEnabled = 161,
+    AutoRenewalNotEnabled = 177,
     /// The subscription was cancelled or superseded, so it cannot renew.
-    AutoRenewalCancelled = 162,
+    AutoRenewalCancelled = 178,
     /// The consumer's pre-approved allowance would be exceeded by this renewal.
-    AutoRenewalAllowanceExceeded = 163,
+    AutoRenewalAllowanceExceeded = 179,
 
-    // ── 174–177: Multi-round price confirmation (#397) ────────────────────────
+    // ── 180–183: Multi-round price confirmation (#397) ────────────────────────
     /// The requested round is not the asset's current round.
-    RoundNotFound = 164,
+    RoundNotFound = 180,
     /// The round's deadline has passed; it can no longer accept observations.
-    RoundExpired = 165,
+    RoundExpired = 181,
     /// The same observation was already used to satisfy an earlier round's quorum.
-    RoundEvidenceReplay = 166,
+    RoundEvidenceReplay = 182,
     /// The participant equivocated inside a round and was penalized.
-    RoundEquivocation = 167,
+    RoundEquivocation = 183,
 
-    // ── 178–181: Derived price feeds (#478) ────────────────────────────────────
+    // ── 184–187: Derived price feeds (#478) ────────────────────────────────────
     /// A derived feed was requested with a zero denominator.
-    DerivedFeedZeroDenominator = 168,
+    DerivedFeedZeroDenominator = 184,
     /// One (or more) of the requested pair/triplet is unknown or has no price.
-    UnknownDerivedPair = 169,
+    UnknownDerivedPair = 185,
     /// The requested derivation would form a cycle in the derivation graph.
-    DerivedFeedCycle = 170,
+    DerivedFeedCycle = 186,
     /// The derivation graph depth bound would be exceeded.
-    DerivedFeedDepthExceeded = 171,
-
-    // ── 182–184: Dead-man switch (#510) ───────────────────────────────────────
-    /// A heartbeat was submitted while the dead-man switch is not armed.
-    DeadManDisabled = 182,
-    /// The dead-man switch is not currently in the degraded state, so there is
-    /// nothing to recover from.
-    NotDegraded = 183,
-    /// The contract is in the dead-man degraded state: submissions are
-    /// rejected and reads serve no value until the recovery path clears it.
-    OracleDegraded = 184,
+    DerivedFeedDepthExceeded = 187,
 }
