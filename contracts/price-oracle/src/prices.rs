@@ -846,10 +846,10 @@ fn aggregate_asset(env: &Env, asset: &Address, current_ledger: u32, decimals: u3
                 is_interpolated: false,
             };
             let skip_history = should_skip_on_write(env, asset, median_price);
-            env.storage().temporary().set(
-                &DataKey::PriceHistory(asset.clone(), current_ledger),
-                &history_entry,
-            );
+            // #246: route the snapshot to the asset's configured history storage
+            // tier (temporary by default, which is byte-for-byte the pre-#246
+            // behaviour).
+            crate::storage_tier::write_history_entry(env, asset, &history_entry);
 
             // Track ledger in history index for pruning. Avoid duplicate sequence entries
             // if aggregation is run more than once in the same ledger.
@@ -867,9 +867,7 @@ fn aggregate_asset(env: &Env, asset: &Address, current_ledger: u32, decimals: u3
                 }
                 write_history_shard(env, asset, &history_entry);
             } else {
-                env.storage()
-                    .temporary()
-                    .remove(&DataKey::PriceHistory(asset.clone(), current_ledger));
+                crate::storage_tier::remove_history_entry(env, asset, current_ledger);
             }
 
             // Issue #92: check event budget before emitting prune events.

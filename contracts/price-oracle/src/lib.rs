@@ -112,6 +112,12 @@ mod state_channel;
 mod state_introspection;
 mod submission_deadline;
 mod subscription;
+// #246/#289/#397/#478 — storage tiers, auto-renewal, consensus rounds and
+// derived feeds.
+mod auto_renewal;
+mod consensus_rounds;
+mod derived_feeds;
+mod storage_tier;
 // #304 — Consumer contract authorization (wired in from disk).
 mod confidence_band;
 mod consumer_auth;
