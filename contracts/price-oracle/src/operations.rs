@@ -2,6 +2,8 @@ use crate::types::{DataKey, ErrorCode, Operation, OperationStatus};
 use soroban_sdk::{panic_with_error, Env, String, Vec};
 
 pub fn create_operation(env: &Env, op_id: String, depends_on: Vec<String>) {
+    crate::input_validation::validate_string(env, "create_operation", "op_id", &op_id);
+    crate::input_validation::validate_string_vec(env, "create_operation", "op_id", &depends_on);
     let key = DataKey::Operation(op_id.clone());
     if env.storage().persistent().has(&key) {
         panic_with_error!(env, ErrorCode::OperationAlreadyExists);
@@ -36,16 +38,19 @@ fn read_operation(env: &Env, op_id: &String) -> Operation {
 }
 
 pub fn get_operation_dependencies(env: &Env, op_id: String) -> Vec<String> {
+    crate::input_validation::validate_string(env, "get_operation_dependencies", "op_id", &op_id);
     let op = read_operation(env, &op_id);
     op.depends_on
 }
 
 pub fn get_operation_status(env: &Env, op_id: String) -> OperationStatus {
+    crate::input_validation::validate_string(env, "get_operation_status", "op_id", &op_id);
     let op = read_operation(env, &op_id);
     op.status
 }
 
 pub fn execute_operation(env: &Env, op_id: String) {
+    crate::input_validation::validate_string(env, "execute_dependent_operation", "op_id", &op_id);
     let mut op = read_operation(env, &op_id);
     if op.status != OperationStatus::Pending {
         panic_with_error!(env, ErrorCode::InvalidOperationState);
@@ -65,6 +70,7 @@ pub fn execute_operation(env: &Env, op_id: String) {
 }
 
 pub fn cancel_operation(env: &Env, op_id: String) {
+    crate::input_validation::validate_string(env, "cancel_dependent_operation", "op_id", &op_id);
     let mut op = read_operation(env, &op_id);
     if op.status == OperationStatus::Cancelled {
         return;

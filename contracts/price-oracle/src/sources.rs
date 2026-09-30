@@ -326,6 +326,12 @@ pub fn set_source_verification(
 ) {
     let admin = get_admin(env);
     admin.require_auth();
+    crate::input_validation::validate_string(
+        env,
+        "set_source_verification",
+        "verification_method",
+        &verification_method,
+    );
     if !is_source(env, source.clone()) {
         panic_with_error!(env, ErrorCode::SourceNotFound);
     }
@@ -1343,6 +1349,7 @@ pub fn set_source_governance(env: &Env, approvers: Vec<Address>, threshold: u32)
 
 pub fn propose_source(env: &Env, proposer: Address, source: Address, name: String) -> u32 {
     proposer.require_auth();
+    crate::input_validation::validate_string(env, "propose_source", "name", &name);
 
     let gov = get_source_governance(env).unwrap_or_else(|| {
         panic_with_error!(env, ErrorCode::NotAuthorized);

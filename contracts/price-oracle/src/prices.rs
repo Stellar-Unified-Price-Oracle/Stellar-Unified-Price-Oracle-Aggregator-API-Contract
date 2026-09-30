@@ -1043,6 +1043,11 @@ fn aggregate_asset(env: &Env, asset: &Address, current_ledger: u32, decimals: u3
                     .temporary()
                     .remove(&DataKey::PriceHistory(asset.clone(), oldest_ledger));
                 remove_history_shard_entry(env, asset, oldest_ledger);
+                // #493: provenance is pruned by exactly the same policy as the
+                // price it explains, under both the global and the per-asset cap,
+                // so a record can never outlive its history entry and accumulate
+                // without bound.
+                crate::provenance::prune(env, asset, oldest_ledger);
                 HistoryPrunedEvent {
                     asset: asset.clone(),
                     pruned_ledger: oldest_ledger,
@@ -1070,6 +1075,8 @@ fn aggregate_asset(env: &Env, asset: &Address, current_ledger: u32, decimals: u3
                     .temporary()
                     .remove(&DataKey::PriceHistory(asset.clone(), oldest_ledger));
                 remove_history_shard_entry(env, asset, oldest_ledger);
+                crate::provenance::prune(env, asset, oldest_ledger);
+
                 HistoryPerAssetPrunedEvent {
                     asset: asset.clone(),
                     pruned_ledger: oldest_ledger,
@@ -2488,6 +2495,12 @@ pub fn reveal_prices_batch(
         let (asset, price, salt, round_ledger) = reveals.get_unchecked(i);
         check_registered_asset(env, &asset);
         check_source_asset(env, &source, &asset);
+        // #506 — the batch count is already capped by `MAX_BATCH_REVEALS`
+        // above; each element additionally carries a variable-length salt, so
+        // bound that too. The cap is the same one the single-item `reveal_price`
+        // endpoint uses, so a batch cannot accept a salt a single reveal would
+        // refuse.
+        crate::input_validation::validate_bytes(env, "reveal_price", "salt", &salt);
         _do_reveal(env, &source, &asset, price, salt, round_ledger);
     }
 }

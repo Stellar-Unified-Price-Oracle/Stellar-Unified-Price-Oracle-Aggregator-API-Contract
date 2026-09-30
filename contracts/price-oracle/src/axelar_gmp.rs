@@ -91,6 +91,18 @@ pub fn set_axelar_trusted_source(
 ) {
     let admin = get_admin(env);
     admin.require_auth();
+    crate::input_validation::validate_string(
+        env,
+        "set_axelar_trusted_source",
+        "source_chain",
+        &source_chain,
+    );
+    crate::input_validation::validate_string(
+        env,
+        "set_axelar_trusted_source",
+        "source_address",
+        &source_address,
+    );
     check_source(env, &bridge_source);
 
     let key = DataKey::AxelarTrustedSource(source_chain.clone(), source_address.clone());
@@ -111,6 +123,18 @@ pub fn set_axelar_trusted_source(
 pub fn remove_axelar_trusted_source(env: &Env, source_chain: String, source_address: String) {
     let admin = get_admin(env);
     admin.require_auth();
+    crate::input_validation::validate_string(
+        env,
+        "remove_axelar_trusted_source",
+        "source_chain",
+        &source_chain,
+    );
+    crate::input_validation::validate_string(
+        env,
+        "remove_axelar_trusted_source",
+        "source_address",
+        &source_address,
+    );
     env.storage()
         .persistent()
         .remove(&DataKey::AxelarTrustedSource(source_chain, source_address));

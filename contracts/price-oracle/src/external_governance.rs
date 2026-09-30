@@ -114,6 +114,7 @@ pub fn reauthorize_governor(env: &Env) {
 pub fn allow_governor_op(env: &Env, operation: String) {
     let admin = get_admin(env);
     admin.require_auth();
+    crate::input_validation::validate_string(env, "allow_governor_op", "operation", &operation);
 
     let key = DataKey::GovernorOpGrant(operation);
     env.storage()
@@ -130,6 +131,7 @@ pub fn allow_governor_op(env: &Env, operation: String) {
 pub fn disallow_governor_op(env: &Env, operation: String) {
     let admin = get_admin(env);
     admin.require_auth();
+    crate::input_validation::validate_string(env, "disallow_governor_op", "operation", &operation);
 
     env.storage()
         .persistent()
@@ -138,6 +140,12 @@ pub fn disallow_governor_op(env: &Env, operation: String) {
 
 /// Returns whether the external governor may perform `operation`.
 pub fn is_governor_op_allowed(env: &Env, operation: String) -> bool {
+    crate::input_validation::validate_string(
+        env,
+        "is_governor_op_allowed",
+        "operation",
+        &operation,
+    );
     let granted: Option<u32> = env
         .storage()
         .persistent()

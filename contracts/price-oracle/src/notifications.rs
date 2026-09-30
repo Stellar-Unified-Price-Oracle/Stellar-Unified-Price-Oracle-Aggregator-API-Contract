@@ -25,6 +25,15 @@ pub fn set_notification_preference(env: &Env, event_type: u32, channel: String, 
     let admin = get_admin(env);
     admin.require_auth();
 
+    // #506 — keep the endpoint-specific error, but route both fields through
+    // the shared canonical-form check so charset and padding are covered too.
+    crate::input_validation::validate_string(
+        env,
+        "set_notification_preference",
+        "channel",
+        &channel,
+    );
+    crate::input_validation::validate_string(env, "set_notification_preference", "target", &target);
     if channel.len() > MAX_STRING_LEN || target.len() > MAX_STRING_LEN {
         panic_with_error!(env, ErrorCode::NotificationConfigInvalid);
     }

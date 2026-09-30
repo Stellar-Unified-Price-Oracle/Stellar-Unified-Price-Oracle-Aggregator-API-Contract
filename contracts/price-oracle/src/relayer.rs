@@ -40,6 +40,8 @@ pub fn add_relayer(env: &Env, relayer: Address, name: String) {
     let admin = get_admin(env);
     admin.require_auth();
 
+    crate::input_validation::validate_string(env, "add_relayer", "name", &name);
+
     if env
         .storage()
         .persistent()
