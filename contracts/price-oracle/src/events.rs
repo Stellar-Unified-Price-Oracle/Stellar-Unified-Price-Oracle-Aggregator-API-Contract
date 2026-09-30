@@ -1316,6 +1316,29 @@ pub struct MsGovernorsUpdatedEvent {
     pub required_approvals: u32,
 }
 
+/// Emitted when the multi-sig signer set is rotated (#508).
+///
+/// Carries both the departing and the incoming signer sets and both
+/// thresholds, so the full signer history — and any approval invalidated by a
+/// departure — is reconstructible from the event stream alone.
+#[contractevent]
+#[derive(Clone)]
+pub struct MsGovernorsRotatedEvent {
+    #[topic]
+    pub admin: Address,
+    /// The signer set in force before this rotation.
+    pub previous_governors: soroban_sdk::Vec<Address>,
+    /// The signer set installed by this rotation.
+    pub new_governors: soroban_sdk::Vec<Address>,
+    /// The threshold in force before this rotation.
+    pub previous_required: u32,
+    /// The threshold installed by this rotation.
+    pub new_required: u32,
+    /// Pending operations whose approvals were rewritten to drop the votes of
+    /// signers this rotation removed.
+    pub invalidated_ops: u32,
+}
+
 /// Emitted when a multi-sig operation is proposed (#178).
 #[contractevent]
 #[derive(Clone)]
@@ -2773,32 +2796,130 @@ pub struct DisagreementIndexEvent {
     pub low_sample: bool,
 }
 
-/// Emitted when diversity thresholds are changed by the admin.
+/// Emitted when the dead-man switch's heartbeat deadline is overdue but before
+/// the switch trips (#510). Always precedes `dead_man_triggered_event`, giving
+/// operators a window in which to heartbeat and avert the trip.
+///
+/// Topics: none (one warning per lapse, so it is not a high-volume topic).
 #[contractevent]
 #[derive(Clone)]
-pub struct DiversityThresholdsEvent {
+pub struct DeadManWarningEvent {
+    /// Seconds since the last accepted heartbeat when the warning fired.
+    pub elapsed_secs: u64,
+    /// The configured interval after which the switch would trip.
+    pub trigger_after: u64,
+    /// Timestamp of the last accepted heartbeat.
+    pub last_heartbeat: u64,
+}
+
+/// Emitted when the dead-man switch trips and the contract enters the degraded
+/// state (#510). Submissions are rejected and reads serve no value from this
+/// point until a recovery guardian clears the state.
+///
+/// Topics: none (at most one per lapse).
+#[contractevent]
+#[derive(Clone)]
+pub struct DeadManTriggeredEvent {
+    /// Seconds since the last accepted heartbeat when the switch tripped.
+    pub elapsed_secs: u64,
+    /// The configured interval that was exceeded.
+    pub trigger_after: u64,
+    /// Timestamp of the last accepted heartbeat.
+    pub last_heartbeat: u64,
+}
+
+/// Emitted when the degraded state is cleared and normal serving resumes
+/// (#510). `guardian` is the recovery guardian (or admin) that cleared it —
+/// the authority is deliberately independent of the heartbeat operator set, so
+/// recovery does not depend on the key that may have been lost.
+///
+/// Topics: `guardian`
+#[contractevent]
+#[derive(Clone)]
+pub struct DeadManRecoveredEvent {
     #[topic]
-    pub admin: Address,
-    pub min_effective_sources: u32,
-    pub max_hhi_per_axis: u32,
+    pub guardian: Address,
 }
 
-/// Emitted when the active source set breaches diversity thresholds:
-/// effective count below minimum OR any axis HHI above maximum — even when
-/// the raw source count looks healthy (the Sybil / nominal-diversity trap).
+// ---------------------------------------------------------------------------
+// Restored events. These were dropped by the same bad merge that lost the
+// storage keys and type definitions, while the modules that publish them stayed
+// wired in, which left the crate uncompilable.
+// ---------------------------------------------------------------------------
+/// Emitted on a consumer read that was served a degraded value (#495).
+///
+/// `state` is the `DegradationState` discriminant: `0 = Fresh`, `1 = Stale`,
+/// `2 = Clamped`, `3 = LowConfidence`, `4 = Deferred`. Severe states
+/// (`Clamped`, `Deferred`) set `severe = true` and are never sampled; the others
+/// are emitted on a `1 / sample_every` slice, with `window` carried on every
+/// event so the per-window rate stays reconstructible off-chain.
+///
+/// Topics: `asset`
 #[contractevent]
 #[derive(Clone)]
-pub struct DiversityBreachedEvent {
-    pub raw_count: u32,
-    pub effective_independent_count: u32,
-    pub largest_domain_size: u32,
-    pub max_hhi: u32,
-    pub min_effective_required: u32,
+pub struct DegradedReadEvent {
+    #[topic]
+    pub asset: Address,
+    pub state: u32,
+    pub window: u32,
+    pub severe: bool,
 }
 
-// ---------------------------------------------------------------------------
-// #246 — Configurable history storage tier
-// ---------------------------------------------------------------------------
+/// Emitted for every oracle-vs-benchmark comparison (#497).
+///
+/// `aligned = false` means the two snapshots were further apart than the
+/// configured tolerance; `bias_bps` is then `0` and the sample was counted in
+/// `misaligned_skipped` rather than folded into the drift window. `bias_bps` is
+/// signed: positive means the oracle priced above the benchmark.
+///
+/// Topics: `asset`
+#[contractevent]
+#[derive(Clone)]
+pub struct DriftSampleRecordedEvent {
+    #[topic]
+    pub asset: Address,
+    pub bias_bps: i128,
+    pub aligned: bool,
+}
+
+/// Emitted for every flag raised by an anomaly rule, carrying the same inputs
+/// the stored `AnomalyExplanation` holds (#496). The event is emitted even when
+/// the bounded ring drops the record, so explanations remain reconstructible
+/// from the event stream alone.
+///
+/// Topics: `asset`, `subject`
+#[contractevent]
+#[derive(Clone)]
+pub struct AnomalyExplainedEvent {
+    #[topic]
+    pub asset: Address,
+    #[topic]
+    pub subject: Address,
+    pub rule_id: u32,
+    pub rule: Symbol,
+    pub observed: i128,
+    pub reference: i128,
+    pub threshold: i128,
+    pub rejected: bool,
+}
+
+/// Emitted whenever a derived feed is computed, carrying the staleness of the
+/// stalest input so a consumer can audit the derivation off-chain (#478).
+///
+/// Topics: `base`, `quote`
+#[contractevent]
+#[derive(Clone)]
+pub struct DerivedFeedComputedEvent {
+    #[topic]
+    pub base: Address,
+    #[topic]
+    pub quote: Address,
+    /// 0 = inverse, 1 = ratio, 2 = triangulation.
+    pub kind: u32,
+    pub price: i128,
+    /// Worst-case (maximum) staleness across the inputs, in seconds.
+    pub staleness_secs: u64,
+}
 
 /// Emitted whenever an asset's price-history storage tier is proposed, approved
 /// or executed. `actor` is the address whose authorization drove the change, so
@@ -2838,48 +2959,6 @@ pub struct StorageTierMigratedEvent {
     pub ledger: u32,
 }
 
-// ---------------------------------------------------------------------------
-// #289 — Subscription auto-renewal
-// ---------------------------------------------------------------------------
-
-/// Emitted for every auto-renewal attempt, successful or not. `success` is
-/// `false` whenever `reason` is non-zero, so a consumer can always tell an
-/// attempted drain from a real renewal (#289).
-///
-/// Topics: `consumer`
-#[contractevent]
-#[derive(Clone)]
-pub struct AutoRenewalAttemptEvent {
-    #[topic]
-    pub consumer: Address,
-    pub success: bool,
-    pub amount: i128,
-    /// 0 = renewed; otherwise the [`crate::types::ErrorCode`] discriminant that
-    /// made the attempt fail.
-    pub reason: u32,
-    pub period_id: u64,
-    pub expiry: u64,
-}
-
-/// Emitted when a consumer grants, revokes or cancels a standing auto-renewal
-/// authorization (#289).
-///
-/// Topics: `consumer`
-#[contractevent]
-#[derive(Clone)]
-pub struct AutoRenewalAuthorizationEvent {
-    #[topic]
-    pub consumer: Address,
-    /// 0 = granted, 1 = revoked, 2 = cancelled with the subscription.
-    pub action: u32,
-    pub max_amount_per_period: i128,
-    pub plan_duration: u32,
-}
-
-// ---------------------------------------------------------------------------
-// #397 — Multi-round price confirmation
-// ---------------------------------------------------------------------------
-
 /// Emitted when a round records its quorum tally (the median that round agreed
 /// on) and when a confirmation run finalizes (#397).
 ///
@@ -2914,113 +2993,36 @@ pub struct RoundEquivocationEvent {
     pub lifetime_count: u32,
 }
 
-// ---------------------------------------------------------------------------
-// #478 — Derived price feeds
-// ---------------------------------------------------------------------------
-
-/// Emitted whenever a derived feed is computed, carrying the staleness of the
-/// stalest input so a consumer can audit the derivation off-chain (#478).
+/// Emitted for every auto-renewal attempt, successful or not. `success` is
+/// `false` whenever `reason` is non-zero, so a consumer can always tell an
+/// attempted drain from a real renewal (#289).
 ///
-/// Topics: `base`, `quote`
+/// Topics: `consumer`
 #[contractevent]
 #[derive(Clone)]
-pub struct DerivedFeedComputedEvent {
+pub struct AutoRenewalAttemptEvent {
     #[topic]
-    pub base: Address,
-    #[topic]
-    pub quote: Address,
-    /// 0 = inverse, 1 = ratio, 2 = triangulation.
-    pub kind: u32,
-    pub price: i128,
-    /// Worst-case (maximum) staleness across the inputs, in seconds.
-    pub staleness_secs: u64,
+    pub consumer: Address,
+    pub success: bool,
+    pub amount: i128,
+    /// 0 = renewed; otherwise the [`crate::types::ErrorCode`] discriminant that
+    /// made the attempt fail.
+    pub reason: u32,
+    pub period_id: u64,
+    pub expiry: u64,
 }
 
-/// Emitted on a consumer read that was served a degraded value (#495).
+/// Emitted when a consumer grants, revokes or cancels a standing auto-renewal
+/// authorization (#289).
 ///
-/// `state` is the `DegradationState` discriminant: `0 = Fresh`, `1 = Stale`,
-/// `2 = Clamped`, `3 = LowConfidence`, `4 = Deferred`. Severe states
-/// (`Clamped`, `Deferred`) set `severe = true` and are never sampled; the others
-/// are emitted on a `1 / sample_every` slice, with `window` carried on every
-/// event so the per-window rate stays reconstructible off-chain.
-///
-/// Topics: `asset`
+/// Topics: `consumer`
 #[contractevent]
 #[derive(Clone)]
-pub struct DegradedReadEvent {
+pub struct AutoRenewalAuthorizationEvent {
     #[topic]
-    pub asset: Address,
-    pub state: u32,
-    pub window: u32,
-    pub severe: bool,
-}
-
-/// Emitted for every flag raised by an anomaly rule, carrying the same inputs
-/// the stored `AnomalyExplanation` holds (#496). The event is emitted even when
-/// the bounded ring drops the record, so explanations remain reconstructible
-/// from the event stream alone.
-///
-/// Topics: `asset`, `subject`
-#[contractevent]
-#[derive(Clone)]
-pub struct AnomalyExplainedEvent {
-    #[topic]
-    pub asset: Address,
-    #[topic]
-    pub subject: Address,
-    pub rule_id: u32,
-    pub rule: Symbol,
-    pub observed: i128,
-    pub reference: i128,
-    pub threshold: i128,
-    pub rejected: bool,
-}
-
-/// Emitted for every oracle-vs-benchmark comparison (#497).
-///
-/// `aligned = false` means the two snapshots were further apart than the
-/// configured tolerance; `bias_bps` is then `0` and the sample was counted in
-/// `misaligned_skipped` rather than folded into the drift window. `bias_bps` is
-/// signed: positive means the oracle priced above the benchmark.
-///
-/// Topics: `asset`
-#[contractevent]
-#[derive(Clone)]
-pub struct DriftSampleRecordedEvent {
-    #[topic]
-    pub asset: Address,
-    pub bias_bps: i128,
-    pub aligned: bool,
-}
-
-/// Emitted when the active source set breaches diversity thresholds:
-/// effective count below minimum OR any axis HHI above maximum — even when
-/// the raw source count looks healthy (the Sybil / nominal-diversity trap).
-///
-/// Named explicitly for the same 32-character `ScSymbol` reason as
-/// `DiversityThresholdsChangedEvent` above.
-#[contractevent(topics = ["diversity_thr_breached"])]
-#[derive(Clone)]
-pub struct DiversityThresholdBreachedEvent {
-    pub raw_count: u32,
-    pub effective_independent_count: u32,
-    pub largest_domain_size: u32,
-    pub max_hhi: u32,
-    pub min_effective_required: u32,
-}
-
-/// Emitted when diversity thresholds are changed by the admin.
-///
-/// The event *name* is given explicitly because the derived snake_case name
-/// (`diversity_thresholds_changed_event`, 34 chars) exceeds the 32-character
-/// `ScSymbol` limit and fails to compile. `#[contractevent(topics = [...])]`
-/// sets the name, matching the convention used by the other long-named
-/// events in this file.
-#[contractevent(topics = ["diversity_thr_changed"])]
-#[derive(Clone)]
-pub struct DiversityThresholdsChangedEvent {
-    #[topic]
-    pub admin: Address,
-    pub min_effective_sources: u32,
-    pub max_hhi_per_axis: u32,
+    pub consumer: Address,
+    /// 0 = granted, 1 = revoked, 2 = cancelled with the subscription.
+    pub action: u32,
+    pub max_amount_per_period: i128,
+    pub plan_duration: u32,
 }

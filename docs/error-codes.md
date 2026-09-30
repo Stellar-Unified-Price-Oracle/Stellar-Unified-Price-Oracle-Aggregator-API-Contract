@@ -436,6 +436,29 @@ Error(Contract, #15)
 
 ---
 
+## 185–190: risk tiers, sanity lattice, freshness quorum, scorecards
+
+| Code | Name | Meaning |
+|---|---|---|
+| 185 | `InvalidRiskTier` | A registered asset has no valid risk tier and enforcement is being turned on (#487) |
+| 186 | `InvalidSanityRelation` | A self-relation, degenerate triangle, duplicate pair, or unregistered peer (#488) |
+| 187 | `InvalidSanityTolerance` | A sanity tolerance is `0` or above `10000` bps (#488) |
+| 188 | `InvalidFreshnessWindow` | A freshness window exceeds `604800` seconds (#489) |
+| 189 | `InvalidScorecardConfig` | A scorecard window or threshold is outside its bounds (#490) |
+| 190 | `InvalidSanityRatio` | A peg ratio has a non-positive numerator or a zero denominator (#488) |
+
+**Resolution**
+- **185** — assign a tier to every registered asset with `set_asset_risk_tier`
+  before calling `set_risk_tier_enforcement(true)`.
+- **186** — name two distinct registered assets; a triangular cross needs three.
+- **187** — use a tolerance in `1..=10000` bps.
+- **188** — use a window of at most one week, or `0` to clear it.
+- **189** — keep `1 <= short_window <= long_window <= 512`, with
+  `cold_start_samples <= long_window` and non-zero tolerance and cap.
+- **190** — supply a positive ratio numerator and a non-zero denominator.
+
+---
+
 ## Helper: Reading Error Codes
 
 In Soroban test environments the error surfaces as `Error(Contract, #N)` where `N` is the

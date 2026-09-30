@@ -13,6 +13,10 @@
 #   mutation-gate       - mutation gate self-test, no cargo-mutants needed (#520)
 #   mutation-per-module - per-module mutation scores and thresholds (#520)
 #   hermetic           - hermetic integration harness, verifies determinism (#519)
+#   sast               - SAST + advisory + unsafe-baseline gate (#500)
+#   secret-scan        - secret scan of the tree, with a history report (#502)
+#   check-pins         - every dependency pinned exactly, lockfile in sync (#501)
+#   reproducible-build - two clean builds must produce identical WASM (#501)
 
 # Determinism & Interleaving Suite (#516)
 #
@@ -20,15 +24,14 @@
 # N-2..N upgrade matrix (#517) also have their own targets. All of them are
 # plain `cargo test` filters over the contract's test binary.
 .PHONY: all build test lint fmt check clean watch gas-gate load-test \
-        mutation-gate mutation-per-module hermetic \
-        sep40-conformance interleaving version-matrix event-snapshots \
-        event-snapshots-regen conformance
+        mutation-gate mutation-per-module hermetic sast secret-scan \
+        check-pins reproducible-build security
 
 all: build test
 
 # Compile the contract to wasm32v1-none release
 build:
-	cargo build -p price-oracle --target wasm32v1-none --release
+	cargo build -p price-oracle --target wasm32v1-none --release --locked
 
 # Run all unit tests
 test:
@@ -56,36 +59,26 @@ mutation-per-module:
 hermetic:
 	./scripts/hermetic-integration.sh
 
-# SEP-40 conformance suite (#515): every normative requirement of the published
-# spec, with the deviations and ambiguities recorded in docs/sep40-conformance.md.
-sep40-conformance:
-	cargo test -p price-oracle --lib sep40_conformance -- --nocapture
+# Static analysis gate: source-level SAST, the unsafe/finding baseline, and
+# dependency advisories (cargo-audit). Writes a report for the run artifacts.
+sast:
+	python3 -m services.static_analysis.gate --report security-artifacts/static-analysis.md
 
-# Determinism and interleaving suite (#516): permutations of the bounded
-# operation set, mid-ledger reads, re-entrant callbacks.
-# See docs/interleaving-determinism.md.
-interleaving:
-	cargo test -p price-oracle --lib interleaving -- --nocapture
+# Secret scanning: working tree + full history, redacted report.
+secret-scan:
+	python3 -m services.secret_scan.scanner . --history --report secret-artifacts/secret-scan.md
 
-# N-2..N upgrade/downgrade round-trip matrix (#517).
-# See docs/version-matrix.md.
-version-matrix:
-	cargo test -p price-oracle --lib version_matrix -- --nocapture
+# Dependency pinning: exact requirements, committed + hashed lockfile, no drift.
+check-pins:
+	python3 -m services.pinned_deps.pin_check .
 
-# Golden event-schema snapshots (#518). Check only: fails on any unversioned
-# change to an event's topics, payload, field order or field types.
-event-snapshots:
-	cargo test -p price-oracle --lib event_schema -- --nocapture
+# Byte-reproducibility: two clean builds, compared digests.
+reproducible-build:
+	./scripts/reproducible-build.sh
 
-# Deliberate regeneration of the golden event-schema snapshots. CI never runs
-# this: a snapshot is only ever regenerated as a reviewed step, and the diff is
-# part of the pull request.
-event-snapshots-regen:
-	UPDATE_EVENT_SCHEMA_SNAPSHOT=1 cargo test -p price-oracle --lib event_schema -- --nocapture
-	@echo "Review the regenerated contracts/price-oracle/testdata/event_schema.golden before committing."
-
-# All four verification suites in one go.
-conformance: sep40-conformance interleaving version-matrix event-snapshots
+# Everything the three hardening issues gate on, plus their test suites.
+security: sast secret-scan check-pins
+	python3 -m pytest services/static_analysis services/secret_scan services/pinned_deps -q
 
 # Run clippy linter
 lint:

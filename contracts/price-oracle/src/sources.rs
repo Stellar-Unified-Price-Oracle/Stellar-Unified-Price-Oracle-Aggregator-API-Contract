@@ -25,6 +25,7 @@ const MAX_SOURCE_NAME_LENGTH: u32 = 64;
 const SOURCE_ROTATION_COOLDOWN: u32 = 100;
 
 fn register_source_internal(env: &Env, source: Address, name: String) {
+    crate::source_lifecycle::check_not_revoked(env, &source);
     if name.is_empty() {
         panic_with_error!(env, ErrorCode::SourceNameEmpty);
     }
@@ -126,7 +127,7 @@ pub fn remove_source(env: &Env, source: Address) {
 /// De-registers `source` without recomputing. `remove_source` and
 /// `remove_sources` layer the (#483) recomputation on top so a batch pays for
 /// one aggregation pass instead of one per source.
-fn remove_source_inner(env: &Env, source: Address) {
+pub(crate) fn remove_source_inner(env: &Env, source: Address) {
     let admin = get_admin(env);
     admin.require_auth();
     if !env
@@ -325,6 +326,12 @@ pub fn set_source_verification(
 ) {
     let admin = get_admin(env);
     admin.require_auth();
+    crate::input_validation::validate_string(
+        env,
+        "set_source_verification",
+        "verification_method",
+        &verification_method,
+    );
     if !is_source(env, source.clone()) {
         panic_with_error!(env, ErrorCode::SourceNotFound);
     }
@@ -372,6 +379,8 @@ pub fn rotate_source_key(env: &Env, source: Address, new_address: Address) {
     if is_source(env, new_address.clone()) {
         panic_with_error!(env, ErrorCode::SourceAlreadyExists);
     }
+    crate::source_lifecycle::check_not_revoked(env, &new_address);
+    crate::source_lifecycle::on_key_rotated(env, &source, &new_address);
     let current_ledger = env.ledger().sequence();
     let last_rotation: u32 = env
         .storage()
@@ -1340,6 +1349,7 @@ pub fn set_source_governance(env: &Env, approvers: Vec<Address>, threshold: u32)
 
 pub fn propose_source(env: &Env, proposer: Address, source: Address, name: String) -> u32 {
     proposer.require_auth();
+    crate::input_validation::validate_string(env, "propose_source", "name", &name);
 
     let gov = get_source_governance(env).unwrap_or_else(|| {
         panic_with_error!(env, ErrorCode::NotAuthorized);

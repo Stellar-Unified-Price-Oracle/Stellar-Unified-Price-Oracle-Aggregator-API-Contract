@@ -14,6 +14,7 @@
 
 use soroban_sdk::{panic_with_error, Address, Bytes, BytesN, Env, Vec};
 
+use crate::constant_time;
 use crate::storage::{get_admin, LEDGER_BUMP, LEDGER_THRESHOLD};
 use crate::types::{DataKey, ErrorCode, Groth16Proof, Groth16VerifyingKey, ZkPriceAttestation};
 
@@ -191,19 +192,15 @@ fn groth16_verify(
         .crypto()
         .sha256(&concat_bytes(env, &challenge, &vk.pairing_precomp));
 
-    // proof.fs_check carries the Fiat-Shamir verification tag
-    let fs_bytes = Bytes::from_slice(env, proof.fs_check.to_array().as_ref());
-    let expected_bytes = Bytes::from_slice(env, expected.to_array().as_ref());
-
-    // Constant-time comparison via byte iteration
-    if fs_bytes.len() != expected_bytes.len() {
-        return false;
-    }
-    let mut diff: u8 = 0;
-    for i in 0..fs_bytes.len() {
-        diff |= fs_bytes.get_unchecked(i) ^ expected_bytes.get_unchecked(i);
-    }
-    diff == 0
+    // proof.fs_check carries the Fiat-Shamir verification tag. The tag is
+    // secret-dependent (it commits to the prover's witness), so it is compared
+    // in constant shape: the scan covers all 32 bytes and folds differences
+    // into an accumulator rather than returning at the first mismatch (#507).
+    let (verdict, _scanned) = constant_time::bytes_eq_counted(
+        proof.fs_check.to_array().as_ref(),
+        expected.to_array().as_ref(),
+    );
+    verdict
 }
 
 /// Computes vk_x = IC[0] + sum(s_i * IC[i+1]) using affine G1 addition.

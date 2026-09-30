@@ -218,7 +218,11 @@ pub fn get_record(env: &Env, asset: &Address, ledger: u32) -> Option<ProvenanceR
 /// the record is the one that was published — that needs the chain check in
 /// [`verify_link`], since a forged record can be internally consistent.
 pub fn verify_record(env: &Env, record: &ProvenanceRecord) -> bool {
-    commitment(
+    // Both digests are public on-chain data (anyone can read the record), so the
+    // comparison is not secret-dependent; it is still done in constant shape so
+    // that no call site in the contract becomes the one place where a digest
+    // compare leaks through the metered instruction count (#507).
+    let expected = commitment(
         env,
         &record.previous_hash,
         record.ledger,
@@ -229,8 +233,9 @@ pub fn verify_record(env: &Env, record: &ProvenanceRecord) -> bool {
         record.method,
         &record.contributors,
         &record.deferral_ledgers,
-    ) == record.hash
-        && record.id == record.hash
+    );
+    crate::constant_time::digest_eq(&expected, &record.hash)
+        && crate::constant_time::digest_eq(&record.id, &record.hash)
 }
 
 /// The head hash as of just before `ledger`: the hash of the newest record
