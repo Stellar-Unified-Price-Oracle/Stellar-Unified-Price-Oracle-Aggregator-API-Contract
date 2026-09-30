@@ -885,10 +885,7 @@ pub enum DataKey {
     PublicationGuards,
 
     // -------------------------------------------------------------------------
-    // Restored variants referenced by the wired policy / governor / TWAP /
-    // freshness modules. These were referenced from `policy.rs`,
-    // `external_governance.rs`, `freshness_weight.rs` and `prices.rs` but were
-    // absent from the enum, so the crate could not compile.
+    // #487: Asset risk tiers
     // -------------------------------------------------------------------------
     /// Per-asset aggregation policy override (Option<PolicyOverride>).
     AssetPolicy(Address),
@@ -3214,6 +3211,14 @@ pub struct PublicationGuards {
     /// The admin has configured a correction scope (#486), so published
     /// aggregates need their original value preserved.
     pub any_corrections_enabled: bool,
+    /// At least one asset has a risk tier assigned (#487).
+    pub any_tier_assigned: bool,
+    /// The admin has configured at least one cross-asset sanity relation (#488).
+    pub any_sanity_relations: bool,
+    /// At least one asset has an explicit freshness window (#489).
+    pub any_freshness_window: bool,
+    /// Scorecard collection is enabled (#490).
+    pub scorecards_enabled: bool,
 }
 
 /// TWAP value together with the observation statistics backing it.

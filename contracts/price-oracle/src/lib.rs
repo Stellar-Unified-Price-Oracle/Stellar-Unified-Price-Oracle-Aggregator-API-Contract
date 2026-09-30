@@ -216,6 +216,15 @@ mod source_comparison;
 mod issues_398_400_401_402_tests;
 mod source_lifecycle;
 
+// #487: closed set of asset risk tiers that supply aggregation parameters.
+mod risk_tier;
+// #488: cross-asset consistency relations with reject/flag/quarantine actions.
+mod sanity_lattice;
+// #489: freshness-aware quorum that excludes expired submissions.
+mod freshness_quorum;
+// #490: per-source rolling accuracy scorecards against a leave-one-out reference.
+mod scorecards;
+
 #[cfg(test)]
 mod circuit_breaker_tests;
 
@@ -6450,6 +6459,204 @@ impl PriceOracleContract {
         corrections::correction_count(&env, &asset)
     }
 
+    // ── #487 Asset risk tiers ───────────────────────────────────────────────
+
+    /// Assigns a risk tier to `asset`, or clears it with `None` (#487).
+    ///
+    /// Admin only. A non-empty `reason` is mandatory and travels with the
+    /// `AssetTierChangedEvent`, so every tier move is attributable. The change
+    /// is atomic and affects only *future* aggregations: values already
+    /// published under the previous tier keep the meaning they had.
+    pub fn set_asset_risk_tier(env: Env, asset: Address, tier: Option<RiskTier>, reason: String) {
+        risk_tier::set_tier(&env, asset, tier, reason);
+    }
+
+    /// Returns the tier assigned to `asset`, if any (#487).
+    pub fn get_asset_risk_tier(env: Env, asset: Address) -> Option<RiskTier> {
+        risk_tier::get_tier(&env, &asset)
+    }
+
+    /// Returns `true` when `asset` has a valid tier (#487).
+    ///
+    /// This is the fail-closed predicate: `false` means the asset is
+    /// unconfigured and publishes nothing, not that it falls back to defaults.
+    pub fn has_asset_risk_tier(env: Env, asset: Address) -> bool {
+        risk_tier::require_tier(&env, &asset)
+    }
+
+    /// Makes a valid tier mandatory for every registered asset (#487).
+    ///
+    /// Admin only. Turning this on asserts that every registered asset already
+    /// carries a valid tier; if any does not, the call is refused. Once on, an
+    /// asset with no valid tier publishes nothing instead of falling back to
+    /// the global defaults.
+    pub fn set_risk_tier_enforcement(env: Env, enabled: bool) {
+        risk_tier::set_enforcement(&env, enabled);
+    }
+
+    /// Returns `true` when mandatory tier assignment is in force (#487).
+    pub fn get_risk_tier_enforcement(env: Env) -> bool {
+        risk_tier::enforcement_flag(&env)
+    }
+
+    /// Returns the fixed parameters of every tier, indexed by discriminant
+    /// (#487). The set is closed, so this is a complete view of the presets.
+    pub fn get_risk_tier_params(env: Env) -> soroban_sdk::Vec<TierParams> {
+        let mut out = soroban_sdk::Vec::new(&env);
+        for p in risk_tier::TIER_PARAMS.iter() {
+            out.push_back(*p);
+        }
+        out
+    }
+
+    /// Returns `asset`'s tier together with the parameters it resolves to after
+    /// the documented per-asset overrides (#487). `None` when unassigned.
+    pub fn get_resolved_asset_tier(env: Env, asset: Address) -> Option<ResolvedTier> {
+        let key = DataKey::AssetPolicy(asset.clone());
+        let over: PolicyOverride = env
+            .storage()
+            .persistent()
+            .get(&key)
+            .unwrap_or(PolicyOverride {
+                method: None,
+                min_sources: None,
+                freshness_secs: None,
+                max_deviation_bps: None,
+            });
+        risk_tier::resolve(&env, &asset, &over)
+    }
+
+    // ── #488 Cross-asset sanity lattice ─────────────────────────────────────
+
+    /// Declares a consistency relation for `asset` (#488).
+    ///
+    /// Admin only. Validated on write: the tolerance must be in
+    /// `1..=10000` bps, a peg ratio must have a positive numerator and
+    /// non-zero denominator, and a triangular cross must name three distinct
+    /// registered assets.
+    pub fn add_sanity_relation(env: Env, asset: Address, relation: types::SanityRelation) {
+        sanity_lattice::add_relation(&env, asset, relation);
+    }
+
+    /// Removes the relation between `asset` and `peer` of the given kind (#488).
+    pub fn remove_sanity_relation(
+        env: Env,
+        asset: Address,
+        peer: Address,
+        kind: types::SanityRelationKind,
+    ) {
+        sanity_lattice::remove_relation(&env, asset, peer, kind);
+    }
+
+    /// Returns the relations declared on `asset` (#488).
+    pub fn get_sanity_relations(
+        env: Env,
+        asset: Address,
+    ) -> soroban_sdk::Vec<types::SanityRelation> {
+        sanity_lattice::get_relations(&env, &asset)
+    }
+
+    /// Suspends every relation touching `asset` until `until_ledger` (#488).
+    ///
+    /// For a declared de-peg. The asset itself keeps aggregating, publishing
+    /// and serving — only the family checks stop applying.
+    pub fn declare_depeg(env: Env, asset: Address, until_ledger: u32, reason: String) {
+        sanity_lattice::declare_depeg(&env, asset, until_ledger, reason);
+    }
+
+    /// Lifts a de-peg suspension immediately (#488).
+    pub fn clear_depeg(env: Env, asset: Address) {
+        sanity_lattice::clear_depeg(&env, asset);
+    }
+
+    /// Returns `true` while a de-peg suspension is in force for `asset` (#488).
+    pub fn is_depeg_suspended(env: Env, asset: Address) -> bool {
+        sanity_lattice::is_suspended(&env, &asset)
+    }
+
+    /// Returns the last sanity-check outcome for `asset` (#488).
+    pub fn get_sanity_status(env: Env, asset: Address) -> Option<types::SanityStatus> {
+        sanity_lattice::get_status(&env, &asset)
+    }
+
+    /// Returns the assets reachable from `asset` through declared relations
+    /// (#488). Terminates on cycles: a visited asset is never expanded twice
+    /// and the total is capped.
+    pub fn get_sanity_peers(env: Env, asset: Address) -> soroban_sdk::Vec<Address> {
+        sanity_lattice::reachable(&env, &asset)
+    }
+
+    // ── #489 Freshness-aware quorum ─────────────────────────────────────────
+
+    /// Sets the global default freshness window, in seconds (#489). `0` clears
+    /// it. Windows above `604800` are rejected.
+    pub fn set_default_freshness_window(env: Env, secs: u64) {
+        freshness_quorum::set_default_window(&env, secs);
+    }
+
+    /// Returns the global default freshness window, in seconds (#489).
+    pub fn get_default_freshness_window(env: Env) -> u64 {
+        freshness_quorum::default_window(&env)
+    }
+
+    /// Sets an asset's own freshness window, in seconds (#489). `0` clears the
+    /// override, returning the asset to the tier/global default.
+    pub fn set_asset_freshness_window(env: Env, asset: Address, secs: u64) {
+        freshness_quorum::set_asset_window(&env, asset, secs);
+    }
+
+    /// Returns the freshness-filter outcome of the most recent aggregation of
+    /// `asset` (#489): how many submissions were fresh, how many were excluded
+    /// as stale, the quorum they were measured against and which window
+    /// applied. `None` until the asset has been through a gated pass.
+    pub fn get_freshness_status(env: Env, asset: Address) -> Option<types::FreshnessStatus> {
+        freshness_quorum::get_status(&env, &asset)
+    }
+
+    // ── #490 Per-source accuracy scorecards ─────────────────────────────────
+
+    /// Enables collection of per-source accuracy scorecards (#490). Off by
+    /// default, so the publication path pays nothing until asked.
+    pub fn enable_scorecards(env: Env) {
+        scorecards::enable(&env);
+    }
+
+    /// Disables scorecard collection (#490). Retained scorecards stay queryable.
+    pub fn disable_scorecards(env: Env) {
+        scorecards::disable(&env);
+    }
+
+    /// Sets the scorecard windows, cold-start threshold, hit tolerance and
+    /// per-sample outlier cap (#490). Bounds-checked on write.
+    pub fn set_scorecard_config(env: Env, config: types::ScorecardConfig) {
+        scorecards::set_config(&env, config);
+    }
+
+    /// Returns the active scorecard configuration (#490).
+    pub fn get_scorecard_config(env: Env) -> types::ScorecardConfig {
+        scorecards::config(&env)
+    }
+
+    /// Returns `source`'s rolling accuracy scorecard (#490). A source with too
+    /// little history is reported `cold_start` rather than scored as poor.
+    pub fn get_source_scorecard(env: Env, source: Address) -> types::SourceScorecard {
+        scorecards::get_scorecard(&env, &source)
+    }
+
+    /// Returns the 0–10000 (bps) accuracy score for `source`, with the
+    /// documented floor applied (#490). `0` while the source is cold-start.
+    pub fn get_source_accuracy_score(env: Env, source: Address) -> u32 {
+        scorecards::accuracy_score(&env, &source)
+    }
+
+    /// Returns the retained winsorized samples backing `source`'s windows,
+    /// oldest first (#490). These are exactly the values carried by
+    /// `SourceScorecardUpdatedEvent`, so the windows are reconstructible
+    /// off-chain from the event stream.
+    pub fn get_source_scorecard_samples(env: Env, source: Address) -> soroban_sdk::Vec<u32> {
+        scorecards::samples(&env, &source)
+    }
+
     // ── TWAP observation cardinality ─────────────────────────────────────────
 
     /// Sets the minimum distinct observations a TWAP window needs (1..=64). Admin only.
@@ -6722,6 +6929,85 @@ impl PriceOracleContract {
     ) -> DerivedFeed {
         derived_feeds::compute_derived_feed(&env, kind, base, quote, pivot)
     }
+
+    // ── #491–#494: data-quality endpoints restored after the merge of PR
+    // #571 dropped them from this impl block. ───────────────────────────────
+
+    /// Returns the pairwise disagreement index recorded by the most recent
+    /// aggregate of `asset` (#494).
+    pub fn get_disagreement_index(env: Env, asset: Address) -> Option<types::DisagreementIndex> {
+        disagreement::get_index(&env, &asset)
+    }
+
+    /// Returns latency percentiles for a (source, asset) pair over the
+    /// rolling window of stored samples (#492).
+    ///
+    /// Every duration is in **ledgers**; `seconds_per_ledger` in the report
+    /// gives the nominal conversion. `never_counted` counts submissions that
+    /// were replaced before any aggregate counted them, and `window`
+    /// carries the raw samples so the percentiles can be recomputed.
+    pub fn get_latency_report(env: Env, source: Address, asset: Address) -> types::LatencyReport {
+        latency::get_report(&env, &source, &asset)
+    }
+
+    /// Returns the raw rolling latency samples for a (source, asset) pair,
+    /// oldest first (#492).
+    pub fn get_latency_samples(
+        env: Env,
+        source: Address,
+        asset: Address,
+    ) -> soroban_sdk::Vec<types::LatencySample> {
+        latency::get_samples(&env, &source, &asset)
+    }
+
+    /// Returns the robust pre-filter configuration of `asset`.
+    pub fn get_outlier_config(env: Env, asset: Address) -> types::OutlierConfig {
+        outlier_filter::get_config(&env, &asset)
+    }
+
+    /// Returns the prices the pre-filter excluded during the most recent
+    /// aggregation of `asset`, with the score of each (#491).
+    pub fn get_outlier_exclusions(
+        env: Env,
+        asset: Address,
+    ) -> soroban_sdk::Vec<types::OutlierExclusion> {
+        outlier_filter::get_exclusions(&env, &asset)
+    }
+
+    /// Returns the provenance record of the aggregate published for
+    /// `asset` at `ledger`, naming every contributing submission, source
+    /// and weight (#493).
+    ///
+    /// # Errors
+    /// * [`ErrorCode::NoData`] — no record at that ledger. It was never
+    ///   written, or it was pruned along with the price history.
+    pub fn get_provenance(env: Env, asset: Address, ledger: u32) -> types::ProvenanceRecord {
+        provenance::get_record(&env, &asset, ledger)
+            .unwrap_or_else(|| panic_with_error!(&env, ErrorCode::NoData))
+    }
+
+    /// Configures the robust outlier pre-filter for `asset`. Admin only.
+    ///
+    /// `detector`: `0` disables filtering, `1` selects the median absolute
+    /// deviation, `2` the interquartile range. `sensitivity_bps` is the
+    /// exclusion threshold in that detector's units (default `35000` = 3.5
+    /// MAD for detector 1, `15000` = 1.5 x IQR for detector 2).
+    /// `min_sources` is the source-count floor below which filtering is
+    /// skipped, in `4..=64`. Pass `None` to clear the override.
+    ///
+    /// # Errors
+    /// * [`ErrorCode::InvalidConfiguration`] — a bound above is violated.
+    pub fn set_outlier_config(env: Env, asset: Address, config: Option<types::OutlierConfig>) {
+        outlier_filter::set_config(&env, asset, config);
+    }
+
+    /// Verifies a provenance record: its commitment matches its contents and
+    /// it chains to its predecessor of the same asset (#493).
+    ///
+    /// Returns `false` for a record that was edited, replaced or back-dated.
+    pub fn verify_provenance(env: Env, asset: Address, ledger: u32) -> bool {
+        provenance::verify_link(&env, &asset, ledger)
+    }
 }
 
 #[cfg(test)]
@@ -6814,3 +7100,6 @@ mod invariant_harness_tests;
 
 #[cfg(test)]
 mod issues_483_486_tests;
+
+#[cfg(test)]
+mod issues_487_490_tests;

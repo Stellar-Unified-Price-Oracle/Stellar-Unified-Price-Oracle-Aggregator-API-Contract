@@ -116,6 +116,26 @@ pub fn note_source_excluded(env: &Env) {
     update_guards(env, |g| g.any_source_excluded = true);
 }
 
+/// Records that at least one asset has a risk tier assigned (#487).
+pub fn note_tier_assigned(env: &Env) {
+    update_guards(env, |g| g.any_tier_assigned = true);
+}
+
+/// Records that at least one cross-asset sanity relation exists (#488).
+pub fn note_sanity_relation(env: &Env) {
+    update_guards(env, |g| g.any_sanity_relations = true);
+}
+
+/// Records that at least one freshness window is configured (#489).
+pub fn note_freshness_window(env: &Env) {
+    update_guards(env, |g| g.any_freshness_window = true);
+}
+
+/// Turns scorecard collection on or off (#490).
+pub fn set_scorecards_enabled(env: &Env, enabled: bool) {
+    update_guards(env, |g| g.scorecards_enabled = enabled);
+}
+
 fn update_guards(env: &Env, f: impl FnOnce(&mut PublicationGuards)) {
     let key = DataKey::PublicationGuards;
     let mut g = guards(env);

@@ -536,7 +536,25 @@ fn aggregate_asset(env: &Env, asset: &Address, current_ledger: u32, decimals: u3
     let max_events = get_max_events_per_call(env);
     let mut event_count: u32 = 0;
 
-    let policy = crate::policy::effective_policy(env, asset);
+    let mut policy = crate::policy::effective_policy(env, asset);
+
+    // #487: the asset's risk tier supplies aggregation parameters wherever no
+    // explicit per-asset override already set them.
+    crate::risk_tier::apply_to_policy(env, asset, &mut policy);
+
+    // #487: once the admin has made tiers mandatory, an asset with no valid
+    // tier fails closed — it publishes nothing rather than silently running on
+    // global defaults.
+    if crate::risk_tier::enforcement_flag(env) && !crate::risk_tier::require_tier(env, asset) {
+        SourcesInsufficientEvent {
+            asset: asset.clone(),
+            current_source_count: 0,
+            min_sources_required: policy.min_sources,
+        }
+        .publish(env);
+        return;
+    }
+
     let min_required = policy.min_sources;
     let oracle_sources: OracleSources = read_oracle_sources(env);
     let total_sources = oracle_sources.sources.len();
@@ -560,8 +578,8 @@ fn aggregate_asset(env: &Env, asset: &Address, current_ledger: u32, decimals: u3
 
         // Deterministic reservoir sampling driven by the seeded LCG.
         for i in 0..total_sources {
-            let remaining = total_sources - i;
-            let needed = max_agg - kept;
+            let remaining: u32 = total_sources - i;
+            let needed: u32 = max_agg - kept;
             // LCG step to mix seed and index.
             let h = seed
                 .wrapping_mul(1664525u32)
@@ -590,6 +608,9 @@ fn aggregate_asset(env: &Env, asset: &Address, current_ledger: u32, decimals: u3
     let curve = crate::freshness_weight::get_curve(env, asset);
     let mut latest_timestamp: u64 = 0;
     let mut contributing_sources: u32 = 0;
+    // #489: submissions present but outside the freshness window. Excluded
+    // from quorum, and reported so a consumer can see *why* an asset is thin.
+    let mut stale_sources: u32 = 0;
 
     let min_interval = {
         let key = DataKey::AssetMinSubmissionInterval(asset.clone());
@@ -669,7 +690,10 @@ fn aggregate_asset(env: &Env, asset: &Address, current_ledger: u32, decimals: u3
             env.storage()
                 .persistent()
                 .extend_ttl(&sub_key, LEDGER_THRESHOLD, LEDGER_BUMP);
-            // Per-asset freshness bound (policy layer); 0 means unlimited.
+            // #489: freshness is resolved per asset (per-asset window > tier
+            // window > global default) and measured against ledger time, so a
+            // source cannot make its own submission fresh by reporting a later
+            // timestamp. The policy layer still applies as a floor.
             if policy.freshness_secs > 0
                 && env
                     .ledger()
@@ -704,6 +728,19 @@ fn aggregate_asset(env: &Env, asset: &Address, current_ledger: u32, decimals: u3
             valid_sub_ledgers.push_back(entry_data.last_updated);
             contributing_sources += 1;
         }
+    }
+
+    // #489: record the freshness-filter outcome and emit it. Excluding a stale
+    // value is always explicit: a consumer can read `fresh` and `stale` and see
+    // exactly why the asset is or is not publishable.
+    if guards.any_freshness_window {
+        crate::freshness_quorum::record_round(
+            env,
+            asset,
+            contributing_sources,
+            stale_sources,
+            min_required,
+        );
     }
 
     // #491: robust pre-filter (MAD / IQR) runs *before* the deviation filter
@@ -794,6 +831,25 @@ fn aggregate_asset(env: &Env, asset: &Address, current_ledger: u32, decimals: u3
                 // to history and not fed into callbacks. #485's publication state
                 // is left as-is so a deferrable asset stays `Deferred`/`Stale`.
                 break 'publish;
+            }
+
+            // #488: cross-asset sanity lattice. The candidate is checked against
+            // the published aggregates of its declared relatives. A `Reject` or
+            // `Quarantine` action (or an existing quarantine) withholds the
+            // value, leaving the previous aggregate live; a `Flag` action
+            // publishes and has already been evented by the check.
+            if guards.any_sanity_relations {
+                let verdict = crate::sanity_lattice::check(env, asset, median_price);
+                if verdict.blocked {
+                    break 'publish;
+                }
+            }
+
+            // #490: record each contributor's accuracy against a leave-one-out
+            // reference — the median of the *other* sources in this round — so a
+            // source is never scored against a value it helped produce.
+            if crate::scorecards::enabled(env) {
+                crate::scorecards::record_round(env, &valid_sources, &valid_prices);
             }
 
             // #484: when the published value was clamped, the band is
