@@ -24,6 +24,7 @@
 #[macro_use]
 extern crate std;
 
+mod adaptive_quorum;
 mod admin;
 mod admin_op_limits;
 mod alert_severity;
@@ -33,6 +34,8 @@ mod amm;
 mod asset_inactivity;
 mod assets;
 mod auto_renewal;
+mod basket;
+mod breaker;
 mod consensus_rounds;
 mod constant_time;
 mod derived_feeds;
@@ -7274,6 +7277,18 @@ mod consensus_rounds_tests;
 
 #[cfg(test)]
 mod derived_feeds_tests;
+
+#[cfg(test)]
+mod median_determinism_tests;
+
+#[cfg(test)]
+mod basket_tests;
+
+#[cfg(test)]
+mod breaker_tests;
+
+#[cfg(test)]
+mod adaptive_quorum_tests;
 
 #[cfg(test)]
 mod test_helpers;

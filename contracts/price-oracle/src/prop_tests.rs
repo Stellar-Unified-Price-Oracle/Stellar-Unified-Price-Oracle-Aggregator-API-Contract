@@ -74,4 +74,59 @@ proptest! {
         let sv_rev = to_sdk_vec(&env, &rev);
         prop_assert_eq!(compute_median(&sv_rev), m);
     }
+
+    /// #480: any permutation of the same source set yields an identical
+    /// aggregate. A deterministic shuffle is applied to the input and the
+    /// result compared against the unshuffled one, so a tie-break that leaked
+    /// arrival order into the value would fail here.
+    #[test]
+    fn median_invariant_under_shuffled_input(
+        vals in proptest::collection::vec(any::<i64>(), 1..=50usize),
+        seed in any::<u64>(),
+    ) {
+        let env = Env::default();
+        let original = to_sdk_vec(&env, &vals);
+        let expected = compute_median(&original);
+
+        // Deterministic Fisher-Yates driven by `seed`: reproducible on failure
+        // and independent of any RNG the proptest runner holds.
+        let mut shuffled = vals.clone();
+        let n = shuffled.len();
+        let mut state = seed | 1;
+        for i in (1..n).rev() {
+            // xorshift64*
+            state ^= state >> 12;
+            state ^= state << 25;
+            state ^= state >> 27;
+            let r = state.wrapping_mul(0x2545_F491_4F6C_DD1D) as usize;
+            let j = r % (i + 1);
+            shuffled.swap(i, j);
+        }
+
+        let shuffled_vec = to_sdk_vec(&env, &shuffled);
+        prop_assert_eq!(compute_median(&shuffled_vec), expected);
+    }
+
+    /// #480: the aggregate equals the documented canonical rule — for odd `n`
+    /// the exact middle element, for even `n` the lower-of-two interpolation of
+    /// the two central order statistics.
+    #[test]
+    fn median_matches_documented_canonical_rule(mut vals in proptest::collection::vec(any::<i64>(), 1..=50usize)) {
+        let env = Env::default();
+        vals.sort();
+        let n = vals.len();
+        let expected: i128 = if n % 2 == 1 {
+            vals[n / 2] as i128
+        } else {
+            let lo = vals[n / 2 - 1] as i128;
+            let hi = vals[n / 2] as i128;
+            lo + (hi - lo) / 2
+        };
+        let sv = to_sdk_vec(&env, &vals);
+        prop_assert_eq!(compute_median(&sv), expected);
+        prop_assert_eq!(
+            crate::median_determinism::canonical_median(&sv),
+            expected
+        );
+    }
 }

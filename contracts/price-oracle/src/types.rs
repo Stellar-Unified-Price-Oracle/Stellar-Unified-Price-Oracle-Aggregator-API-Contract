@@ -3236,6 +3236,135 @@ pub struct TwapResult {
     pub concentrated: bool,
 }
 
+// ---------------------------------------------------------------------------
+// #479: Basket / index price feeds
+// ---------------------------------------------------------------------------
+
+/// Maximum number of constituents a single basket may hold.
+///
+/// Bounds the cost of every basket read: composition, value and contribution
+/// each walk the constituent list once, so an unbounded basket would let a
+/// single call exceed the invocation budget. Chosen to sit well inside the
+/// 100-entry ledger footprint the network enforces.
+pub const MAX_BASKET_CONSTITUENTS: u32 = 32;
+
+/// Weight scale for a basket: each constituent's weight is in parts per
+/// [`BASKET_WEIGHT_SCALE`], so a weight of `BASKET_WEIGHT_SCALE / n` is an
+/// equal-weight basket with `n` constituents.
+///
+/// Integer weights are used rather than `f64` because a weight must sum-check
+/// exactly: an off-by-one in a floating-point sum would let a basket publish a
+/// value scaled by a total that is not the intended one.
+pub const BASKET_WEIGHT_SCALE: u32 = 1_000_000;
+
+/// One constituent of a basket: an asset and its weight.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct BasketConstituent {
+    /// The asset whose aggregate feeds this constituent.
+    pub asset: Address,
+    /// Weight in parts per [`BASKET_WEIGHT_SCALE`]. Must be non-zero, so a
+    /// constituent can never be present-but-ignored.
+    pub weight: u32,
+}
+
+/// How a basket treats a constituent that is missing or stale.
+///
+/// This is the knob behind the issue's core requirement — that a missing
+/// constituent must *degrade or reject* the index, never be silently skipped.
+/// There is deliberately no `Ignore` variant.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub enum BasketStalenessPolicy {
+    /// Reject the whole index: [`ErrorCode::BasketConstituentStale`].
+    ///
+    /// The strict default. A basket that cannot be computed exactly reports
+    /// nothing, so no consumer can mistake a partial index for the real one.
+    Reject = 0,
+    /// Compute over the live constituents and mark the result explicitly
+    /// degraded via [`crate::basket::BasketValue::is_degraded`].
+    ///
+    /// The index value is *not* rescaled to the live weights: doing so would
+    /// silently redefine what the index means. A consumer that requires an
+    /// exact index must check `is_degraded` and refuse.
+    Degrade = 1,
+}
+
+/// Rebalance policy for a basket.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub enum BasketRebalancePolicy {
+    /// Weights are fixed until an admin re-prices them with `set_basket`.
+    Manual = 0,
+    /// Weights may be re-priced by any source, but only through
+    /// [`crate::basket::rebalance_basket`], which validates and applies the
+    /// whole weight vector in one storage write followed by one event.
+    AdminDriven = 1,
+}
+
+/// A basket's stored configuration.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct BasketConfig {
+    /// Ordered constituents. Order is part of the canonical form: the value is
+    /// a sum over this exact sequence, so a consumer can reproduce it.
+    pub constituents: soroban_sdk::Vec<BasketConstituent>,
+    /// Sum of all constituent weights, in parts per [`BASKET_WEIGHT_SCALE`].
+    /// Cached so the sum-check is verifiable without re-walking the list.
+    pub total_weight: u32,
+    /// What to do when a constituent is missing or stale.
+    pub staleness_policy: BasketStalenessPolicy,
+    /// How weights may be re-priced.
+    pub rebalance_policy: BasketRebalancePolicy,
+}
+
+/// One constituent's resolved state within a basket read.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct BasketContribution {
+    /// The constituent asset.
+    pub asset: Address,
+    /// Its weight in parts per [`BASKET_WEIGHT_SCALE`].
+    pub weight: u32,
+    /// The aggregate used, or `0` when the constituent had no price.
+    pub price: i128,
+    /// Timestamp of that aggregate, or `0` when missing.
+    pub timestamp: u64,
+    /// `weight * price / BASKET_WEIGHT_SCALE` — this constituent's additive
+    /// share of the index value.
+    pub contribution: i128,
+    /// Age of the constituent in seconds at read time.
+    pub staleness_secs: u64,
+    /// `false` when the constituent had no aggregate at all.
+    pub present: bool,
+    /// `false` when the constituent's aggregate is older than the configured
+    /// staleness bound.
+    pub fresh: bool,
+}
+
+/// The computed value of a basket.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct BasketValue {
+    /// The weighted index value, at the contract-wide `decimals`.
+    pub value: i128,
+    /// Decimal precision of `value`.
+    pub decimals: u32,
+    /// `true` when at least one constituent was missing or stale *and* the
+    /// policy is [`BasketStalenessPolicy::Degrade`]. Never `true` under
+    /// [`BasketStalenessPolicy::Reject`], which panics instead.
+    pub is_degraded: bool,
+    /// Constituents that contributed a usable price.
+    pub live_constituents: u32,
+    /// Constituents in the configuration.
+    pub total_constituents: u32,
+    /// Worst-case (maximum) staleness across all constituents, in seconds. A
+    /// basket is only as fresh as its stalest input.
+    pub staleness_secs: u64,
+    /// Per-constituent breakdown, in configuration order.
+    pub contributions: soroban_sdk::Vec<BasketContribution>,
+}
+
 /// Pairwise source disagreement index for one asset at one ledger (#494).
 ///
 /// Scale-invariant by construction: every deviation is divided by the
