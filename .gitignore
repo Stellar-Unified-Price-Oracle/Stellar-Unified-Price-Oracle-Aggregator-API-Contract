@@ -12,6 +12,15 @@ test_snapshots/
 # Hermetic integration harness output (#519)
 hermetic-artifacts/
 
+# Security-gate reports: SAST (#500), reproducible-build digests (#501),
+# secret scan (#502). Regenerated per run, never committed.
+security-artifacts/
+secret-artifacts/
+build-artifacts/
+security-artifacts-cargo-audit.json
+security-artifacts-geiger.json
+target-repro/
+
 # cargo-mutants output (#412/#520)
 mutants-critical/
 mutants-general/
@@ -114,3 +123,6 @@ openapi-*.yaml
 cargo_out.txt
 
 .blue-green/
+
+# Contributor dev environment (#541)
+.venv/

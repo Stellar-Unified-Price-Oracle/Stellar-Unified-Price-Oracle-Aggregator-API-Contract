@@ -75,6 +75,7 @@ pub fn get_layerzero_endpoint(env: &Env) -> Option<Address> {
 pub fn set_lz_chain_name(env: &Env, src_eid: u32, chain: String) {
     let admin = get_admin(env);
     admin.require_auth();
+    crate::input_validation::validate_string(env, "set_lz_chain_name", "chain", &chain);
 
     let key = DataKey::LzEidChainName(src_eid);
     env.storage().persistent().set(&key, &chain);

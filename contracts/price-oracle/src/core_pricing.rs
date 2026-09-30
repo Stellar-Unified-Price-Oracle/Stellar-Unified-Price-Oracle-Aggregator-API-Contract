@@ -21,6 +21,21 @@
 //! changed.
 
 // ────────────────────────────────────────────────────────────────────────────
+// Operating envelope
+// ────────────────────────────────────────────────────────────────────────────
+
+/// Maximum number of inputs the fixed-buffer core aggregators consider.
+///
+/// The core functions copy into a stack-allocated `[i128; MEDIAN_WINDOW]` so
+/// they need no allocator on the WASM side. Inputs beyond the window are
+/// **ignored**, which makes the window part of the observable contract
+/// semantics and therefore something callers and tests must respect —
+/// `set_max_sources` bounds production below it, and
+/// `reference_diff_tests::characterise_first_128_window_above_envelope` pins
+/// the behaviour at the boundary.
+pub const MEDIAN_WINDOW: usize = 128;
+
+// ────────────────────────────────────────────────────────────────────────────
 // Quickselect (median-of-three pivot, Lomuto partition, iterative)
 // ────────────────────────────────────────────────────────────────────────────
 
@@ -102,21 +117,30 @@ pub fn quickselect_core(arr: &mut [i128], k: usize) {
 
 /// Compute the median of `prices`.
 ///
-/// * **Odd** n  → middle element (exact).
-/// * **Even** n → `lower + (upper - lower) / 2` — same rounding as `storage::compute_median`.
+/// * **Odd** count  → middle element (exact).
+/// * **Even** count → `lower + (upper - lower) / 2` — same rounding as
+///   `storage::compute_median`.
 ///
 /// Does **not** modify the input; works on an internal copy.
+///
+/// Only the first [`MEDIAN_WINDOW`] inputs are considered (see the envelope
+/// note in `docs/aggregation-semantics.md`); `set_max_sources` keeps production
+/// below that bound. Every decision below is derived from `len` — the length of
+/// the window actually copied — rather than from the full input length `n`.
+/// Mixing the two is a real hazard: an odd-length input larger than the window
+/// would take the odd branch (returning a single element) while indexing a
+/// window whose median is an average, and silently return the wrong value.
 pub fn median_core(prices: &[i128]) -> i128 {
     let n = prices.len();
     match n {
         0 => 0,
         1 => prices[0],
         _ => {
-            let mut buf: [i128; 128] = [0; 128];
-            let len = n.min(128);
+            let mut buf: [i128; MEDIAN_WINDOW] = [0; MEDIAN_WINDOW];
+            let len = n.min(MEDIAN_WINDOW);
             buf[..len].copy_from_slice(&prices[..len]);
             let buf = &mut buf[..len];
-            if n % 2 == 1 {
+            if len % 2 == 1 {
                 let mid = len / 2;
                 quickselect_core(buf, mid);
                 buf[mid]
@@ -187,8 +211,8 @@ pub fn trimmed_mean_core(prices: &[i128], trim_percent: u32) -> i128 {
     if trim_percent == 0 {
         return mean_core(prices);
     }
-    let mut buf: [i128; 128] = [0; 128];
-    let len = n.min(128);
+    let mut buf: [i128; MEDIAN_WINDOW] = [0; MEDIAN_WINDOW];
+    let len = n.min(MEDIAN_WINDOW);
     buf[..len].copy_from_slice(&prices[..len]);
     let sorted = &mut buf[..len];
     sorted.sort_unstable();
@@ -226,8 +250,8 @@ pub fn weighted_median_core(prices: &[i128], weights: &[i128]) -> i128 {
     }
 
     // Build (price, weight) pairs sorted by price.
-    let len = n.min(128);
-    let mut pairs: [(i128, i128); 128] = [(0, 0); 128];
+    let len = n.min(MEDIAN_WINDOW);
+    let mut pairs: [(i128, i128); MEDIAN_WINDOW] = [(0, 0); MEDIAN_WINDOW];
     for i in 0..len {
         pairs[i] = (prices[i], weights[i].max(1));
     }

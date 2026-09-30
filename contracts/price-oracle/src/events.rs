@@ -1316,6 +1316,29 @@ pub struct MsGovernorsUpdatedEvent {
     pub required_approvals: u32,
 }
 
+/// Emitted when the multi-sig signer set is rotated (#508).
+///
+/// Carries both the departing and the incoming signer sets and both
+/// thresholds, so the full signer history — and any approval invalidated by a
+/// departure — is reconstructible from the event stream alone.
+#[contractevent]
+#[derive(Clone)]
+pub struct MsGovernorsRotatedEvent {
+    #[topic]
+    pub admin: Address,
+    /// The signer set in force before this rotation.
+    pub previous_governors: soroban_sdk::Vec<Address>,
+    /// The signer set installed by this rotation.
+    pub new_governors: soroban_sdk::Vec<Address>,
+    /// The threshold in force before this rotation.
+    pub previous_required: u32,
+    /// The threshold installed by this rotation.
+    pub new_required: u32,
+    /// Pending operations whose approvals were rewritten to drop the votes of
+    /// signers this rotation removed.
+    pub invalidated_ops: u32,
+}
+
 /// Emitted when a multi-sig operation is proposed (#178).
 #[contractevent]
 #[derive(Clone)]
@@ -2771,4 +2794,235 @@ pub struct DisagreementIndexEvent {
     pub above_baseline: bool,
     pub num_sources: u32,
     pub low_sample: bool,
+}
+
+/// Emitted when the dead-man switch's heartbeat deadline is overdue but before
+/// the switch trips (#510). Always precedes `dead_man_triggered_event`, giving
+/// operators a window in which to heartbeat and avert the trip.
+///
+/// Topics: none (one warning per lapse, so it is not a high-volume topic).
+#[contractevent]
+#[derive(Clone)]
+pub struct DeadManWarningEvent {
+    /// Seconds since the last accepted heartbeat when the warning fired.
+    pub elapsed_secs: u64,
+    /// The configured interval after which the switch would trip.
+    pub trigger_after: u64,
+    /// Timestamp of the last accepted heartbeat.
+    pub last_heartbeat: u64,
+}
+
+/// Emitted when the dead-man switch trips and the contract enters the degraded
+/// state (#510). Submissions are rejected and reads serve no value from this
+/// point until a recovery guardian clears the state.
+///
+/// Topics: none (at most one per lapse).
+#[contractevent]
+#[derive(Clone)]
+pub struct DeadManTriggeredEvent {
+    /// Seconds since the last accepted heartbeat when the switch tripped.
+    pub elapsed_secs: u64,
+    /// The configured interval that was exceeded.
+    pub trigger_after: u64,
+    /// Timestamp of the last accepted heartbeat.
+    pub last_heartbeat: u64,
+}
+
+/// Emitted when the degraded state is cleared and normal serving resumes
+/// (#510). `guardian` is the recovery guardian (or admin) that cleared it —
+/// the authority is deliberately independent of the heartbeat operator set, so
+/// recovery does not depend on the key that may have been lost.
+///
+/// Topics: `guardian`
+#[contractevent]
+#[derive(Clone)]
+pub struct DeadManRecoveredEvent {
+    #[topic]
+    pub guardian: Address,
+}
+
+// ---------------------------------------------------------------------------
+// Restored events. These were dropped by the same bad merge that lost the
+// storage keys and type definitions, while the modules that publish them stayed
+// wired in, which left the crate uncompilable.
+// ---------------------------------------------------------------------------
+/// Emitted on a consumer read that was served a degraded value (#495).
+///
+/// `state` is the `DegradationState` discriminant: `0 = Fresh`, `1 = Stale`,
+/// `2 = Clamped`, `3 = LowConfidence`, `4 = Deferred`. Severe states
+/// (`Clamped`, `Deferred`) set `severe = true` and are never sampled; the others
+/// are emitted on a `1 / sample_every` slice, with `window` carried on every
+/// event so the per-window rate stays reconstructible off-chain.
+///
+/// Topics: `asset`
+#[contractevent]
+#[derive(Clone)]
+pub struct DegradedReadEvent {
+    #[topic]
+    pub asset: Address,
+    pub state: u32,
+    pub window: u32,
+    pub severe: bool,
+}
+
+/// Emitted for every oracle-vs-benchmark comparison (#497).
+///
+/// `aligned = false` means the two snapshots were further apart than the
+/// configured tolerance; `bias_bps` is then `0` and the sample was counted in
+/// `misaligned_skipped` rather than folded into the drift window. `bias_bps` is
+/// signed: positive means the oracle priced above the benchmark.
+///
+/// Topics: `asset`
+#[contractevent]
+#[derive(Clone)]
+pub struct DriftSampleRecordedEvent {
+    #[topic]
+    pub asset: Address,
+    pub bias_bps: i128,
+    pub aligned: bool,
+}
+
+/// Emitted for every flag raised by an anomaly rule, carrying the same inputs
+/// the stored `AnomalyExplanation` holds (#496). The event is emitted even when
+/// the bounded ring drops the record, so explanations remain reconstructible
+/// from the event stream alone.
+///
+/// Topics: `asset`, `subject`
+#[contractevent]
+#[derive(Clone)]
+pub struct AnomalyExplainedEvent {
+    #[topic]
+    pub asset: Address,
+    #[topic]
+    pub subject: Address,
+    pub rule_id: u32,
+    pub rule: Symbol,
+    pub observed: i128,
+    pub reference: i128,
+    pub threshold: i128,
+    pub rejected: bool,
+}
+
+/// Emitted whenever a derived feed is computed, carrying the staleness of the
+/// stalest input so a consumer can audit the derivation off-chain (#478).
+///
+/// Topics: `base`, `quote`
+#[contractevent]
+#[derive(Clone)]
+pub struct DerivedFeedComputedEvent {
+    #[topic]
+    pub base: Address,
+    #[topic]
+    pub quote: Address,
+    /// 0 = inverse, 1 = ratio, 2 = triangulation.
+    pub kind: u32,
+    pub price: i128,
+    /// Worst-case (maximum) staleness across the inputs, in seconds.
+    pub staleness_secs: u64,
+}
+
+/// Emitted whenever an asset's price-history storage tier is proposed, approved
+/// or executed. `actor` is the address whose authorization drove the change, so
+/// a coerced-admin downgrade stays attributable on-chain (#246).
+///
+/// Topics: `asset`
+#[contractevent]
+#[derive(Clone)]
+pub struct StorageTierChangedEvent {
+    #[topic]
+    pub asset: Address,
+    /// 0 = temporary, 1 = persistent.
+    pub old_tier: u32,
+    /// 0 = temporary, 1 = persistent.
+    pub new_tier: u32,
+    /// 0 = applied immediately, 1 = proposal, 2 = approval, 3 = execution.
+    pub action: u32,
+    pub actor: Address,
+    pub ledger: u32,
+}
+
+/// Emitted when existing history entries are copied from one storage tier to the
+/// other, reporting how many entries were migrated (#246).
+///
+/// Topics: `asset`
+#[contractevent]
+#[derive(Clone)]
+pub struct StorageTierMigratedEvent {
+    #[topic]
+    pub asset: Address,
+    /// 0 = temporary, 1 = persistent.
+    pub from_tier: u32,
+    /// 0 = temporary, 1 = persistent.
+    pub to_tier: u32,
+    pub entries_migrated: u32,
+    pub actor: Address,
+    pub ledger: u32,
+}
+
+/// Emitted when a round records its quorum tally (the median that round agreed
+/// on) and when a confirmation run finalizes (#397).
+///
+/// Topics: `asset`
+#[contractevent]
+#[derive(Clone)]
+pub struct ConsensusRoundEvent {
+    #[topic]
+    pub asset: Address,
+    pub round: u32,
+    /// 0 = quorum reached, 1 = confirmation finalized, 2 = round abandoned.
+    pub kind: u32,
+    pub median: i128,
+    pub votes: u32,
+}
+
+/// Emitted when a participant submits conflicting observations inside one round.
+/// The second observation is rejected and the source is barred from the round
+/// for its remainder (#397).
+///
+/// Topics: `asset`, `source`
+#[contractevent]
+#[derive(Clone)]
+pub struct RoundEquivocationEvent {
+    #[topic]
+    pub asset: Address,
+    #[topic]
+    pub source: Address,
+    pub round: u32,
+    pub kept_price: i128,
+    pub rejected_price: i128,
+    pub lifetime_count: u32,
+}
+
+/// Emitted for every auto-renewal attempt, successful or not. `success` is
+/// `false` whenever `reason` is non-zero, so a consumer can always tell an
+/// attempted drain from a real renewal (#289).
+///
+/// Topics: `consumer`
+#[contractevent]
+#[derive(Clone)]
+pub struct AutoRenewalAttemptEvent {
+    #[topic]
+    pub consumer: Address,
+    pub success: bool,
+    pub amount: i128,
+    /// 0 = renewed; otherwise the [`crate::types::ErrorCode`] discriminant that
+    /// made the attempt fail.
+    pub reason: u32,
+    pub period_id: u64,
+    pub expiry: u64,
+}
+
+/// Emitted when a consumer grants, revokes or cancels a standing auto-renewal
+/// authorization (#289).
+///
+/// Topics: `consumer`
+#[contractevent]
+#[derive(Clone)]
+pub struct AutoRenewalAuthorizationEvent {
+    #[topic]
+    pub consumer: Address,
+    /// 0 = granted, 1 = revoked, 2 = cancelled with the subscription.
+    pub action: u32,
+    pub max_amount_per_period: i128,
+    pub plan_duration: u32,
 }
