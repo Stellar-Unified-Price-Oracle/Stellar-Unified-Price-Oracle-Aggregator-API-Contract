@@ -1,2 +1,2 @@
-stellar-sdk==12.2.0
+stellar-sdk==16.1.0
 pytest==8.3.3
