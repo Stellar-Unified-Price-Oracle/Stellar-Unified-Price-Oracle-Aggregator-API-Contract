@@ -29,10 +29,9 @@ test = false
 bench = false
 doc = false
 
-# #504 — coverage-guided harness over the public endpoint surface.
 [[bin]]
-name = "fuzz_endpoints"
-path = "fuzz_targets/fuzz_endpoints.rs"
+name = "fuzz_storage_layer"
+path = "fuzz_targets/fuzz_storage_layer.rs"
 test = false
 bench = false
 doc = false
@@ -42,7 +41,8 @@ doc = false
 libfuzzer-sys = { version = "0.4.7", features = [] }
 # The differential targets build `soroban_sdk::Vec` values and drive them through
 # the SDK-side aggregation wrappers, so the SDK has to be a direct dependency.
-# `testutils` gives us a host `Env` with real (non-contract) storage/alloc.
+# `testutils` gives us a host `Env` with real (non-contract) storage/alloc, plus
+# `Address::generate` for building storage keys in `fuzz_storage_layer`.
 soroban-sdk = { version = "26", features = ["testutils"] }
 # Pull in the pure core functions from the contract crate.
 price-oracle = { path = "../contracts/price-oracle", features = ["fuzz"] }

@@ -184,7 +184,7 @@ pub fn percentile(sorted: &[u32], p: u32) -> u32 {
     if n == 0 {
         return 0;
     }
-    let rank = ((n as u64 * p as u64) + 99) / 100;
+    let rank = (n as u64 * p as u64).div_ceil(100);
     let idx = (rank.max(1) as usize - 1).min(n - 1);
     sorted[idx]
 }

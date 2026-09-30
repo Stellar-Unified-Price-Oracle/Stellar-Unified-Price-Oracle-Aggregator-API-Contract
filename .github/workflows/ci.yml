@@ -64,6 +64,39 @@ jobs:
           name: contract-abi
           path: docs/abi.json
 
+  attack-regression:
+    # #511 — the attack-regression corpus runs as its own job so it can be given
+    # an explicit wall-clock budget separate from the rest of the suite.
+    name: Attack-regression corpus (time-budgeted)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.91.0
+      - uses: Swatinem/rust-cache@v2
+      - name: Run the corpus within budget
+        run: make attack-gate
+
+  kani:
+    # #512 — bounded formal proofs for the aggregation math. Kani needs a
+    # specific toolchain, so this job opts out of rust-toolchain.toml.
+    name: Bounded formal proofs (Kani)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      # Kani is not published on crates.io; the official action installs a
+      # matching verifier + toolchain pair. It manages the toolchain itself, so
+      # rust-toolchain.toml must not override it.
+      - uses: model-checking/kani-github-action@v1
+        with:
+          args: --tests --harness
+      - uses: Swatinem/rust-cache@v2
+      # The proofs run under their own bounded domain; the budget is enforced by
+      # the script so a proof regression fails fast rather than hanging CI.
+      - name: Verify bounded proofs
+        run: ./scripts/kani-proofs.sh
+
   deny:
     runs-on: ubuntu-latest
     steps:
