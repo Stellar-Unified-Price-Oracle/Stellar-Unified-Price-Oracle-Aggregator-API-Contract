@@ -28,7 +28,7 @@ jobs:
     outputs:
       artifact_digest: ${{ steps.digest.outputs.sha256 }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           # Full history so the tagged commit can be resolved and attested.
           fetch-depth: 0
@@ -133,7 +133,7 @@ jobs:
     needs: publish
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           ref: ${{ inputs.tag || github.ref }}
           fetch-depth: 0

@@ -19,7 +19,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 60
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Remove pre-installed Rust so the script provisions from scratch
         run: rm -rf "$HOME/.rustup" "$HOME/.cargo"
       - name: One-command setup and full test run

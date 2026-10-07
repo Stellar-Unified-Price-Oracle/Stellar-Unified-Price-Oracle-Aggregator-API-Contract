@@ -28,7 +28,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Corpus size budget
         run: FUZZ_SKIP_REPLAY=1 ./scripts/fuzz-corpus-gate.sh
 
@@ -57,7 +57,7 @@ jobs:
       matrix:
         target: [fuzz_aggregation, fuzz_quickselect, fuzz_aggregation_invariants, fuzz_storage_layer]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@nightly
       - uses: Swatinem/rust-cache@v2
       - name: Install cargo-fuzz

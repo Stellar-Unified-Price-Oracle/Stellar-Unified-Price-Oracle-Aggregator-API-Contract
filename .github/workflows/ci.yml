@@ -13,7 +13,7 @@ jobs:
   contract:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       # Pin to the exact version in rust-toolchain.toml. Installing via
       # @stable leaves the pinned 1.91.0 override without rustfmt/clippy,
       # which makes `make check` and `make lint` fail with "not installed
@@ -43,7 +43,7 @@ jobs:
     name: Conformance, determinism, upgrade matrix, event snapshots
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@1.91.0
         with:
@@ -69,7 +69,7 @@ jobs:
   abi-check:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@1.91.0
         with:
@@ -103,7 +103,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@1.91.0
       - uses: Swatinem/rust-cache@v2
       - name: Run the corpus within budget
@@ -116,7 +116,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       # Kani is not published on crates.io; the official action installs a
       # matching verifier + toolchain pair. It manages the toolchain itself, so
       # rust-toolchain.toml must not override it.
@@ -132,7 +132,7 @@ jobs:
   deny:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Check dependencies (licenses, advisories, duplicates, sources)
         uses: EmbarkStudios/cargo-deny-action@v2
         with:
@@ -146,7 +146,7 @@ jobs:
     name: Revision-rate metrics (#499)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
@@ -174,7 +174,7 @@ jobs:
     name: Static analysis (SAST + advisories)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@1.91.0
         with:
@@ -214,7 +214,7 @@ jobs:
     name: Secret scan (tree + history)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           # History scanning needs the full graph, not a shallow clone.
           fetch-depth: 0
@@ -245,7 +245,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@1.91.0
         with:
@@ -275,7 +275,7 @@ jobs:
     name: SLA monitor (docs/SLA.md consistency + tests)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
@@ -289,7 +289,7 @@ jobs:
     name: Ops docs (runbook, postmortems, capacity model)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
@@ -312,7 +312,7 @@ jobs:
     # Only run on main / PRs targeting main to keep CI fast on feature branches.
     if: github.ref == 'refs/heads/main' || github.base_ref == 'main'
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Install nightly Rust (required by cargo-fuzz / libfuzzer-sys)
         uses: dtolnay/rust-toolchain@nightly
@@ -406,7 +406,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@1.91.0
         with:
@@ -433,7 +433,7 @@ jobs:
     name: Indexer & onboarding map
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
@@ -446,7 +446,7 @@ jobs:
     name: Docs freshness
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"

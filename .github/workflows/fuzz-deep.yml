@@ -31,7 +31,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 360
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Install nightly Rust (required by cargo-fuzz / libfuzzer-sys)
         uses: dtolnay/rust-toolchain@nightly
