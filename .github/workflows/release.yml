@@ -109,7 +109,7 @@ jobs:
       contents: write
       id-token: write
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: contract-release
           path: dist
@@ -145,7 +145,7 @@ jobs:
         uses: Swatinem/rust-cache@v2
       - name: Build fresh from the tagged source
         run: make build
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: contract-release
           path: dist
