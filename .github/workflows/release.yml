@@ -113,7 +113,7 @@ jobs:
         with:
           name: contract-release
           path: dist
-      - uses: actions/attest-build-provenance@v2
+      - uses: actions/attest-build-provenance@v4
         with:
           subject-path: dist/price_oracle.wasm
       - name: Attach the signature bundle to the release
