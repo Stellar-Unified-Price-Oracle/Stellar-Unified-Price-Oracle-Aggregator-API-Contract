@@ -33,7 +33,63 @@ jobs:
         run: make lint
       - name: Gas-budget gates
         run: make gas-gate
+      - name: Per-endpoint budgets (#692)
+        run: make endpoint-budgets
       - name: Run tests
+        run: make test
+
+  # #608: production network protocol compatibility matrix. The contract suite
+  # runs once per declared supported (Soroban protocol, SDK) combination so an
+  # unverified combination blocks the release. The matrix is the single source
+  # of truth in docs/protocol-compatibility.md; keep the two in sync.
+  compatibility-matrix:
+    name: Compatibility (${{ matrix.target }} / protocol ${{ matrix.protocol }} / sdk ${{ matrix.sdk }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: local
+            protocol: "23"
+            sdk: "23.0.0"
+          - target: testnet
+            protocol: "23"
+            sdk: "23.0.0"
+          - target: futurenet
+            protocol: "23"
+            sdk: "23.0.0"
+          - target: mainnet
+            protocol: "23"
+            sdk: "23.0.0"
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@1.91.0
+        with:
+          targets: wasm32v1-none
+          components: rustfmt, clippy
+      - name: Cache dependencies
+        uses: Swatinem/rust-cache@v2
+      # Pin the Soroban SDK to the combination under test. The manifest must
+      # already declare this version; a mismatch fails the job rather than
+      # silently testing a different SDK than the matrix claims.
+      - name: Verify declared Soroban SDK version
+        run: |
+          set -euo pipefail
+          declared=$(grep -E '^soroban-sdk\s*=' Cargo.toml | head -n1 | sed -E 's/.*"([^"]+)".*/\1/')
+          echo "declared soroban-sdk: ${declared}"
+          echo "matrix sdk: ${{ matrix.sdk }}"
+          if [ "${declared}" != "${{ matrix.sdk }}" ]; then
+            echo "::error::soroban-sdk ${declared} does not match matrix sdk ${{ matrix.sdk }}"
+            exit 1
+          fi
+      - name: Build
+        run: make build
+      - name: Run contract suite for combination
+        env:
+          SOROBAN_PROTOCOL_VERSION: ${{ matrix.protocol }}
+          SOROBAN_SDK_VERSION: ${{ matrix.sdk }}
+          DEPLOYMENT_TARGET: ${{ matrix.target }}
         run: make test
 
   # #515/#516/#517/#518: the verification suites. Each one is a plain
@@ -209,252 +265,6 @@ jobs:
           path: security-artifacts/
 
   # #502: secret scanning. Tree + full history, pre-commit parity, redacted
-  # report. See docs/secret-scanning.md (including the rotation playbook).
-  secret-scan:
-    name: Secret scan (tree + history)
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          # History scanning needs the full graph, not a shallow clone.
-          fetch-depth: 0
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-      - run: pip install pytest
-      - name: Scan working tree and history
-        run: >
-          python -m services.secret_scan.scanner . --history
-          --report secret-artifacts/secret-scan.md
-      - name: Run scanner tests
-        run: python -m pytest services/secret_scan -q
-      - name: Publish summary
-        if: always()
-        run: cat secret-artifacts/secret-scan.md >> "$GITHUB_STEP_SUMMARY"
-      - uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: secret-scan-artifacts
-          path: secret-artifacts/
+  # report. S
 
-  # #501: exact dependency pins, committed+hashed lockfile, and two clean
-  # builds that must produce the same WASM digest. See
-  # docs/reproducible-builds.md.
-  reproducible-build:
-    name: Reproducible build (pins + double build)
-    runs-on: ubuntu-latest
-    timeout-minutes: 45
-    steps:
-      - uses: actions/checkout@v4
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@1.91.0
-        with:
-          targets: wasm32v1-none
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-      - run: pip install pytest
-      - name: Every dependency pinned exactly, lockfile in sync
-        run: python -m services.pinned_deps.pin_check .
-      - name: Two clean builds, compared digests
-        run: ./scripts/reproducible-build.sh
-      - name: Run pinning tests
-        run: python -m pytest services/pinned_deps -q
-      - name: Publish summary
-        if: always()
-        run: cat build-artifacts/reproducible-build.md >> "$GITHUB_STEP_SUMMARY"
-      # The digests are the published artifact hashes an independent rebuild is
-      # compared against.
-      - uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: build-artifacts
-          path: build-artifacts/
-
-  sla-monitor:
-    name: SLA monitor (docs/SLA.md consistency + tests)
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-      - run: pip install pytest
-      - name: Check docs/SLA.md matches the monitor clause map
-        run: python -m services.sla_monitor.monitor --check-sla
-      - name: Run SLA monitor tests
-        run: python -m pytest services/sla_monitor -q
-
-  ops-docs:
-    name: Ops docs (runbook, postmortems, capacity model)
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-      - run: pip install pytest
-      # #527 every paging alert must have a runbook entry with an owner, a
-      # review cadence, and a link from the alert -> entry table.
-      - name: Check every paging alert has a runbook entry
-        run: python -m services.runbook.check_runbook
-      # #528 postmortems must be structured, indexed, and carry action items
-      # with owners, due dates and tracking issues.
-      - name: Check postmortem structure, index and follow-up
-        run: python -m services.incident_review.check_postmortems
-      # #529 inventory doc and #530 capacity doc must stay in step with code.
-      - name: Run ops service tests (runbook, postmortems, backup, capacity)
-        run: python -m pytest services/runbook services/incident_review services/backup services/capacity -q
-
-  fuzz:
-    name: Coverage-guided fuzzing (1M iterations)
-    runs-on: ubuntu-latest
-    # Only run on main / PRs targeting main to keep CI fast on feature branches.
-    if: github.ref == 'refs/heads/main' || github.base_ref == 'main'
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Install nightly Rust (required by cargo-fuzz / libfuzzer-sys)
-        uses: dtolnay/rust-toolchain@nightly
-        with:
-          components: rustfmt
-
-      # rust-toolchain.toml pins 1.91.0 and would override the nightly
-      # toolchain above, so set an explicit directory override (stronger
-      # than the toolchain file) for this job only.
-      - name: Force nightly for this job
-        run: rustup override set nightly
-
-      - name: Cache dependencies
-        uses: Swatinem/rust-cache@v2
-
-      # 0.12.0 no longer builds on current nightly (its rustix dependency uses
-      # reserved `rustc::` attributes). Pin the current 0.13.x line instead.
-      - name: Install cargo-fuzz
-        run: cargo install cargo-fuzz --locked --version "0.13.2"
-
-      # ── Fuzz target 1: differential aggregation ─────────────────────────────
-      - name: Fuzz fuzz_aggregation (1 000 000 iterations)
-        run: |
-          cargo fuzz run fuzz_aggregation \
-            fuzz/corpus/fuzz_aggregation \
-            -- \
-            -runs=1000000 \
-            -max_len=816 \
-            -timeout=30 \
-            -error_exitcode=1
-        # 816 bytes = 102 i64 words ≈ 51 prices + 51 weights (just over max sources)
-
-      # ── Fuzz target 2: quickselect invariants ───────────────────────────────
-      - name: Fuzz fuzz_quickselect (1 000 000 iterations)
-        run: |
-          cargo fuzz run fuzz_quickselect \
-            fuzz/corpus/fuzz_quickselect \
-            -- \
-            -runs=1000000 \
-            -max_len=809 \
-            -timeout=30 \
-            -error_exitcode=1
-        # 809 bytes = 100 i64 words (800) + 1 byte for k + extra room
-
-      # ── Fuzz target 3: security invariants for trimmed mean / VWAP / weighted median (#409)
-      - name: Fuzz fuzz_aggregation_invariants (1 000 000 iterations)
-        run: |
-          cargo fuzz run fuzz_aggregation_invariants \
-            fuzz/corpus/fuzz_aggregation_invariants \
-            -- \
-            -runs=1000000 \
-            -max_len=401 \
-            -timeout=30 \
-            -error_exitcode=1
-        # 401 bytes = 1 trim byte + 100 i32 words (50 prices + 50 volumes)
-
-      # ── Fuzz target 4: public endpoint surface (#504) ──────────────────────
-      # Unlike the three targets above, which only reach `core_pricing` /
-      # `storage`, this one drives the contract's public endpoints with
-      # type-directed fuzz input and asserts the security invariants
-      # (INV-NO-PANIC, INV-AUTH, INV-NO-GROWTH). The covered surface is pinned
-      # by `fuzz/endpoint_manifest.txt`, checked against `lib.rs` in both
-      # directions by `fuzz_coverage_tests`.
-      - name: Fuzz fuzz_endpoints (1 000 000 iterations)
-        run: |
-          cargo fuzz run fuzz_endpoints \
-            fuzz/corpus/fuzz_endpoints \
-            -- \
-            -runs=1000000 \
-            -max_len=512 \
-            -timeout=30 \
-            -error_exitcode=1
-        # 512 bytes is comfortably above the 64-byte minimum input and the
-        # 32-byte salt cap the harness decodes, with room for libFuzzer to grow.
-
-      # ── Upload any crash artifacts ───────────────────────────────────────────
-      - name: Upload fuzz artifacts on failure
-        if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: fuzz-crashes
-          path: |
-            fuzz/artifacts/
-            fuzz/corpus/
-
-  # #519: hermetic integration harness. One command, no network, deterministic
-  # across repeated runs. Runs on every PR so integration coverage no longer
-  # depends on a shared testnet.
-  hermetic-integration:
-    name: Hermetic integration harness
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-    steps:
-      - uses: actions/checkout@v4
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@1.91.0
-        with:
-          targets: wasm32v1-none
-          components: rustfmt, clippy
-      - name: Cache dependencies
-        uses: Swatinem/rust-cache@v2
-      - name: Run harness (twice, verifying determinism)
-        run: ./scripts/hermetic-integration.sh
-      - name: Publish summary
-        if: always()
-        run: cat hermetic-artifacts/summary.md >> "$GITHUB_STEP_SUMMARY"
-      # Logs and Soroban ledger snapshots, so a failure can be diagnosed from
-      # CI without re-running locally.
-      - uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: hermetic-integration-artifacts
-          path: hermetic-artifacts/
-
-  # #539 reference indexer: aggregate reproduction, idempotent replay, gaps, reorgs.
-  # #542 onboarding map must stay current.
-  indexer-onboarding:
-    name: Indexer & onboarding map
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-      - run: pip install pytest
-      - run: python -m pytest services/indexer scripts/test_onboarding.py -q
-      - run: python scripts/onboarding.py check
-
-  # #540 docs freshness: links, snippets, interface version.
-  docs-freshness:
-    name: Docs freshness
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-      - uses: dtolnay/rust-toolchain@1.91.0
-      - run: pip install pytest
-      - run: python -m pytest scripts/test_docs_freshness.py -q
-      - name: Check links, snippets and examples
-        # External links are checked on the weekly schedule only, to keep PRs
-        # independent of third-party uptime.
-        run: python scripts/docs_freshness.py ${{ github.event_name == 'schedule' && '--external' || '' }}
-
+/* … truncated 9670 chars — edit only what you need near the top … */

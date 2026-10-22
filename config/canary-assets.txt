@@ -1,1 +1,71 @@
 # One asset contract id per line, compared by the canary pipeline.
+#
+# Source availability and coverage review cadence (issue #648)
+# ---------------------------------------------------------------
+# The periodic coverage review (see .github/workflows/source-coverage-review.yml)
+# reads this file to determine which assets are expected to be covered by the
+# configured sources. Assets listed here that fall below the configured
+# diversity threshold are flagged in the generated review artifact.
+#
+# Diversity threshold: minimum number of distinct sources that must report a
+# price for an asset before it is considered "covered". Override per-run with
+# the SOURCE_DIVERSITY_THRESHOLD environment variable; defaults to 2.
+#
+# Owner assignment: the review assigns an owner per flagged asset using the
+# mapping below (asset contract id -> GitHub handle or team). Assets without an
+# explicit mapping fall back to the default owner. Keep this mapping in sync
+# with CODEOWNERS where applicable.
+#
+# Format:
+#   <asset_contract_id>            # expected coverage, default owner
+#   <asset_contract_id> <owner>    # expected coverage, explicit owner
+#
+# Example (uncomment and replace with real contract ids):
+# CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC @stellar/oracle-oncall
+# CAQCFVLOBK5GIULPNZRGATJJYMLOWVQXKH43YH45HQEKCR6OSAHHE @stellar/oracle-oncall
+#
+# Default owner used when an asset has no explicit mapping:
+# owner: @stellar/oracle-oncall
+
+#
+# Provider contract and dependency inventory (issue #649)
+# -------------------------------------------------------
+# For every production source, record the upstream market-data provider, the
+# terms under which it is used, its rate/usage limits, the runtime dependency
+# it introduces, and the replacement contact used if the provider must be
+# swapped out. This lets an operator identify the upstream dependency and the
+# fallback for each production source without reading source code.
+#
+# Repeatable check: scripts/check-provider-inventory.sh (run in CI) verifies
+# that every source referenced by the oracle has a matching entry below and
+# that each entry declares all required fields. Do not commit secrets or
+# production credentials here — reference the secret store key name only.
+#
+# Format (one block per source, blank line separated):
+#   source:        <source id used by the oracle>
+#   provider:      <upstream market-data provider>
+#   terms:         <license / terms reference>
+#   limits:        <rate or usage limits>
+#   dependency:    <runtime dependency / endpoint class>
+#   fallback:      <fallback source id used when this source is unavailable>
+#   contact:       <replacement / escalation contact>
+#   credentials:   <secret store key name, never the value>
+#
+# Example (uncomment and replace with real values):
+# source:        coingecko
+# provider:      CoinGecko
+# terms:         CoinGecko API Terms of Service (public API tier)
+# limits:        10-30 calls/min per key; see provider dashboard
+# dependency:    HTTPS REST, api.coingecko.com
+# fallback:      reflector
+# contact:       @stellar/oracle-oncall
+# credentials:   COINGECKO_API_KEY (secret store)
+#
+# source:        reflector
+# provider:      Reflector Network
+# terms:         Reflector open-source / on-chain feed terms
+# limits:        On-chain read; bounded by ledger/RPC throughput
+# dependency:    Soroban contract read via RPC
+# fallback:      coingecko
+# contact:       @stellar/oracle-oncall
+# credentials:   none (public on-chain data)

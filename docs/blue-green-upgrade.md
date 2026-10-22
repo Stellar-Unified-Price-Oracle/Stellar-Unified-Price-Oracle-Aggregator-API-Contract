@@ -24,6 +24,35 @@ Invariant sweep: `scripts/verify-deployment.sh` (section 8).
 | Authority confusion | The sweep asserts that the admin is unchanged across the upgrade. |
 | Partial migration | `is_layout_coherent` requires no open cursor and a single schema across all assets. After an abort, re-running `upgrade` resumes the migration. |
 
+## Upgrade authorization is bound to the artifact (#689)
+
+The admin approves an upgrade by authorizing `upgrade(new_wasm_hash)` for the
+hash of the approved release artifact (the reproducible build of the release
+tag, see [`reproducible-builds.md`](reproducible-builds.md)). Soroban binds an
+authorization to the exact call arguments, so that approval cannot install any
+other WASM, even a valid one that has already been uploaded.
+
+Before signing, compare the hash in the transaction with the hash of the
+approved artifact. Sign only when they match.
+
+| Case | Result |
+|---|---|
+| Approval for the release hash, upgrade to the release hash | Applied. Admin and stored prices are unchanged. |
+| Approval for the release hash, upgrade to a substituted artifact | Refused at `require_auth`, before any event or WASM swap. The prior implementation keeps serving reads and accepting submissions. |
+| Refused substitution, then the approved upgrade | Applied. A refused attempt does not block the release. |
+| Hash one byte away from the approved one | Refused. |
+| Approval from an address other than the admin | Refused. |
+
+The substituted artifact in the tests is the release WASM with an extra custom
+section, so it is a valid contract with a different hash. A separate test shows
+it upgrades cleanly when it is the approved hash, so the refusals come from the
+authorization binding and not from a broken artifact.
+
+```bash
+make build   # the tests load target/wasm32v1-none/release/price_oracle.wasm
+cargo test -p price-oracle --lib upgrade_artifact_binding_tests
+```
+
 ## Forced abort drill (testnet)
 
 ```bash

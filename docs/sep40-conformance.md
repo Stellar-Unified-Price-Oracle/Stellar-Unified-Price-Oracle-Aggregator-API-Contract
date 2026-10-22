@@ -39,7 +39,7 @@ properties the SEP states descriptively and the contract implements anyway.
 | ID | SEP clause | Requirement | Test | Status |
 |---|---|---|---|---|
 | SEP40-R01 | Interface / `base` | `base()` returns the `Asset` all prices are quoted in | `r01_base_returns_the_denomination_asset` | conforms |
-| SEP40-R02 | Interface / `assets` | `assets()` returns every asset quoted by the feed | `r02_assets_lists_every_quoted_asset_as_stellar_variant` | conforms |
+| SEP40-R02 | Interface / `assets` | `assets()` returns every asset quoted by the feed | `r02_assets_lists_every_quoted_asset_as_stellar_variant` | bounded deviation D-05 |
 | SEP40-R03 | Interface / `decimals` | `decimals()` returns the number of decimals used by all quoted assets | `r03_decimals_reports_price_precision` | conforms |
 | SEP40-R04 | Interface / `resolution` | `resolution()` returns the default tick period in seconds | `r04_resolution_reports_tick_seconds` | conforms |
 | SEP40-R05 | Interface / `lastprice` | `lastprice(asset)` returns the most recent price for an asset | `r05_lastprice_returns_the_latest_aggregate` | conforms |
@@ -67,6 +67,7 @@ properties the SEP states descriptively and the contract implements anyway.
 | D-02 | "`timestamp` … is calculated as `floor(unix_now()/resolution)*resolution`" | The published timestamp is the source-supplied observation timestamp; it is not floored to the resolution grid | A resolution-floored timestamp misstates when the price was observed, and this oracle accepts off-chain-signed submissions whose observation time is known exactly. `last_updated` carries the ledger write time instead. Consumers that need a uniform grid must floor the value themselves. | 0.1.0 |
 | D-03 | "Once the price feed aggregation contract is deployed, these values should never change" | `decimals()` and `resolution()` stay admin-configurable after deployment | Aggregation policy changes (source onboarding, precision migration) are normal operations for a permissioned aggregator. Every change is audited (`admin_action` plus `DecimalsChanged`/`ResolutionChanged` events) and must be coordinated off-chain, so consumers must re-read `decimals()`/`resolution()` at start-up rather than hard-code them. | 0.1.0 |
 | D-04 | "a contract should return `None` on such function calls" for invalid input | `prices(asset, records)` **throws** `RecordsLimitExceeded` when `records` exceeds the configured retention length | A `records` value above the retention limit is a consumer bug (an unbounded read), not a missing datapoint, and the `Option` return has nowhere to report "your request is impossible". `lastprice` and `price` follow the SEP exactly. | 0.1.0 |
+| D-05 | `assets()` returns every quoted asset | `assets()` returns the complete list only when it contains at most 100 assets; larger registries must use `assets_paginated(cursor, limit)` | A fixed response ceiling prevents a single RPC result from exceeding the contract's response budget. The extension uses registration-order keyset pagination; a removed cursor fails with `InvalidPageCursor`, requiring clients to restart. | 0.1.0 |
 
 ## Ambiguities
 

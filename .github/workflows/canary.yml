@@ -1,9 +1,10 @@
 name: Canary
 
 # Canary deployment pipeline (#414). See docs/canary-deployment.md.
+# Launch-day staged canary sequence (#606): see docs/canary-launch-sequence.md.
 on:
   pull_request:
-    paths: ["services/canary/**", "scripts/canary.sh", ".github/workflows/canary.yml"]
+    paths: ["services/canary/**", "scripts/canary.sh", "config/canary-assets.txt", ".github/workflows/canary.yml"]
   workflow_dispatch:
     inputs:
       blue_contract:
@@ -12,6 +13,10 @@ on:
       canary_bps:
         description: "Share of assets routed to green, in basis points"
         default: "1000"
+      stage:
+        description: "Launch-day canary stage (1, 2, or 3)"
+        required: true
+        default: "1"
 
 jobs:
   selftest:
@@ -25,9 +30,24 @@ jobs:
       - run: pip install pytest
       - run: python -m pytest -q services/canary
 
+  stage-check:
+    # Repeatable check that the requested launch-day stage is well-formed and
+    # that its canary asset set is a subset of the previous stage (#606).
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install pytest
+      - name: Validate canary stage sequence
+        env:
+          CANARY_STAGE: ${{ github.event_name == 'workflow_dispatch' && inputs.stage || '1' }}
+        run: python -m pytest -q services/canary/test_launch_sequence.py
+
   canary:
     if: github.event_name == 'workflow_dispatch'
-    needs: selftest
+    needs: [selftest, stage-check]
     runs-on: ubuntu-latest
     environment: testnet
     outputs:
@@ -95,6 +115,7 @@ jobs:
       - name: Compare per-asset output (rollback on divergence)
         env:
           CANARY_BPS: ${{ inputs.canary_bps }}
+          CANARY_STAGE: ${{ inputs.stage }}
         run: |
           scripts/canary.sh testnet canary "${{ inputs.blue_contract }}" \
             "${{ steps.deploy.outputs.green }}" config/canary-assets.txt canary-out
@@ -121,7 +142,8 @@ jobs:
         run: |
           APPROVER=$(gh api "repos/${{ github.repository }}/actions/runs/${{ github.run_id }}/approvals" \
             --jq '.[-1].user.login')
-          jq --arg who "$APPROVER" '.approved_by = $who | .decision = "promoted"' \
+          jq --arg who "$APPROVER" --arg stage "${{ inputs.stage }}" \
+            '.approved_by = $who | .stage = $stage | .decision = "promoted"' \
             canary-out/deployment-record.json > canary-out/promotion-record.json
         env:
           GH_TOKEN: ${{ github.token }}

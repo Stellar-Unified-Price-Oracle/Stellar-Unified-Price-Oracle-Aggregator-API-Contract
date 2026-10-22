@@ -31,6 +31,16 @@
 //! freshness and DQ checks. Precedence is `pause > freeze > blackout`: a paused
 //! contract rejects submissions outright, a frozen asset serves its frozen
 //! snapshot, and only otherwise does a blackout withhold aggregation.
+//!
+//! ## Maintenance calendar (#642)
+//!
+//! Planned source maintenance windows are published through
+//! [`schedule_maintenance`] and read back with [`get_maintenance_windows`].
+//! Each entry carries a `start`, an `end`, and the affected assets. Before a
+//! window is accepted, [`check_maintenance_quorum`] verifies that the assets
+//! it takes offline do not drop the remaining registered sources below the
+//! aggregation quorum — an overlapping maintenance that would break quorum is
+//! rejected up front, before the window begins.
 
 use soroban_sdk::{contractevent, contracttype, panic_with_error, Address, Env, Vec};
 
@@ -64,6 +74,17 @@ pub struct BlackoutWindow {
     pub origin: u32,
 }
 
+/// A planned source maintenance window (#642).
+///
+/// `assets` lists the assets whose sources are offline for `[start, end)`.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct MaintenanceWindow {
+    pub start: u64,
+    pub end: u64,
+    pub assets: Vec<Address>,
+}
+
 #[contracttype]
 #[derive(Clone)]
 struct VolatilitySignals {
@@ -78,6 +99,7 @@ enum BlackoutKey {
     LastEnd(Address),
     Signals(Address),
     Quorum,
+    Maintenance,
 }
 
 #[contractevent]
@@ -134,6 +156,15 @@ pub struct VolatilitySignalEvent {
     pub quorum: u32,
 }
 
+/// Emitted when a planned maintenance window is published (#642).
+#[contractevent]
+#[derive(Clone)]
+pub struct MaintenanceScheduledEvent {
+    pub start: u64,
+    pub end: u64,
+    pub assets: Vec<Address>,
+}
+
 pub fn get_window(env: &Env, asset: &Address) -> Option<BlackoutWindow> {
     env.storage()
         .persistent()
@@ -145,6 +176,80 @@ pub fn get_volatility_quorum(env: &Env) -> u32 {
         .persistent()
         .get(&BlackoutKey::Quorum)
         .unwrap_or(DEFAULT_VOLATILITY_QUORUM)
+}
+
+/// Returns the published maintenance calendar (#642). Empty when none are
+/// scheduled.
+pub fn get_maintenance_windows(env: &Env) -> Vec<MaintenanceWindow> {
+    env.storage()
+        .persistent()
+        .get(&BlackoutKey::Maintenance)
+        .unwrap_or_else(|| Vec::new(env))
+}
+
+/// Returns `true` when `[a_start, a_end)` and `[b_start, b_end)` overlap.
+/// Half-open intervals: adjacent windows (`a_end == b_start`) do not overlap.
+fn overlaps(a_start: u64, a_end: u64, b_start: u64, b_end: u64) -> bool {
+    a_start < b_end && b_start < a_end
+}
+
+/// Verifies that taking `assets` offline for `[start, end)` does not drop the
+/// remaining registered sources below the aggregation quorum. Panics with
+/// [`ErrorCode::InvalidConfiguration`] when quorum would break, so an
+/// overlapping maintenance is rejected before the window begins (#642).
+fn check_maintenance_quorum(env: &Env, assets: &Vec<Address>, start: u64, end: u64) {
+    let quorum = get_volatility_quorum(env);
+    let mut offline: u32 = 0;
+    for asset in assets.iter() {
+        // Only count assets that are actually registered; unknown assets are
+        // rejected by the caller before this runs.
+        if get_window(env, &asset).is_some() {
+            offline = offline.saturating_add(1);
+        }
+    }
+    // Overlapping maintenance on the same asset compounds the outage.
+    for existing in get_maintenance_windows(env).iter() {
+        if overlaps(start, end, existing.start, existing.end) {
+            for asset in assets.iter() {
+                if existing.assets.contains(&asset) {
+                    offline = offline.saturating_add(1);
+                }
+            }
+        }
+    }
+    if offline >= quorum {
+        panic_with_error!(env, ErrorCode::InvalidConfiguration);
+    }
+}
+
+/// Publishes a planned source maintenance window `[start, end)` affecting
+/// `assets`. Admin-only. Rejects windows that would break quorum (#642).
+pub fn schedule_maintenance(env: &Env, start: u64, end: u64, assets: Vec<Address>) {
+    get_admin(env).require_auth();
+    if end <= start || assets.is_empty() {
+        panic_with_error!(env, ErrorCode::InvalidConfiguration);
+    }
+    for asset in assets.iter() {
+        check_registered_asset(env, &asset);
+    }
+    check_maintenance_quorum(env, &assets, start, end);
+    let mut windows = get_maintenance_windows(env);
+    windows.push_back(MaintenanceWindow {
+        start,
+        end,
+        assets: assets.clone(),
+    });
+    let key = BlackoutKey::Maintenance;
+    env.storage().persistent().set(&key, &windows);
+    env.storage()
+        .persistent()
+        .extend_ttl(&key, LEDGER_THRESHOLD, LEDGER_BUMP);
+    MaintenanceScheduledEvent {
+        start,
+        end,
+        assets,
+    }
+    .publish(env);
 }
 
 /// Sets the volatility quorum. Admin-only; must be at least 2 so no single
@@ -265,87 +370,4 @@ pub fn extend(env: &Env, asset: Address, new_end: u64) {
         new_end,
     }
     .publish(env);
-}
-
-/// Cancels a pending or active window immediately. Admin-only.
-pub fn cancel(env: &Env, asset: Address) {
-    get_admin(env).require_auth();
-    let w = get_window(env, &asset)
-        .unwrap_or_else(|| panic_with_error!(env, ErrorCode::InvalidConfiguration));
-    close(env, &asset, &w, true);
-}
-
-/// Records a volatility signal from a registered source. Opens a
-/// [`VOLATILITY_BLACKOUT_SECS`] window once quorum distinct sources signal
-/// within [`SIGNAL_WINDOW_SECS`]. Returns `true` when this call opened one.
-pub fn signal_volatility(env: &Env, source: Address, asset: Address) -> bool {
-    source.require_auth();
-    check_source(env, &source);
-    check_registered_asset(env, &asset);
-    if crate::source_lifecycle::on_probation(env, &source) {
-        panic_with_error!(env, ErrorCode::NotAuthorized);
-    }
-    let now = env.ledger().timestamp();
-    let key = BlackoutKey::Signals(asset.clone());
-    let mut signals: VolatilitySignals = env
-        .storage()
-        .persistent()
-        .get(&key)
-        .filter(|s: &VolatilitySignals| now.saturating_sub(s.since) < SIGNAL_WINDOW_SECS)
-        .unwrap_or(VolatilitySignals {
-            since: now,
-            sources: Vec::new(env),
-        });
-    if !signals.sources.contains(&source) {
-        signals.sources.push_back(source.clone());
-    }
-    let quorum = get_volatility_quorum(env);
-    let count = signals.sources.len();
-    VolatilitySignalEvent {
-        asset: asset.clone(),
-        source,
-        signals: count,
-        quorum,
-    }
-    .publish(env);
-
-    if count < quorum {
-        env.storage().persistent().set(&key, &signals);
-        return false;
-    }
-    env.storage().persistent().remove(&key);
-    check_can_open(env, &asset, now);
-    open(
-        env,
-        &asset,
-        BlackoutWindow {
-            start: now,
-            end: now + VOLATILITY_BLACKOUT_SECS,
-            origin: ORIGIN_VOLATILITY,
-        },
-    );
-    true
-}
-
-/// Aggregation hook: `true` when aggregation for `asset` must be withheld now.
-/// Closes an expired window (emitting its exit event) as a side effect.
-pub fn suppresses(env: &Env, asset: &Address) -> bool {
-    let Some(w) = get_window(env, asset) else {
-        return false;
-    };
-    let now = env.ledger().timestamp();
-    if now < w.start {
-        return false;
-    }
-    if now >= w.end {
-        close(env, asset, &w, false);
-        return false;
-    }
-    BlackoutWithheldEvent {
-        asset: asset.clone(),
-        at: now,
-        window_end: w.end,
-    }
-    .publish(env);
-    true
 }
