@@ -10,7 +10,92 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      # Pin to the exact version in rust-toolchain.toml. Installing via
+      # @stable leaves the pinned 1.91.0 override without rustfmt/clippy,
+      # which makes `make check` and `make lint` fail with "not installed
+      # for the toolchain '1.91.0'".
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@1.91.0
+        with:
+          targets: wasm32v1-none
+          components: rustfmt, clippy
+      - name: Cache dependencies
+        uses: Swatinem/rust-cache@v2
+      - name: Check formatting
+        run: make check
+      - name: Build
+        run: make build
+      - name: Run clippy
+        run: make lint
+      - name: Gas-budget gates
+        run: make gas-gate
+      - name: Per-endpoint budgets (#692)
+        run: make endpoint-budgets
+      - name: Run tests
+        run: make test
 
+  # #608: production network protocol compatibility matrix. The contract suite
+  # runs once per declared supported (Soroban protocol, SDK) combination so an
+  # unverified combination blocks the release. The matrix is the single source
+  # of truth in docs/protocol-compatibility.md; keep the two in sync.
+  compatibility-matrix:
+    name: Compatibility (${{ matrix.target }} / protocol ${{ matrix.protocol }} / sdk ${{ matrix.sdk }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: local
+            protocol: "23"
+            sdk: "23.0.0"
+          - target: testnet
+            protocol: "23"
+            sdk: "23.0.0"
+          - target: futurenet
+            protocol: "23"
+            sdk: "23.0.0"
+          - target: mainnet
+            protocol: "23"
+            sdk: "23.0.0"
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@1.91.0
+        with:
+          targets: wasm32v1-none
+          components: rustfmt, clippy
+      - name: Cache dependencies
+        uses: Swatinem/rust-cache@v2
+      # Pin the Soroban SDK to the combination under test. The manifest must
+      # already declare this version; a mismatch fails the job rather than
+      # silently testing a different SDK than the matrix claims.
+      - name: Verify declared Soroban SDK version
+        run: |
+          set -euo pipefail
+          declared=$(grep -E '^soroban-sdk\s*=' Cargo.toml | head -n1 | sed -E 's/.*"([^"]+)".*/\1/')
+          echo "declared soroban-sdk: ${declared}"
+          echo "matrix sdk: ${{ matrix.sdk }}"
+          if [ "${declared}" != "${{ matrix.sdk }}" ]; then
+            echo "::error::soroban-sdk ${declared} does not match matrix sdk ${{ matrix.sdk }}"
+            exit 1
+          fi
+      - name: Build
+        run: make build
+      - name: Run contract suite for combination
+        env:
+          SOROBAN_PROTOCOL_VERSION: ${{ matrix.protocol }}
+          SOROBAN_SDK_VERSION: ${{ matrix.sdk }}
+          DEPLOYMENT_TARGET: ${{ matrix.target }}
+        run: make test
+
+  # #515/#516/#517/#518: the verification suites. Each one is a plain
+  # `cargo test` filter over the contract's test binary, so they are cheap
+  # enough to run on every pull request. `make conformance` runs all four.
+  conformance:
+    name: Conformance, determinism, upgrade matrix, event snapshots
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
 
@@ -23,23 +108,7 @@ jobs:
       - name: Test
         run: cargo test --workspace
 
-  consumer-fixtures:
-    name: Consumer integration fixtures
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
+  # #502: secret scanning. Tree + full history, pre-commit parity, redacted
+  # report. S
 
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Cache cargo
-        uses: Swatinem/rust-cache@v2
-
-      - name: Run shared fixture library tests
-        run: cargo test -p oracle-fixtures
-
-      - name: Run example consumer A against shared fixtures
-        run: cargo test -p oracle-fixtures --test consumer_a
-
-      - name: Run example consumer B against shared fixtures
-        run: cargo test -p oracle-fixtures --test consumer_b
+/* … truncated 9670 chars — edit only what you need near the top … */

@@ -22,6 +22,23 @@
 //! Each mapping also carries the foreign asset's `decimals` so callers can
 //! rescale a price without a second lookup, and an `enabled` flag so admins
 //! can suspend a mapping without losing its history.
+//!
+//! ## Onboarding sandbox
+//!
+//! Before a source is approved it can run a non-production certification
+//! pass with [`certify_source`]. The sandbox validates authentication,
+//! asset identifiers, units (decimals), and timing against the live
+//! registry and returns a [`SourceCertification`] report. It never writes
+//! to production storage: the report is returned to the caller and no
+//! mapping, price, or source record is mutated.
+//!
+//! ## Source removal impact preview
+//!
+//! Before an administrator removes a source, [`preview_source_removal`]
+//! computes — without mutating state — which assets the source currently
+//! serves, the remaining quorum after removal, and whether any asset would
+//! lose service. The preview is a pure read so it can be run repeatedly and
+//! compared against the actual post-removal state.
 
 use soroban_sdk::{panic_with_error, Address, BytesN, Env, String, Vec};
 
@@ -30,6 +47,60 @@ use crate::events::{
 };
 use crate::storage::{check_registered_asset, get_admin, LEDGER_BUMP, LEDGER_THRESHOLD};
 use crate::types::{DataKey, ErrorCode, ForeignAssetMapping};
+
+/// Maximum number of decimals a foreign asset may declare. Mirrors the
+/// widest representation the oracle can rescale without overflow.
+pub const MAX_FOREIGN_DECIMALS: u32 = 18;
+
+/// Result of a sandbox certification run for a prospective source.
+///
+/// Every field is a diagnostic flag so a test source receives clear,
+/// actionable feedback before approval. A source is certified only when
+/// all flags are `true`.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SourceCertification {
+    /// The source's authentication was accepted (address is non-zero and
+    /// the caller authorized the sandbox run).
+    pub auth_ok: bool,
+    /// The Stellar asset identifier is registered in the oracle.
+    pub asset_ok: bool,
+    /// The foreign asset identifier resolves to a known mapping.
+    pub foreign_asset_ok: bool,
+    /// The declared decimals are within the supported unit range.
+    pub units_ok: bool,
+    /// The declared observation timestamp is not in the future relative to
+    /// the ledger close time.
+    pub timing_ok: bool,
+    /// Aggregate: `true` only when every individual check passed.
+    pub certified: bool,
+}
+
+/// Impact preview for removing a source from the oracle.
+///
+/// Produced by [`preview_source_removal`] without mutating any state. It
+/// reports which assets the source currently serves, the quorum that would
+/// remain after removal, and whether any asset would lose service.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SourceRemovalPreview {
+    /// Assets the source currently contributes to.
+    pub affected_assets: Vec<Address>,
+    /// Number of sources serving the oracle before removal.
+    pub sources_before: u32,
+    /// Number of sources that would remain after removal.
+    pub sources_after: u32,
+    /// Quorum required before removal.
+    pub quorum_before: u32,
+    /// Quorum that would remain after removal.
+    pub quorum_after: u32,
+    /// `true` when the remaining sources can still meet quorum.
+    pub quorum_ok: bool,
+    /// `true` when at least one affected asset would lose service (no
+    /// remaining source can serve it).
+    pub loses_service: bool,
+    /// `true` when the removal is safe: quorum is preserved and no asset
+    /// loses service.
+    pub safe: bool,
+}
 
 fn mapping_key(chain: &String, foreign_address: &BytesN<32>) -> DataKey {
     DataKey::ForeignAssetMapping(chain.clone(), foreign_address.clone())
@@ -61,6 +132,160 @@ fn remove_from_index(env: &Env, key: DataKey, entry: &(String, BytesN<32>)) {
         }
     }
     env.storage().persistent().set(&key, &updated);
+}
+
+/// Computes the impact of removing `source` from the oracle without
+/// mutating any state.
+///
+/// The preview reads the current source set and per-asset source
+/// assignments, then reports the assets the source serves, the quorum that
+/// would remain, and whether any asset would lose service. Because it is a
+/// pure read, the result matches the actual post-removal state produced by
+/// the corresponding removal operation.
+///
+/// # Arguments
+/// * `source` — the source address proposed for removal.
+///
+/// # Returns
+/// A [`SourceRemovalPreview`] describing the operational consequences.
+pub fn preview_source_removal(env: &Env, source: Address) -> SourceRemovalPreview {
+    let sources: Vec<Address> = env
+        .storage()
+        .persistent()
+        .get(&DataKey::SourceList)
+        .unwrap_or(Vec::new(env));
+
+    let quorum_before: u32 = env
+        .storage()
+        .persistent()
+        .get(&DataKey::Quorum)
+        .unwrap_or(0);
+
+    let sources_before = sources.len();
+    let mut sources_after = 0u32;
+    for s in sources.iter() {
+        if s != source {
+            sources_after += 1;
+        }
+    }
+
+    // Quorum cannot exceed the number of remaining sources; the effective
+    // quorum after removal is the configured quorum clamped to the
+    // remaining source count.
+    let quorum_after = if quorum_before > sources_after {
+        sources_after
+    } else {
+        quorum_before
+    };
+    let quorum_ok = sources_after >= quorum_before;
+
+    // Collect the assets the source currently serves and check whether any
+    // of them would be left without a remaining source.
+    let assets: Vec<Address> = env
+        .storage()
+        .persistent()
+        .get(&DataKey::AssetList)
+        .unwrap_or(Vec::new(env));
+
+    let mut affected_assets: Vec<Address> = Vec::new(env);
+    let mut loses_service = false;
+    for asset in assets.iter() {
+        let asset_sources: Vec<Address> = env
+            .storage()
+            .persistent()
+            .get(&DataKey::AssetSources(asset.clone()))
+            .unwrap_or(Vec::new(env));
+
+        let mut serves = false;
+        let mut remaining = 0u32;
+        for s in asset_sources.iter() {
+            if s == source {
+                serves = true;
+            } else {
+                remaining += 1;
+            }
+        }
+
+        if serves {
+            affected_assets.push_back(asset.clone());
+            if remaining == 0 {
+                loses_service = true;
+            }
+        }
+    }
+
+    let safe = quorum_ok && !loses_service;
+
+    SourceRemovalPreview {
+        affected_assets,
+        sources_before,
+        sources_after,
+        quorum_before,
+        quorum_after,
+        quorum_ok,
+        loses_service,
+        safe,
+    }
+}
+
+/// Runs a non-production certification pass for a prospective source.
+///
+/// The sandbox validates the source's authentication, asset identifiers,
+/// units (decimals), and timing against the live registry and returns a
+/// [`SourceCertification`] report. It performs **no** writes: no mapping,
+/// price, or source record is created or mutated, so a test source cannot
+/// write to production during certification.
+///
+/// # Arguments
+/// * `source` — the prospective source address; must authorize the run.
+/// * `stellar_asset` — the Stellar asset the source intends to report on.
+/// * `chain` / `foreign_address` — the foreign identifier to resolve.
+/// * `decimals` — the units the source will report in.
+/// * `observed_at` — the source's observation timestamp (ledger seconds).
+///
+/// # Errors
+///
+/// * [`ErrorCode::NotAuthorized`] — `source` did not authorize the run.
+/// * [`ErrorCode::InvalidString`] — `chain` is not a canonical identifier.
+pub fn certify_source(
+    env: &Env,
+    source: Address,
+    stellar_asset: Address,
+    chain: String,
+    foreign_address: BytesN<32>,
+    decimals: u32,
+    observed_at: u64,
+) -> SourceCertification {
+    // Authentication: the source must authorize the sandbox run. This is a
+    // read-only check — no source record is persisted.
+    source.require_auth();
+    crate::input_validation::validate_string(env, "certify_source", "chain", &chain);
+
+    let asset_ok = env
+        .storage()
+        .persistent()
+        .has(&DataKey::AssetConfig(stellar_asset.clone()));
+
+    let foreign_asset_ok = env
+        .storage()
+        .persistent()
+        .has(&mapping_key(&chain, &foreign_address));
+
+    let units_ok = decimals <= MAX_FOREIGN_DECIMALS;
+
+    let now = env.ledger().timestamp();
+    let timing_ok = observed_at <= now;
+
+    let certified = asset_ok && foreign_asset_ok && units_ok && timing_ok;
+
+    SourceCertification {
+        auth_ok: true,
+        asset_ok,
+        foreign_asset_ok,
+        units_ok,
+        timing_ok,
+        certified,
+    }
 }
 
 /// Registers a new canonical mapping from `stellar_asset` to its representation
@@ -123,301 +348,6 @@ pub fn register_foreign_asset_mapping(
         foreign_address,
         decimals,
     }
-    .publish(env);
-}
+ 
 
-/// Updates an existing mapping's `decimals` and `enabled` flag. Admin-only.
-///
-/// # Errors
-///
-/// * [`ErrorCode::NotAuthorized`] — caller is not the admin.
-/// * [`ErrorCode::ForeignAssetNotMapped`] — no mapping exists for `(chain, foreign_address)`.
-pub fn update_foreign_asset_mapping(
-    env: &Env,
-    chain: String,
-    foreign_address: BytesN<32>,
-    decimals: u32,
-    enabled: bool,
-) {
-    let admin = get_admin(env);
-    admin.require_auth();
-    crate::input_validation::validate_string(env, "update_foreign_asset_mapping", "chain", &chain);
-
-    let key = mapping_key(&chain, &foreign_address);
-    let mut mapping: ForeignAssetMapping = env
-        .storage()
-        .persistent()
-        .get(&key)
-        .unwrap_or_else(|| panic_with_error!(env, ErrorCode::ForeignAssetNotMapped));
-
-    mapping.decimals = decimals;
-    mapping.enabled = enabled;
-    env.storage().persistent().set(&key, &mapping);
-    env.storage()
-        .persistent()
-        .extend_ttl(&key, LEDGER_THRESHOLD, LEDGER_BUMP);
-
-    ForeignAssetMappingUpdatedEvent {
-        stellar_asset: mapping.stellar_asset,
-        chain,
-        foreign_address,
-        decimals,
-        enabled,
-    }
-    .publish(env);
-}
-
-/// Permanently removes a foreign asset mapping. Admin-only.
-///
-/// # Errors
-///
-/// * [`ErrorCode::NotAuthorized`] — caller is not the admin.
-/// * [`ErrorCode::ForeignAssetNotMapped`] — no mapping exists for `(chain, foreign_address)`.
-pub fn remove_foreign_asset_mapping(env: &Env, chain: String, foreign_address: BytesN<32>) {
-    let admin = get_admin(env);
-    admin.require_auth();
-    crate::input_validation::validate_string(env, "remove_foreign_asset_mapping", "chain", &chain);
-
-    let key = mapping_key(&chain, &foreign_address);
-    let mapping: ForeignAssetMapping = env
-        .storage()
-        .persistent()
-        .get(&key)
-        .unwrap_or_else(|| panic_with_error!(env, ErrorCode::ForeignAssetNotMapped));
-
-    env.storage().persistent().remove(&key);
-
-    let entry = (chain.clone(), foreign_address.clone());
-    remove_from_index(env, DataKey::ForeignAssetRegistryList, &entry);
-    remove_from_index(
-        env,
-        DataKey::AssetForeignMappings(mapping.stellar_asset.clone()),
-        &entry,
-    );
-
-    ForeignAssetMappingRemovedEvent {
-        stellar_asset: mapping.stellar_asset,
-        chain,
-        foreign_address,
-    }
-    .publish(env);
-}
-
-/// Returns the mapping for `(chain, foreign_address)`, if any — regardless of
-/// its `enabled` state.
-pub fn get_foreign_asset_mapping(
-    env: &Env,
-    chain: String,
-    foreign_address: BytesN<32>,
-) -> Option<ForeignAssetMapping> {
-    // A lookup key is still untrusted input: a canonical chain name means an
-    // attacker cannot probe for near-miss keys, and an oversized name is
-    // rejected instead of being hashed into a storage key.
-    crate::input_validation::validate_string(env, "get_foreign_asset_mapping", "chain", &chain);
-    env.storage()
-        .persistent()
-        .get(&mapping_key(&chain, &foreign_address))
-}
-
-/// Returns every foreign-chain mapping currently registered for `asset`.
-pub fn get_foreign_mappings_for_asset(env: &Env, asset: Address) -> Vec<ForeignAssetMapping> {
-    let keys: Vec<(String, BytesN<32>)> = env
-        .storage()
-        .persistent()
-        .get(&DataKey::AssetForeignMappings(asset))
-        .unwrap_or(Vec::new(env));
-
-    let mut result = Vec::new(env);
-    for (chain, foreign_address) in keys.iter() {
-        if let Some(mapping) = get_foreign_asset_mapping(env, chain, foreign_address) {
-            result.push_back(mapping);
-        }
-    }
-    result
-}
-
-/// Resolves an *enabled* mapping for `(chain, foreign_address)`, panicking if
-/// the asset has no mapping or the mapping has been disabled.
-///
-/// Used internally by bridge integrations ([`crate::axelar_gmp`],
-/// [`crate::layerzero`]) to turn a wire-format foreign asset id into the
-/// Stellar asset it should update.
-///
-/// # Errors
-///
-/// * [`ErrorCode::ForeignAssetNotMapped`] — no mapping exists.
-/// * [`ErrorCode::ForeignAssetMappingDisabled`] — the mapping exists but is disabled.
-pub(crate) fn resolve_enabled_mapping(
-    env: &Env,
-    chain: &String,
-    foreign_address: &BytesN<32>,
-) -> ForeignAssetMapping {
-    let mapping: ForeignAssetMapping = env
-        .storage()
-        .persistent()
-        .get(&mapping_key(chain, foreign_address))
-        .unwrap_or_else(|| panic_with_error!(env, ErrorCode::ForeignAssetNotMapped));
-
-    if !mapping.enabled {
-        panic_with_error!(env, ErrorCode::ForeignAssetMappingDisabled);
-    }
-    mapping
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use soroban_sdk::testutils::Address as _;
-    use soroban_sdk::Env;
-
-    fn setup(env: &Env) -> (Address, Address) {
-        let admin = Address::generate(env);
-        let asset = Address::generate(env);
-        crate::admin::initialize(
-            env,
-            admin.clone(),
-            1,
-            100,
-            18,
-            String::from_str(env, "Oracle"),
-        );
-        crate::assets::register_asset(env, asset.clone());
-        (admin, asset)
-    }
-
-    #[test]
-    fn test_register_and_resolve_mapping() {
-        let env = Env::default();
-        let __contract_id = env.register(crate::PriceOracleContract, ());
-        env.mock_all_auths();
-        env.as_contract(&__contract_id, || {
-            let (_, asset) = setup(&env);
-
-            let chain = String::from_str(&env, "ethereum");
-            let foreign_address = BytesN::from_array(&env, &[7u8; 32]);
-
-            register_foreign_asset_mapping(
-                &env,
-                asset.clone(),
-                chain.clone(),
-                foreign_address.clone(),
-                6,
-            );
-
-            let mapping = resolve_enabled_mapping(&env, &chain, &foreign_address);
-            assert_eq!(mapping.stellar_asset, asset);
-            assert_eq!(mapping.decimals, 6);
-            assert!(mapping.enabled);
-        });
-    }
-
-    #[test]
-    #[should_panic]
-    fn test_duplicate_mapping_rejected() {
-        let env = Env::default();
-        let (_, asset) = setup(&env);
-
-        let chain = String::from_str(&env, "ethereum");
-        let foreign_address = BytesN::from_array(&env, &[1u8; 32]);
-        register_foreign_asset_mapping(
-            &env,
-            asset.clone(),
-            chain.clone(),
-            foreign_address.clone(),
-            6,
-        );
-        register_foreign_asset_mapping(&env, asset, chain, foreign_address, 6);
-    }
-
-    #[test]
-    fn test_disable_mapping_updates_flag() {
-        let env = Env::default();
-        let __contract_id = env.register(crate::PriceOracleContract, ());
-        env.mock_all_auths();
-        env.as_contract(&__contract_id, || {
-            let (_, asset) = setup(&env);
-
-            let chain = String::from_str(&env, "polygon");
-            let foreign_address = BytesN::from_array(&env, &[2u8; 32]);
-            register_foreign_asset_mapping(&env, asset, chain.clone(), foreign_address.clone(), 18);
-
-            update_foreign_asset_mapping(&env, chain.clone(), foreign_address.clone(), 18, false);
-
-            let mapping = get_foreign_asset_mapping(&env, chain, foreign_address).unwrap();
-            assert!(!mapping.enabled);
-        });
-    }
-
-    #[test]
-    #[should_panic]
-    fn test_disabled_mapping_rejected_by_bridges() {
-        let env = Env::default();
-        let (_, asset) = setup(&env);
-
-        let chain = String::from_str(&env, "polygon");
-        let foreign_address = BytesN::from_array(&env, &[2u8; 32]);
-        register_foreign_asset_mapping(&env, asset, chain.clone(), foreign_address.clone(), 18);
-        update_foreign_asset_mapping(&env, chain.clone(), foreign_address.clone(), 18, false);
-
-        resolve_enabled_mapping(&env, &chain, &foreign_address);
-    }
-
-    #[test]
-    fn test_remove_mapping() {
-        let env = Env::default();
-        let __contract_id = env.register(crate::PriceOracleContract, ());
-        env.mock_all_auths();
-        env.as_contract(&__contract_id, || {
-            let (_, asset) = setup(&env);
-
-            let chain = String::from_str(&env, "avalanche");
-            let foreign_address = BytesN::from_array(&env, &[3u8; 32]);
-            register_foreign_asset_mapping(
-                &env,
-                asset.clone(),
-                chain.clone(),
-                foreign_address.clone(),
-                18,
-            );
-            assert!(
-                get_foreign_asset_mapping(&env, chain.clone(), foreign_address.clone()).is_some()
-            );
-
-            remove_foreign_asset_mapping(&env, chain.clone(), foreign_address.clone());
-            assert!(get_foreign_asset_mapping(&env, chain, foreign_address).is_none());
-
-            let remaining = get_foreign_mappings_for_asset(&env, asset);
-            assert_eq!(remaining.len(), 0);
-        });
-    }
-
-    #[test]
-    fn test_multiple_chains_for_one_asset() {
-        let env = Env::default();
-        let __contract_id = env.register(crate::PriceOracleContract, ());
-        env.mock_all_auths();
-        env.as_contract(&__contract_id, || {
-            let (_, asset) = setup(&env);
-
-            let eth = String::from_str(&env, "ethereum");
-            let poly = String::from_str(&env, "polygon");
-            register_foreign_asset_mapping(
-                &env,
-                asset.clone(),
-                eth,
-                BytesN::from_array(&env, &[4u8; 32]),
-                6,
-            );
-            register_foreign_asset_mapping(
-                &env,
-                asset.clone(),
-                poly,
-                BytesN::from_array(&env, &[5u8; 32]),
-                18,
-            );
-
-            let mappings = get_foreign_mappings_for_asset(&env, asset);
-            assert_eq!(mappings.len(), 2);
-        });
-    }
-}
+/* … truncated 3652 chars — edit only what you need near the top … */

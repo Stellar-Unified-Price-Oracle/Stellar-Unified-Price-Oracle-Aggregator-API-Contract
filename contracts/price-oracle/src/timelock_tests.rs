@@ -263,3 +263,106 @@ fn can_cancel_before_execution_window() {
     }));
     assert!(result.is_ok());
 }
+
+// ---------------------------------------------------------------------------
+// Operator procedure: review, cancel, expire, and communicate pending actions.
+//
+// The rehearsal below demonstrates the documented operator flow end-to-end:
+//   1. Review  - a pending action is proposed and inspected before execution.
+//   2. Cancel  - an unsafe queued operation is cancelled before its execution
+//                point, and the cancellation is terminal (cannot be executed).
+//   3. Expire  - a pending action that is never executed cannot be executed
+//                before its delay elapses; operators surface this via the
+//                pre-execution check below.
+//   4. Communicate - the rehearsal asserts the observable state transitions
+//                operators rely on when posting notices/escalations.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn rehearsal_cancels_unsafe_operation_before_execution_point() {
+    let e = Env::default();
+    let (client, _admin) = setup_timelock_case(&e);
+
+    // 1. Review: propose a critical (Normal priority) operation and confirm it
+    //    is queued with a non-zero id so operators can reference it in notices.
+    let data_bytes = Bytes::from_slice(&e, &[0u8, 0u8, 0u8, 5u8]);
+    let op_id = client.propose_operation_with_priority(
+        &2u32,
+        &data_bytes,
+        &(OperationPriority::Normal as u32),
+    );
+    assert!(op_id > 0);
+
+    // 2. Cancel: the reviewer flags the queued operation as unsafe and cancels
+    //    it before the execution point. Cancellation must succeed.
+    let cancel = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        client.cancel_operation(&op_id);
+    }));
+    assert!(cancel.is_ok());
+
+    // 3. Expire/terminal state: once cancelled, the operation can no longer be
+    //    executed even after its delay would have elapsed. This is the
+    //    observable signal operators use to confirm the cancellation landed.
+    let execute_after_cancel = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        client.execute_operation(&op_id);
+    }));
+    assert!(execute_after_cancel.is_err());
+
+    // 4. Communicate: a second cancel of the same id is rejected, confirming
+    //    the terminal state is stable and safe to report to stakeholders.
+    let recancel = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        client.cancel_operation(&op_id);
+    }));
+    assert!(recancel.is_err());
+}
+
+#[test]
+fn rehearsal_cancels_unsafe_batch_before_execution_point() {
+    let e = Env::default();
+    let (client, _admin) = setup_timelock_case(&e);
+
+    // Review: queue a batch and capture its id for operator notices.
+    let mut operations = soroban_sdk::Vec::new(&e);
+    let batch_op = crate::types::BatchOperation {
+        op_type: 2u32,
+        data: Bytes::new(&e),
+    };
+    operations.push_back(batch_op);
+    let batch_id = client.propose_batch(&operations);
+
+    // Cancel before the execution point.
+    let cancel = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        client.cancel_batch(&batch_id);
+    }));
+    assert!(cancel.is_ok());
+
+    // Terminal state: a cancelled batch cannot be executed.
+    let execute_after_cancel = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        client.execute_batch(&batch_id);
+    }));
+    assert!(execute_after_cancel.is_err());
+}
+
+#[test]
+fn rehearsal_pending_operation_cannot_execute_before_delay_elapses() {
+    let e = Env::default();
+    let (client, _admin) = setup_timelock_case(&e);
+
+    // Review: queue a LongTerm operation (longest delay window).
+    let data = Bytes::new(&e);
+    let op_id =
+        client.propose_operation_with_priority(&0u32, &data, &(OperationPriority::LongTerm as u32));
+
+    // Expiry boundary: before the delay elapses the operation is not yet
+    // executable. Operators must surface this window in pre-execution notices.
+    let early = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        client.execute_operation(&op_id);
+    }));
+    assert!(early.is_err());
+
+    // The pending operation remains cancellable during the review window.
+    let cancel = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        client.cancel_operation(&op_id);
+    }));
+    assert!(cancel.is_ok());
+}

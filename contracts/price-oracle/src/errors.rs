@@ -95,7 +95,7 @@ pub enum ErrorCode {
     MaxAssetsReached = 28,
     /// A reason string is too long.
     ReasonTooLong = 29,
-    /// Records limit exceeded for price history query.
+    /// A query exceeded its maximum response size.
     RecordsLimitExceeded = 30,
 
     // ── 31–39: Commit-reveal (#187) ──────────────────────────────────────────
@@ -375,6 +375,8 @@ pub enum ErrorCode {
     ConfigMissing = 192,
     /// Outstanding failure reports prevent the relayer bond from being locked.
     RelayerBondLocked = 193,
+    /// A pagination cursor does not identify an item in the current registry.
+    InvalidPageCursor = 194,
     /// The TWAP window holds fewer distinct observations than the floor.
     TwapInsufficientObservations = 165,
 
