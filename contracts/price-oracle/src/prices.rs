@@ -1267,6 +1267,12 @@ pub fn submit_price(
     source.require_auth();
     check_source(env, &source);
     check_registered_asset(env, &asset);
+    
+    // Check if asset is disabled
+    if crate::admin::is_asset_disabled(env, &asset) {
+        panic_with_error!(env, ErrorCode::AssetDisabled);
+    }
+    
     crate::freeze::check_not_frozen(env, &asset);
     check_source_asset(env, &source, &asset);
     enforce_commit_reveal_for_bft(env);
@@ -1377,6 +1383,12 @@ pub fn submit_price_with_volume(
     source.require_auth();
     check_source(env, &source);
     check_registered_asset(env, &asset);
+    
+    // Check if asset is disabled
+    if crate::admin::is_asset_disabled(env, &asset) {
+        panic_with_error!(env, ErrorCode::AssetDisabled);
+    }
+    
     crate::freeze::check_not_frozen(env, &asset);
     check_source_asset(env, &source, &asset);
     enforce_commit_reveal_for_bft(env);
@@ -1629,6 +1641,12 @@ pub fn get_price(env: &Env, asset: Address, max_age: u64) -> Option<AggregatePri
     // ─────────────────────────────────────────────────────────────────────────────
 
     check_registered_asset(env, &asset);
+    
+    // Check if asset is disabled: disabled assets cannot serve current prices
+    if crate::admin::is_asset_disabled(env, &asset) {
+        panic_with_error!(env, ErrorCode::AssetDisabled);
+    }
+    
     let current_ledger = env.ledger().sequence();
     let ledger_time = env.ledger().timestamp();
     let min_sources = crate::policy::effective_policy(env, &asset).min_sources;
@@ -1806,6 +1824,12 @@ pub fn get_price_with_confidence(env: &Env, asset: Address) -> Option<(Aggregate
 
 pub fn get_source_price(env: &Env, asset: Address, source: Address) -> PriceEntry {
     check_registered_asset(env, &asset);
+    
+    // Check if asset is disabled
+    if crate::admin::is_asset_disabled(env, &asset) {
+        panic_with_error!(env, ErrorCode::AssetDisabled);
+    }
+    
     check_source(env, &source);
     let key = DataKey::Submission(asset.clone(), source.clone());
     if let Some(entry) = env.storage().persistent().get::<_, PriceEntry>(&key) {
@@ -1830,6 +1854,12 @@ pub fn get_source_price(env: &Env, asset: Address, source: Address) -> PriceEntr
 
 pub fn get_all_prices(env: &Env, asset: Address) -> Vec<PriceEntry> {
     check_registered_asset(env, &asset);
+    
+    // Check if asset is disabled
+    if crate::admin::is_asset_disabled(env, &asset) {
+        panic_with_error!(env, ErrorCode::AssetDisabled);
+    }
+    
     // Read the sources list once; iterate without extra reads or writes per entry.
     let oracle_sources: OracleSources = read_oracle_sources(env);
     let mut prices: Vec<PriceEntry> = Vec::new(env);

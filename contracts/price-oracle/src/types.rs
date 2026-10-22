@@ -112,6 +112,15 @@ pub enum DataKey {
     MaxAssets,
 
     // -------------------------------------------------------------------------
+    // Asset lifecycle management: Disabled/Delisted states
+    // -------------------------------------------------------------------------
+    /// Whether an asset has been disabled (temporarily offline).
+    /// `true` = disabled, `false` or absent = active.
+    AssetDisabled(Address),
+    /// Ledger sequence number when an asset was disabled (audit trail).
+    AssetDisabledAt(Address),
+
+    // -------------------------------------------------------------------------
     // #301: Automatic asset deregistration on inactivity
     // -------------------------------------------------------------------------
     /// Last ledger sequence number when a price was submitted for this asset.

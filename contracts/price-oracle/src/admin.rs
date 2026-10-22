@@ -822,3 +822,87 @@ pub fn set_compaction_threshold_bps(env: &Env, threshold_bps: u32) {
 pub fn get_compaction_threshold_bps(env: &Env) -> u32 {
     crate::history::get_compaction_threshold_bps(env)
 }
+
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Asset Lifecycle Management: Disable/Enable
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Disables an asset, blocking new price submissions and aggregations.
+/// Historical prices remain queryable.
+///
+/// # Arguments
+/// * `asset` — the asset address to disable
+///
+/// # Errors
+/// * [`ErrorCode::NotAuthorized`] — caller is not the admin.
+/// * [`ErrorCode::AssetNotRegistered`] — asset is not registered.
+pub fn disable_asset(env: &Env, asset: Address) {
+    let admin = get_admin(env);
+    admin.require_auth();
+    crate::storage::check_registered_asset(env, &asset);
+    
+    let key = DataKey::AssetDisabled(asset.clone());
+    env.storage().persistent().set(&key, &true);
+    
+    let disabled_at_key = DataKey::AssetDisabledAt(asset.clone());
+    let current_ledger = env.ledger().sequence();
+    env.storage().persistent().set(&disabled_at_key, &current_ledger);
+    
+    emit_admin_action(env, symbol_short!("dis_ast"), admin, Bytes::new(env));
+}
+
+/// Re-enables a disabled asset, allowing price submissions and aggregations to resume.
+///
+/// # Arguments
+/// * `asset` — the asset address to re-enable
+///
+/// # Errors
+/// * [`ErrorCode::NotAuthorized`] — caller is not the admin.
+/// * [`ErrorCode::AssetNotRegistered`] — asset is not registered.
+pub fn enable_asset(env: &Env, asset: Address) {
+    let admin = get_admin(env);
+    admin.require_auth();
+    crate::storage::check_registered_asset(env, &asset);
+    
+    let key = DataKey::AssetDisabled(asset.clone());
+    env.storage().persistent().remove(&key);
+    
+    emit_admin_action(env, symbol_short!("en_ast"), admin, Bytes::new(env));
+}
+
+/// Queries whether an asset is disabled.
+///
+/// # Arguments
+/// * `asset` — the asset address to check
+///
+/// # Returns
+/// `true` if the asset is disabled, `false` if active or not registered.
+pub fn is_asset_disabled(env: &Env, asset: &Address) -> bool {
+    let key = DataKey::AssetDisabled(asset.clone());
+    let disabled: bool = env.storage().persistent().get(&key).unwrap_or(false);
+    if disabled {
+        env.storage()
+            .persistent()
+            .extend_ttl(&key, LEDGER_THRESHOLD, LEDGER_BUMP);
+    }
+    disabled
+}
+
+/// Queries the ledger when an asset was disabled.
+///
+/// # Arguments
+/// * `asset` — the asset address to check
+///
+/// # Returns
+/// The ledger sequence number when the asset was disabled, or 0 if not disabled.
+pub fn get_asset_disabled_at(env: &Env, asset: &Address) -> u32 {
+    let key = DataKey::AssetDisabledAt(asset.clone());
+    let disabled_at: u32 = env.storage().persistent().get(&key).unwrap_or(0);
+    if disabled_at > 0 {
+        env.storage()
+            .persistent()
+            .extend_ttl(&key, LEDGER_THRESHOLD, LEDGER_BUMP);
+    }
+    disabled_at
+}
