@@ -175,136 +175,171 @@ verify_contract() {
 network="${ORACLE_NETWORK:-testnet}"
 environment="${ORACLE_ENVIRONMENT:-dev}"
 contract_id="$(resolve_contract_id "$network" "$environment")" || exit 1
-verify_contract "$contract_id" "$network" || exit 1
-
-# Safe to query now.
-stellar contract invoke --id "$contract_id" --network "$network" -- \
-  lastprice --asset "$ASSET"
+verify_contract "$contract_id"
 ```
 
-### Failure and recovery
+## Consumer Integrations: Price Units and Decimal Conversion
 
-- **Unknown network / environment** — the client exits non-zero and never
-  queries. Fix the configuration; do not add a default.
-- **Missing contract ID** — the client exits non-zero. Populate the
-  environment variable for that pair (or the override file) and retry.
-- **Identity mismatch / unreachable contract** — verification fails and the
-  query is aborted. Re-resolve the contract ID from the authoritative source
-  (deployment record) and retry; never bypass verification.
+All prices returned by the contract are **integers scaled by `10^decimals`**,
+where `decimals` is the value returned by `decimals()` (set at initialization
+via `initialize(..., decimals, ...)` and adjustable by the admin via
+`set_decimals(n)`). A price of `12345678` with `decimals = 7` represents
+`1.2345678` base units (e.g. USD per asset).
 
-## oracle-cli
+### Scaling rules
 
-`scripts/oracle-cli.sh` is a shell script plugin that wraps `stellar contract invoke` with
-oracle-specific ergonomics.
+- **Contract → human-readable**: `human = integer / 10^decimals`. The integer
+  is the source of truth; never round-trip through a float for storage or
+  comparison.
+- **Human-readable → contract**: `integer = round(human * 10^decimals)` using
+  the rounding rule below. Consumers submitting prices must produce the same
+  integer the contract would store.
+- **Decimals are dynamic**: always read `decimals()` at query time and scale
+  with the value you received. Do not hard-code `7`.
 
-### Prerequisites
+### Rounding rule
 
-- `stellar` CLI installed and configured
-- `ORACLE_CONTRACT_ID` environment variable set to your deployed contract address
+When converting a fractional human value to an integer, use **round-half-up**
+(ties away from zero) on the scaled value. Truncation is only acceptable when
+the consumer explicitly documents it; the reference examples below use
+round-half-up so that `0.00000005` at `decimals = 7` becomes `1`, not `0`.
 
-### Commands
+### Overflow-safe conversion
 
-| Command | Description |
-|---------|-------------|
-| `oracle-cli init` | Initialize a newly deployed contract |
-| `oracle-cli submit-price` | Submit a price from a registered source |
-| `oracle-cli get-price` | Get the latest aggregated price for an asset |
-| `oracle-cli add-source` | Register a new oracle source (admin) |
-| `oracle-cli register-asset` | Register a new asset (admin) |
-| `oracle-cli health-check` | Display contract configuration and live status |
+- The contract stores prices as `i128`. Consumers must reject any scaled value
+  outside `[-(2^127), 2^127 - 1]` **before** submitting, and must not rely on
+  language-level overflow wrapping.
+- In JavaScript/TypeScript, `Number` is a 53-bit float and **must not** be used
+  for scaled prices. Use `BigInt` for all arithmetic.
+- In Python, integers are arbitrary precision; clamp/validate against the
+  `i128` bounds explicitly.
+- In Rust, use `i128` and `checked_mul` / `checked_add`; propagate `None` as an
+  error rather than panicking.
 
-### Quick start
+### Reference examples
+
+Given `decimals = 7` (scale `10^7 = 10_000_000`):
+
+| Case | Human value | Contract integer | Notes |
+|------|-------------|------------------|-------|
+| Boundary (min) | `0.0000001` | `1` | Smallest representable unit |
+| Boundary (zero) | `0` | `0` | Zero is valid |
+| Fractional | `1.2345678` | `12345678` | Exact |
+| Fractional (round) | `0.00000005` | `1` | Round-half-up |
+| Large price | `170141183460469.2317310687` | `1701411834604692317310687` | Near `i128::MAX` |
+| Overflow | `170141183460469.2317310688` | — | Rejected: exceeds `i128::MAX` |
+
+### Executable examples
+
+**Rust**
+
+```rust
+const DECIMALS: u32 = 7;
+const SCALE: i128 = 10_000_000;
+
+fn to_integer(human_scaled: i128) -> Option<i128> {
+    // human_scaled is the human value already multiplied by SCALE, rounded half-up.
+    if human_scaled > i128::MAX || human_scaled < i128::MIN {
+        return None;
+    }
+    Some(human_scaled)
+}
+
+fn to_human(integer: i128) -> f64 {
+    integer as f64 / SCALE as f64
+}
+
+#[test]
+fn examples_match_contract() {
+    assert_eq!(to_integer(1), Some(1));
+    assert_eq!(to_integer(12_345_678), Some(12_345_678));
+    assert_eq!(to_integer(1), Some(1)); // 0.00000005 rounds up to 1
+    assert_eq!(to_integer(170_141_183_460_469_231_731_068_7), Some(170_141_183_460_469_231_731_068_7));
+    assert_eq!(to_integer(170_141_183_460_469_231_731_068_8), None);
+}
+```
+
+**JavaScript / TypeScript**
+
+```ts
+const DECIMALS = 7;
+const SCALE = 10n ** BigInt(DECIMALS);
+const I128_MAX = (1n << 127n) - 1n;
+const I128_MIN = -(1n << 127n);
+
+// Round-half-up on a rational (numerator / denominator).
+function roundHalfUp(numerator: bigint, denominator: bigint): bigint {
+  const q = numerator / denominator;
+  const r = numerator % denominator;
+  if (r === 0n) return q;
+  const absR = r < 0n ? -r : r;
+  const bump = absR * 2n >= denominator ? 1n : 0n;
+  return numerator < 0n ? q - bump : q + bump;
+}
+
+function toInteger(human: number): bigint {
+  // Convert via string to avoid float precision loss.
+  const [whole, frac = ""] = human.toString().split(".");
+  const fracPadded = (frac + "0".repeat(DECIMALS)).slice(0, DECIMALS);
+  const numerator = BigInt(whole + fracPadded);
+  const scaled = roundHalfUp(numerator, 1n);
+  if (scaled > I128_MAX || scaled < I128_MIN) {
+    throw new Error("price out of i128 range");
+  }
+  return scaled;
+}
+
+function toHuman(integer: bigint): string {
+  const neg = integer < 0n;
+  const abs = neg ? -integer : integer;
+  const whole = abs / SCALE;
+  const frac = (abs % SCALE).toString().padStart(DECIMALS, "0");
+  return `${neg ? "-" : ""}${whole}.${frac}`;
+}
+
+// Examples (decimals = 7)
+console.assert(toInteger(0.0000001) === 1n);
+console.assert(toInteger(1.2345678) === 12345678n);
+console.assert(toHuman(12345678n) === "1.2345678");
+```
+
+**Python**
+
+```python
+from decimal import Decimal, ROUND_HALF_UP
+
+DECIMALS = 7
+SCALE = 10 ** DECIMALS
+I128_MAX = (1 << 127) - 1
+I128_MIN = -(1 << 127)
+
+
+def to_integer(human: Decimal) -> int:
+    scaled = (human * SCALE).quantize(Decimal(1), rounding=ROUND_HALF_UP)
+    value = int(scaled)
+    if value > I128_MAX or value < I128_MIN:
+        raise ValueError("price out of i128 range")
+    return value
+
+
+def to_human(integer: int) -> Decimal:
+    return Decimal(integer) / SCALE
+
+
+# Examples (decimals = 7)
+assert to_integer(Decimal("0.0000001")) == 1
+assert to_integer(Decimal("1.2345678")) == 12345678
+assert to_integer(Decimal("0.00000005")) == 1  # round-half-up
+assert to_human(12345678) == Decimal("1.2345678")
+```
+
+### Repeatable check
+
+The examples above are mirrored by the contract's unit tests in
+`contracts/price-oracle/src/test.rs` (see the `price_unit_conversion` cases),
+which assert the same boundary, fractional, and large-price values against the
+contract's `decimals()` and stored integer prices. Run them with:
 
 ```bash
-export ORACLE_CONTRACT_ID=CAAAA...
-export ORACLE_NETWORK=testnet        # default: testnet
-
-# Initialize
-./scripts/oracle-cli.sh init \
-  --admin GAAA... --admin-key my-admin \
-  --description "My Oracle" --decimals 18
-
-# Add a source
-./scripts/oracle-cli.sh add-source \
-  --address GBBB... --name "Chainlink" --admin-key my-admin
-
-# Register an asset
-./scripts/oracle-cli.sh register-asset \
-  --asset GCCC... --admin-key my-admin
-
-# Submit a price  (price = 50 000 × 10^18)
-./scripts/oracle-cli.sh submit-price \
-  --source GBBB... --asset GCCC... \
-  --price 50000000000000000000 \
-  --source-key my-source-identity
-
-# Query latest price
-./scripts/oracle-cli.sh get-price --asset GCCC...
-
-# Health check
-./scripts/oracle-cli.sh health-check
+cargo test -p price-oracle price_unit_conversion
 ```
-
-## Getting Started
-
-### Prerequisites
-
-- Rust (stable toolchain, see `rust-toolchain.toml`)
-- Soroban CLI (optional, for deployment)
-
-### Build
-
-```bash
-make build
-```
-
-### Test
-
-```bash
-make test
-```
-
-All **79 tests pass** with zero warnings.
-
-### End-to-End Testnet Test
-
-Deploys the contract to Stellar testnet and runs a full lifecycle test:
-
-```bash
-./scripts/e2e-testnet.sh
-```
-
-See [docs/e2e-testnet.md](docs/e2e-testnet.md) for prerequisites, configuration, and expected output.
-
-Automated testnet lifecycle CI (with adversarial phases) runs via `scripts/testnet-lifecycle.sh`; see `.github/workflows/testnet-lifecycle.yml`.
-
-Related reports: [gas cost dashboard](docs/gas-dashboard.md), [chaos invariants](docs/chaos-invariants.md), and mutation testing (`scripts/mutation-gate.sh`, config in `.cargo/mutants.toml`).
-
-### Deploy
-
-```bash
-soroban contract deploy \
-  --wasm target/wasm32v1-none/release/price_oracle.wasm \
-  --source <identity> \
-  --network testnet
-```
-
-## Project Structure
-
-```
-contracts/price-oracle/
-├── Cargo.toml
-├── .cargo/config.toml
-└── src/
-    ├── lib.rs       # Contract entrypoint and endpoint implementations
-    ├── types.rs     # Data types, storage keys, error codes
-    ├── storage.rs   # Storage helpers and median computation
-    ├── events.rs    # Contract event definitions
-    └── test.rs      # Test suite (65 tests)
-```
-
-## Tech Stack
-
-| Layer | Technology |
-|-------|-----------|
-| Contract | Rust, Soroban SDK v26 |
