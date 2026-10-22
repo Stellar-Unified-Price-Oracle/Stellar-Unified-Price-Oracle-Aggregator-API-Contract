@@ -294,3 +294,6 @@ See [docs/SLA.md](docs/SLA.md) for price freshness guarantees, uptime commitment
 
 <!-- handsoff-issue-627 -->
 - #627: [Integrations] SEP-40 production consumer compatibility matrix
+
+<!-- handsoff-issue-628 -->
+- #628: [Integrations] Consumer-side price freshness guard example
