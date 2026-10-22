@@ -20,6 +20,7 @@ pub enum DataKey {
     Resolution,
     Decimals,
     Description,
+    SourceEnrollment(Address),
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -54,6 +55,16 @@ pub struct PriceHistoryEntry {
 pub struct OracleSources {
     pub sources: Vec<Address>,
     pub metadata: Map<Address, String>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct SourceEnrollment {
+    pub name: String,
+    pub identity_evidence: String,
+    pub endpoint_ownership_evidence: String,
+    pub operational_contact: String,
+    pub reliability_evidence: String,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]

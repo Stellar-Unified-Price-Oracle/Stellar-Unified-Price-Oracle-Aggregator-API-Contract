@@ -35,6 +35,22 @@ pub struct SourceAddedEvent {
 
 #[contractevent]
 #[derive(Clone)]
+pub struct SourceEnrollmentStartedEvent {
+    #[topic]
+    pub source: Address,
+    #[topic]
+    pub admin: Address,
+}
+
+#[contractevent]
+#[derive(Clone)]
+pub struct SourceEvidenceSubmittedEvent {
+    #[topic]
+    pub source: Address,
+}
+
+#[contractevent]
+#[derive(Clone)]
 pub struct SourceRemovedEvent {
     #[topic]
     pub source: Address,

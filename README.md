@@ -37,10 +37,15 @@ A **decentralized price oracle aggregator** built on Soroban (Stellar smart cont
 
 | Function | Description |
 |----------|-------------|
-| `add_source(address, name)` | Register an oracle source |
+| `add_source(address, name)` | Create a pending source enrollment |
+| `submit_source_evidence(address, identity, endpoint_ownership, operational_contact, reliability)` | Submit required evidence as the source address |
+| `activate_source(address)` | Activate a fully evidenced source (admin only) |
 | `remove_source(address)` | Remove an oracle source |
-| `is_source(address) -> bool` | Check if address is a registered source |
-| `get_oracle_sources() -> OracleSources` | Get all registered sources |
+| `is_source(address) -> bool` | Check if address is an active source |
+| `get_source_enrollment(address) -> Option<SourceEnrollment>` | Review submitted enrollment evidence |
+| `get_oracle_sources() -> OracleSources` | Get all active sources |
+
+Source enrollment requires four non-empty values: identity evidence, endpoint-ownership evidence, an operational contact, and reliability evidence. The source address must authorize evidence submission; the admin then reviews the submitted evidence off-chain and explicitly activates the source. Enrollment evidence and contacts are public on-chain: use public references and non-secret contact details, never credentials or private keys. `remove_source` can remove either a pending enrollment or an active source.
 
 ### Asset Management
 
@@ -89,7 +94,9 @@ A **decentralized price oracle aggregator** built on Soroban (Stellar smart cont
 
 | Event | Trigger | Topics | Data |
 |-------|---------|--------|------|
-| `SourceAddedEvent` | `add_source()` | source, admin | name |
+| `SourceEnrollmentStartedEvent` | `add_source()` | source, admin | — |
+| `SourceEvidenceSubmittedEvent` | `submit_source_evidence()` | source | — |
+| `SourceAddedEvent` | `activate_source()` | source, admin | name |
 | `SourceRemovedEvent` | `remove_source()` | source, admin | — |
 | `AssetRegisteredEvent` | `register_asset()` | asset, admin | — |
 | `AssetUnregisteredEvent` | `unregister_asset()` | asset, admin | — |

@@ -36,6 +36,14 @@ pub fn register_test_source(
 ) -> Address {
     let source = Address::generate(e);
     client.add_source(&source, &String::from_str(e, name));
+    client.submit_source_evidence(
+        &source,
+        &String::from_str(e, "identity-proof"),
+        &String::from_str(e, "endpoint-ownership-proof"),
+        &String::from_str(e, "ops@example.invalid"),
+        &String::from_str(e, "reliability-report"),
+    );
+    client.activate_source(&source);
     source
 }
 

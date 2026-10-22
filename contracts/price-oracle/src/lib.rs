@@ -12,7 +12,7 @@ mod types;
 
 pub use types::{
     AggregatePrice, Asset, DataKey, ErrorCode, OracleSources, PriceData, PriceEntry,
-    PriceHistoryEntry,
+    PriceHistoryEntry, SourceEnrollment,
 };
 
 use soroban_sdk::{contract, contractimpl, Address, Env, String, Symbol, Vec};
@@ -97,6 +97,28 @@ impl PriceOracleContract {
         sources::add_source(&env, source, name);
     }
 
+    pub fn submit_source_evidence(
+        env: Env,
+        source: Address,
+        identity_evidence: String,
+        endpoint_ownership_evidence: String,
+        operational_contact: String,
+        reliability_evidence: String,
+    ) {
+        sources::submit_source_evidence(
+            &env,
+            source,
+            identity_evidence,
+            endpoint_ownership_evidence,
+            operational_contact,
+            reliability_evidence,
+        );
+    }
+
+    pub fn activate_source(env: Env, source: Address) {
+        sources::activate_source(&env, source);
+    }
+
     pub fn remove_source(env: Env, source: Address) {
         sources::remove_source(&env, source);
     }
@@ -107,6 +129,10 @@ impl PriceOracleContract {
 
     pub fn get_oracle_sources(env: Env) -> OracleSources {
         sources::get_oracle_sources(&env)
+    }
+
+    pub fn get_source_enrollment(env: Env, source: Address) -> Option<SourceEnrollment> {
+        sources::get_source_enrollment(&env, source)
     }
 
     // --- Assets ---
