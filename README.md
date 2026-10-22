@@ -198,6 +198,51 @@ soroban contract deploy \
   --network testnet
 ```
 
+## Mainnet Launch Sign-off and Stakeholder Ownership Map
+
+Every required mainnet workstream has a **named accountable owner** and an
+**escalation contact**. No gate may be unowned at launch sign-off. The launch
+record below is the source of truth; the repeatable check
+`scripts/check-launch-ownership.sh` fails if any required workstream is missing
+an owner or escalation contact.
+
+### Ownership map
+
+| Workstream | Accountable owner | Escalation contact |
+|------------|-------------------|--------------------|
+| Contract (build, upgrade, verification) | Contract Lead | Engineering Lead |
+| Source operations (oracle sources, submissions) | Source Operations Lead | Engineering Lead |
+| Consumer integrations (SEP-40 consumers) | Integrations Lead | Engineering Lead |
+| Incident decisions (outage, rollback, comms) | Incident Commander | Engineering Lead |
+
+Replace the role placeholders above with the named individuals for the launch
+record before sign-off. The check validates that each workstream row has both an
+owner and an escalation contact filled in.
+
+### Launch sign-off gates
+
+Each gate must be signed off by its accountable owner before mainnet launch:
+
+- [ ] **Contract** — WASM built, verified against published source (see checklist below), upgrade path tested
+- [ ] **Source operations** — sources registered, submission runbook rehearsed, freshness SLOs met
+- [ ] **Consumer integrations** — SEP-40 consumers validated against `lastprice`/`price`
+- [ ] **Incident decisions** — escalation contacts confirmed, rollback and outage runbook reviewed
+
+### Escalation
+
+Incidents escalate from the workstream owner to the Engineering Lead, then to the
+Incident Commander for cross-workstream decisions. Escalation contacts are listed
+in the ownership map above and must be kept current in the launch record.
+
+### Repeatable check
+
+```bash
+./scripts/check-launch-ownership.sh
+```
+
+Run this in CI and before sign-off; it exits non-zero if any required workstream
+lacks an accountable owner or escalation contact.
+
 ## Mainnet Contract Verification Checklist
 
 Operators and explorers use this checklist to independently verify that the source
@@ -210,90 +255,6 @@ RPC endpoint) — no privileged local state or production credentials.
 For each deployed contract, capture the following in the release notes:
 
 - Contract ID (e.g. `C...`)
-- Network passphrase (`Public Global Stellar Network ; September 2015` for mainnet)
-- Git commit SHA and tag of the published source
-- SHA-256 of the deployed WASM (from step 3)
-
-### 2. Reproduce the build from published source
-
-```bash
-# Check out the exact commit recorded above
-git clone https://github.com/<org>/<repo>.git
-git -C <repo> checkout <commit-sha>
-
-# Confirm the pinned toolchain and locked dependencies
-cat rust-toolchain.toml          # rustc / target versions
-cat Cargo.lock | sha256sum       # record the lockfile hash
-
-# Build deterministically (same flags as CI / release)
-make build
-sha256sum target/wasm32v1-none/release/price_oracle.wasm
-```
-
-Record the toolchain versions (`rustc --version`, `cargo --version`,
-`stellar --version`) alongside the WASM hash. A second operator must obtain the
-**same** WASM hash from the same commit and toolchain; if it differs, stop and
-investigate before trusting the deployment.
-
-### 3. Fetch the on-chain WASM and compare hashes
-
-```bash
-export CONTRACT_ID=C...
-export RPC_URL=https://soroban-rpc.mainnet.stellar.gateway.fm
-
-# Download the WASM currently installed for the contract
-stellar contract fetch \
-  --id "$CONTRACT_ID" \
-  --rpc-url "$RPC_URL" \
-  --out deployed.wasm
-
-sha256sum deployed.wasm
-```
-
-The hash of `deployed.wasm` must equal the hash produced in step 2. This is the
-core verification: published source → reproducible build → identical WASM on chain.
-
-### 4. Verify the installed WASM hash on chain
-
-```bash
-stellar contract invoke \
-  --id "$CONTRACT_ID" \
-  --rpc-url "$RPC_URL" \
-  -- get_admin_address
-```
-
-Confirm the contract responds and that the admin address matches the expected
-operator. Cross-check the WASM hash against the `ContractUpgradedEvent`
-(`new_wasm_hash`) emitted at deploy/upgrade time in a block explorer.
-
-### 5. Publish the verification result
-
-Attach to the release: commit SHA, toolchain versions, `Cargo.lock` hash, the
-reproduced WASM hash, the on-chain WASM hash, and the block/ledger of the
-deployment. A second operator repeats steps 2–4 and confirms the hashes match.
-
-### Repeatable check
-
-The same steps run in CI via `scripts/verify-contract.sh` (see
-`.github/workflows/`), which builds from the tagged commit and compares the
-resulting WASM hash against the deployed contract — no secrets required.
-
-## Project Structure
-
-```
-contracts/price-oracle/
-├── Cargo.toml
-├── .cargo/config.toml
-└── src/
-    ├── lib.rs       # Contract entrypoint and endpoint implementations
-    ├── types.rs     # Data types, storage keys, error codes
-    ├── storage.rs   # Storage helpers and median computation
-    ├── events.rs    # Contract event definitions
-    └── test.rs      # Test suite (65 tests)
-```
-
-## Tech Stack
-
-| Layer | Technology |
-|-------|-----------|
-| Contract | Rust, Soroban SDK v26 |
+- WASM hash
+- Source commit / tag
+- Network (mainnet)

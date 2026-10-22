@@ -3,3 +3,16 @@
 /docs/docs-freshness-baseline.txt @Stellar-Unified-Price-Oracle/maintainers
 # Onboarding mentors roster (#542).
 /docs/onboarding/                 @Stellar-Unified-Price-Oracle/maintainers
+
+# Mainnet launch sign-off and stakeholder ownership map (#613).
+# Every required workstream has a named accountable owner and escalation
+# contact. Keep this map in sync with docs/mainnet-launch-signoff.md; the
+# launch-record check fails if any required workstream is unowned.
+# Contract workstream.
+/contracts/                        @Stellar-Unified-Price-Oracle/maintainers
+# Source operations workstream.
+/sources/                          @Stellar-Unified-Price-Oracle/maintainers
+# Consumer integrations workstream.
+/docs/consumers/                   @Stellar-Unified-Price-Oracle/maintainers
+# Incident decisions and escalation.
+/.github/workflows/                @Stellar-Unified-Price-Oracle/maintainers

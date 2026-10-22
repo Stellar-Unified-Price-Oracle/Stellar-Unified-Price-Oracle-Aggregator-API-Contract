@@ -129,6 +129,34 @@ Steps 1–3 are scriptable and can be run in CI against a release tag to produce
 for comparison. Keep the recorded hashes in the deployment issue so any operator can re-run the
 check later without access to build infrastructure.
 
+## Mainnet Launch Sign-off and Stakeholder Ownership Map
+
+Before mainnet launch, every required workstream must have a **named accountable owner** and a
+**named escalation contact**. No gate may be unowned. The launch record below is the source of
+truth for sign-off; fill in real names (GitHub handles) and keep it current.
+
+### Ownership map
+
+| Workstream | Accountable owner | Escalation contact | Sign-off gate |
+|---|---|---|---|
+| Contract (build, upgrade, verification) | _TBD_ | _TBD_ | WASM hash verified per checklist above |
+| Source operations (feeders, uptime, freshness) | _TBD_ | _TBD_ | Freshness SLOs met in staging |
+| Consumer integrations (SDK, downstream apps) | _TBD_ | _TBD_ | At least one consumer validated on testnet |
+| Incident decisions (rollback, pause, comms) | _TBD_ | _TBD_ | On-call rotation and escalation path published |
+
+### Sign-off rules
+
+- Each workstream owner signs off on their gate before launch; the launch is blocked until all
+  four gates are signed off.
+- The incident-decisions owner is the final escalation point for launch go/no-go.
+- Any change to ownership must be recorded here in the same PR that changes the responsible party.
+- Escalation contacts must be reachable out-of-band (not only via the repository).
+
+### Repeatable check
+
+A launch record is valid only when every workstream row has a non-placeholder owner and
+escalation contact. Reviewers must reject a launch PR where any gate is unowned (`_TBD_`).
+
 ## Contributor Ladder
 
 The contributor ladder is a security control as much as a recognition scheme. Access escalates
@@ -200,4 +228,6 @@ must independently verify the security-judgment evidence.
 
 ## License
 
-By contributing, you agree that your contributions will be licensed under the MIT License.
+By contributing, you agree that your contributions will be
+
+/* … truncated 33 chars — edit only what you need near the top … */
