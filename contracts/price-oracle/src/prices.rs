@@ -1975,7 +1975,7 @@ pub fn prices(env: &Env, asset: Asset, records: u32) -> Option<Vec<PriceData>> {
         return Some(Vec::new(env));
     }
     let max_history = get_max_history_length(env);
-    if records > max_history {
+    if records > max_history || records > crate::history::MAX_PAGE_SIZE {
         panic_with_error!(env, ErrorCode::RecordsLimitExceeded);
     }
     let mut result: Vec<PriceData> = Vec::new(env);

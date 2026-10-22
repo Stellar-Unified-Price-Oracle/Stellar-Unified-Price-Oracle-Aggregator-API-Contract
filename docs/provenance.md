@@ -104,3 +104,9 @@ bounds price history.
 
 `provenance_storage_is_bounded_by_the_history_window` measures this: after 19 rounds with a
 3-entry history window, exactly 3 provenance records remain.
+
+## Related
+
+* [`docs/asset-metadata-provenance.md`](asset-metadata-provenance.md) — asset metadata provenance and change history (#705)
+* [`docs/release-provenance.md`](release-provenance.md) — SLSA build and release provenance (#525)
+

@@ -1,7 +1,8 @@
 name: DR game day
 
-# Weekly disaster-recovery drills (#532). Drills run against throwaway
-# sandboxes only; the workflow holds no production secrets.
+# Weekly disaster-recovery drills (#532) and operator on-call readiness
+# drills (#626). Drills run against throwaway sandboxes only; the workflow
+# holds no production secrets.
 on:
   schedule:
     - cron: "0 6 * * 1"
@@ -40,4 +41,35 @@ jobs:
               --label disaster-recovery --label game-day || gh issue create \
               --title "$(jq -r .title <<<"$i")" --body "$(jq -r .body <<<"$i")"
           done
+          exit 1
+
+  restore-drill:
+    # Restoration evidence drill (#620): restore a production-shaped off-chain
+    # state backup into an isolated sandbox and record completeness checks.
+    # Runs in a throwaway environment with no production credentials.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install pytest
+      - name: Run restoration drill tests
+        run: python -m pytest services/dr_gameday -q -k restore
+      - name: Run restoration drill
+        id: restore
+        run: |
+          python -m services.dr_gameday.restore_drill \
+            --out restore-evidence.json
+        continue-on-error: true
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: restore-evidence-${{ github.run_id }}
+          path: restore-evidence.json
+      - name: Fail when restore is not verified
+        if: steps.restore.outcome == 'failure'
+        run: |
+          echo "Restoration drill did not verify checksums, schema version, and reconciled ledger height."
+          jq -c '.checks[] | select(.ok == false)' restore-evidence.json || true
           exit 1

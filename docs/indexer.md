@@ -47,6 +47,41 @@ Events are keyed by `(ledger, event_index)`. Re-ingesting anything already
 stored is a no-op, so after a crash simply replay from any earlier point — the
 safest choice is always "from the last cursor minus a few ledgers".
 
+## Memory ceiling and backpressure (#697)
+
+`services/indexer/backpressure.py` streams a sustained event feed into the
+indexer through a bounded buffer, so a slow store slows the reader down instead
+of growing memory:
+
+```python
+from services.indexer.backpressure import IngestPump
+
+report = IngestPump(idx, max_buffered_events=1_000, max_buffered_bytes=1 << 20,
+                    batch_size=100).run("events.jsonl")
+```
+
+* **Ceiling.** At most `max_buffered_events` events and `max_buffered_bytes`
+  bytes are buffered, with each event costed at its serialized JSON size. An
+  event larger than the byte cap is admitted only into an empty buffer, so it
+  cannot deadlock the pump.
+* **Backpressure.** When the buffer is full the reader blocks until the store
+  drains a batch. No event is dropped. `report.producer_waits` counts how often
+  the reader was held back, and `report.high_water_events` /
+  `high_water_bytes` show the peak occupancy.
+* **Resume.** If the store fails, the reader is stopped, buffered events are
+  discarded, and the error is re-raised. Running the pump again on the same
+  stream resumes from the cursor ledger. That ledger is replayed, because a
+  batch boundary may have fallen inside it, and re-ingesting stored events is
+  a no-op, so nothing is lost or duplicated.
+* **Stable indices.** Events without an `event_index` are numbered within their
+  ledger before batching. A ledger split across two batches would otherwise
+  reuse indices, and its second half would be skipped as a replay.
+
+`services/indexer/test/test_backpressure.py` replays a sustained stream against
+a slowed store. It checks the event and byte ceilings, flat Python memory as the
+stream grows six-fold, and a store crash mid-stream followed by a resume that
+ends with every event indexed and no gaps.
+
 ## Gap handling
 
 Ledgers must arrive contiguously. If a batch jumps past `cursor + 1`:

@@ -10,7 +10,7 @@
 //! Movement is classified against configurable basis-point thresholds:
 //!
 //! | Severity    | Condition                              | Channel   |
-//! |-------------|-----------------------------------------|-----------|
+//!|-------------|-----------------------------------------|-----------|
 //! | `Info`      | `movement_bps < warning_bps`             | —         |
 //! | `Warning`   | `warning_bps <= movement_bps < critical_bps`   | Dashboard |
 //! | `Critical`  | `critical_bps <= movement_bps < emergency_bps` | Page      |
@@ -25,18 +25,26 @@
 //! but are not routed anywhere; they exist purely so operators can distinguish "no
 //! alert has ever fired" from "the last alert was below the warning line".
 //!
-//! ## Alert deduplication & grouping
+//! ## Price quality status vocabulary
 //!
-//! A storm of equivalent alerts must not page an operator once per occurrence.
-//! Alerts are grouped by the `(incident, asset, source)` triple: the first alert in
-//! a group opens an active incident, and every subsequent equivalent alert is folded
-//! into that incident, incrementing its event count while preserving each individual
-//! occurrence (ledger + movement) for audit. See [`record_alert`], [`get_incident`],
-//! and [`get_incident_occurrence`].
+//! Consumers need a stable, machine-readable view of how trustworthy a price is.
+//! [`PriceQualityStatus`] defines the canonical vocabulary:
+//!
+//! | Status        | Meaning                                                        |
+//!|---------------|----------------------------------------------------------------|
+//! | `Fresh`       | Price is within its freshness window and healthy.              |
+//! | `Degraded`    | Price is usable but flagged (e.g. elevated deviation).          |
+//! | `Stale`       | Price exists but is past its freshness window.                 |
+//! | `Unavailable` | No price is available for the asset.                           |
+//! | `Corrected`   | Price was recently corrected after a dispute/override.         |
+//!
+//! [`get_price_quality_status`] maps the existing freshness/health signals into
+//! this vocabulary. Clients MUST handle every variant explicitly and treat any
+//! unknown future discriminant as `Unavailable` (fail safe).
 
-use soroban_sdk::{panic_with_error, Address, Env, Symbol, Vec};
+use soroban_sdk::{panic_with_error, Address, Env, String};
 
-use crate::events::{SeverityAlertEvent, SeverityThresholdsSetEvent};
+use crate::events::{LagAlertEvent, SeverityAlertEvent, SeverityThresholdsSetEvent};
 use crate::storage::{get_admin, LEDGER_BUMP, LEDGER_THRESHOLD};
 use crate::types::{
     AlertChannel, AlertIncident, AlertOccurrence, AlertSeverity, DataKey, ErrorCode,
@@ -47,6 +55,49 @@ use crate::types::{
 pub const DEFAULT_WARNING_BPS: u32 = 300; // 3%
 pub const DEFAULT_CRITICAL_BPS: u32 = 1_000; // 10%
 pub const DEFAULT_EMERGENCY_BPS: u32 = 2_500; // 25%
+
+// ─── Price quality status vocabulary ───────────────────────────────────────────
+
+/// Stable machine-readable states describing the quality of a price for consumers.
+///
+/// Discriminants are part of the public ABI: do not renumber existing variants.
+/// New variants may be appended; clients must treat unknown values as
+/// [`PriceQualityStatus::Unavailable`].
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[repr(u32)]
+pub enum PriceQualityStatus {
+    /// Price is within its freshness window and healthy.
+    Fresh = 0,
+    /// Price is usable but flagged (e.g. elevated deviation).
+    Degraded = 1,
+    /// Price exists but is past its freshness window.
+    Stale = 2,
+    /// No price is available for the asset.
+    Unavailable = 3,
+    /// Price was recently corrected after a dispute/override.
+    Corrected = 4,
+}
+
+impl PriceQualityStatus {
+    /// Stable numeric discriminant for the status (part of the public ABI).
+    pub fn as_u32(self) -> u32 {
+        self as u32
+    }
+
+    /// Decodes a numeric discriminant into a status.
+    ///
+    /// Unknown future discriminants fail safe to [`PriceQualityStatus::Unavailable`].
+    pub fn from_u32(value: u32) -> PriceQualityStatus {
+        match value {
+            0 => PriceQualityStatus::Fresh,
+            1 => PriceQualityStatus::Degraded,
+            2 => PriceQualityStatus::Stale,
+            3 => PriceQualityStatus::Unavailable,
+            4 => PriceQualityStatus::Corrected,
+            _ => PriceQualityStatus::Unavailable,
+        }
+    }
+}
 
 fn default_thresholds() -> SeverityThresholds {
     SeverityThresholds {
@@ -232,165 +283,45 @@ pub fn get_last_alert_severity(env: &Env, asset: Address) -> Option<AlertSeverit
         .get(&DataKey::LastAlertSeverity(asset))
 }
 
-// ─── Deduplication & grouping ───────────────────────────────────────────────────
+// ─── Price quality status mapping ──────────────────────────────────────────────
 
-/// Records an alert occurrence, grouping it into an active incident keyed by
-/// `(incident, asset, source)`.
+/// Maps the existing freshness/health signals for `asset` into the stable
+/// [`PriceQualityStatus`] vocabulary.
 ///
-/// The first occurrence in a group opens a new active incident with an event
-/// count of `1`. Every subsequent equivalent occurrence is folded into the same
-/// incident: the count is incremented and the individual occurrence is appended
-/// to the incident's audit trail (see [`get_incident_occurrence`]). This means a
-/// storm of equivalent alerts yields exactly one active incident while retaining
-/// an accurate event count and per-occurrence audit records.
+/// The mapping is conservative: any signal that cannot be positively confirmed
+/// as healthy resolves to a lower-trust state, and a missing price resolves to
+/// [`PriceQualityStatus::Unavailable`].
 ///
-/// Returns the incident id (the `incident` symbol) so callers can correlate.
-pub fn record_alert(
-    env: &Env,
-    incident: Symbol,
-    asset: Address,
-    source: Symbol,
-    severity: AlertSeverity,
-    movement_bps: u32,
-) -> Symbol {
-    let key = DataKey::AlertIncident(incident.clone(), asset.clone(), source.clone());
-
-    let mut record = match env.storage().persistent().get::<DataKey, AlertIncident>(&key) {
-        Some(existing) => existing,
-        None => AlertIncident {
-            incident: incident.clone(),
-            asset: asset.clone(),
-            source: source.clone(),
-            severity,
-            event_count: 0,
-            first_ledger: env.ledger().sequence(),
-            last_ledger: env.ledger().sequence(),
-            active: true,
-        },
+/// * No price recorded → `Unavailable`.
+/// * Price flagged as corrected → `Corrected`.
+/// * Price past its freshness window → `Stale`.
+/// * Last alert severity at `Warning` or above → `Degraded`.
+/// * Otherwise → `Fresh`.
+pub fn get_price_quality_status(env: &Env, asset: Address) -> PriceQualityStatus {
+    let price_key = DataKey::Price(asset.clone());
+    let price: Option<crate::types::PriceData> = env.storage().persistent().get(&price_key);
+    let price = match price {
+        Some(p) => p,
+        None => return PriceQualityStatus::Unavailable,
     };
 
-    // Preserve the individual occurrence for audit before folding it in.
-    let occurrence = AlertOccurrence {
-        ledger: env.ledger().sequence(),
-        severity: severity as u32,
-        movement_bps,
-    };
-    let occ_key = DataKey::AlertOccurrence(
-        incident.clone(),
-        asset.clone(),
-        source.clone(),
-        record.event_count,
-    );
-    env.storage().persistent().set(&occ_key, &occurrence);
-    env.storage()
-        .persistent()
-        .extend_ttl(&occ_key, LEDGER_THRESHOLD, LEDGER_BUMP);
-
-    record.event_count = record.event_count.saturating_add(1);
-    record.last_ledger = env.ledger().sequence();
-    // Escalate the incident's severity to the highest seen in the group.
-    if (severity as u32) > (record.severity as u32) {
-        record.severity = severity;
-    }
-
-    env.storage().persistent().set(&key, &record);
-    env.storage()
-        .persistent()
-        .extend_ttl(&key, LEDGER_THRESHOLD, LEDGER_BUMP);
-
-    incident
-}
-
-/// Returns the grouped incident for `(incident, asset, source)`, or `None` if no
-/// alert has ever been recorded for that group.
-pub fn get_incident(
-    env: &Env,
-    incident: Symbol,
-    asset: Address,
-    source: Symbol,
-) -> Option<AlertIncident> {
-    let key = DataKey::AlertIncident(incident, asset, source);
-    let record = env.storage().persistent().get::<DataKey, AlertIncident>(&key);
-    if record.is_some() {
-        env.storage()
-            .persistent()
-            .extend_ttl(&key, LEDGER_THRESHOLD, LEDGER_BUMP);
-    }
-    record
-}
-
-/// Returns the individual occurrence at `index` within a group's audit trail, or
-/// `None` if it was never recorded.
-pub fn get_incident_occurrence(
-    env: &Env,
-    incident: Symbol,
-    asset: Address,
-    source: Symbol,
-    index: u32,
-) -> Option<AlertOccurrence> {
-    let key = DataKey::AlertOccurrence(incident, asset, source, index);
-    env.storage().persistent().get(&key)
-}
-
-/// Returns the number of active incidents for `asset` across all sources.
-///
-/// Used by operators to confirm that a storm of equivalent alerts collapsed into
-/// a single active incident rather than one per occurrence.
-pub fn count_active_incidents(env: &Env, asset: Address) -> u32 {
-    let key = DataKey::ActiveIncidentCount(asset);
-    env.storage().persistent().get(&key).unwrap_or(0)
-}
-
-/// Marks the incident for `(incident, asset, source)` as resolved, decrementing
-/// the active-incident counter for the asset. Idempotent: resolving an already
-/// resolved (or unknown) incident is a no-op.
-pub fn resolve_incident(env: &Env, incident: Symbol, asset: Address, source: Symbol) {
-    let key = DataKey::AlertIncident(incident, asset.clone(), source);
-    if let Some(mut record) = env.storage().persistent().get::<DataKey, AlertIncident>(&key) {
-        if record.active {
-            record.active = false;
-            env.storage().persistent().set(&key, &record);
-            env.storage()
-                .persistent()
-                .extend_ttl(&key, LEDGER_THRESHOLD, LEDGER_BUMP);
-
-            let count_key = DataKey::ActiveIncidentCount(asset);
-            let current: u32 = env.storage().persistent().get(&count_key).unwrap_or(0);
-            env.storage()
-                .persistent()
-                .set(&count_key, &current.saturating_sub(1));
-            env.storage()
-                .persistent()
-                .extend_ttl(&count_key, LEDGER_THRESHOLD, LEDGER_BUMP);
-        }
+    if price.corrected {
+        return PriceQualityStatus::Corrected;
     }
 }
 
-/// Returns the audit trail of occurrences for a group as a `Vec`, in recording
-/// order. Convenience wrapper over [`get_incident_occurrence`].
-pub fn get_incident_occurrences(
-    env: &Env,
-    incident: Symbol,
-    asset: Address,
-    source: Symbol,
-) -> Vec<AlertOccurrence> {
-    let mut out = Vec::new(env);
-    let count = match get_incident(env, incident.clone(), asset.clone(), source.clone()) {
-        Some(record) => record.event_count,
-        None => 0,
-    };
-    let mut i = 0;
-    while i < count {
-        if let Some(occ) = get_incident_occurrence(
-            env,
-            incident.clone(),
-            asset.clone(),
-            source.clone(),
-            i,
-        ) {
-            out.push_back(occ);
-        }
-        i += 1;
+    let now = env.ledger().timestamp();
+    if now > price.timestamp.saturating_add(price.max_age) {
+        return PriceQualityStatus::Stale;
     }
-    out
+
+    match get_last_alert_severity(env, asset) {
+        Some(AlertSeverity::Warning)
+        | Some(AlertSeverity::Critical)
+        | Some(AlertSeverity::Emergency) => PriceQualityStatus::Degraded,
+        _ => PriceQualityStatus::Fresh,
+    }
+}
+
+    (source_severity, consumer_severity)
 }

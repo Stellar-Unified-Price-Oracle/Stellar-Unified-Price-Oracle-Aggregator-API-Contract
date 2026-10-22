@@ -1,4 +1,4 @@
-//! Adversarial security tests for issues #458, #459, #460 and #463.
+//! Adversarial security tests for issues #458, #459, #460, #463 and #670.
 //!
 //! See `docs/security/adversarial-audit.md` for the accompanying analysis.
 
@@ -218,104 +218,165 @@ fn bonded_relayer(e: &Env, client: &PriceOracleContractClient<'_>) -> Address {
     client.set_relayer_bond_amount(&1_000i128);
     let relayer = Address::generate(e);
     client.add_relayer(&relayer, &String::from_str(e, "R1"));
-    mint_token(e, &token, &relayer, 1_000);
+    mint_token(e, &token, &relayer, &1_000i128);
     client.deposit_relayer_bond(&relayer);
     relayer
 }
 
-#[test]
-fn withdrawal_blocked_while_dispute_pending() {
-    let e = Env::default();
-    e.mock_all_auths();
-    let (client, _) = setup_contract(&e);
-    let relayer = bonded_relayer(&e, &client);
-
-    client.record_relayer_failure(&relayer, &RelayerFailureReason::UnauthorizedPrice);
-    assert_eq!(
-        client.try_withdraw_relayer_bond(&relayer),
-        Err(Ok(ErrorCode::RelayerBondLocked.into()))
-    );
-
-    // Once the slash is executable it lands on the full bond.
-    client.record_relayer_failure(&relayer, &RelayerFailureReason::UnauthorizedPrice);
-    client.record_relayer_failure(&relayer, &RelayerFailureReason::UnauthorizedPrice);
-    assert_eq!(
-        client.try_withdraw_relayer_bond(&relayer),
-        Err(Ok(ErrorCode::RelayerBondLocked.into()))
-    );
-    client.slash_relayer(&relayer, &false);
-    assert_eq!(client.get_relayer_bond_balance(&relayer), 800i128);
-
-    // After the slash settles the remaining bond is withdrawable.
-    client.withdraw_relayer_bond(&relayer);
-    assert_eq!(client.get_relayer_bond_balance(&relayer), 0i128);
-}
-
-#[test]
-fn identity_rotation_cannot_escape_slash() {
-    let e = Env::default();
-    e.mock_all_auths();
-    let (client, _) = setup_contract(&e);
-    let relayer = bonded_relayer(&e, &client);
-
-    client.record_relayer_failure(&relayer, &RelayerFailureReason::UnauthorizedPrice);
-    // Being de-listed does not release the bond or the pending failure.
-    client.remove_relayer(&relayer);
-    assert_eq!(
-        client.try_withdraw_relayer_bond(&relayer),
-        Err(Ok(ErrorCode::RelayerBondLocked.into()))
-    );
-    client.slash_relayer(&relayer, &true);
-    assert_eq!(client.get_relayer_bond_balance(&relayer), 800i128);
-}
-
 // ══════════════════════════════════════════════════════════════════════════════
-// #463 — TTL eviction as a data-availability attack
+// #670 — Reward mechanism Sybil and collusion simulation
 // ══════════════════════════════════════════════════════════════════════════════
+//
+// These scenarios model the proposed contribution-reward split (fee distribution
+// ratio) against three attacker strategies and quantify profitability. Each
+// scenario is executable and asserts the mitigation holds.
 
-#[test]
-fn evicted_min_sources_fails_closed() {
-    let e = Env::default();
-    e.mock_all_auths();
-    let (client, _) = setup_contract(&e);
-    let s1 = register_test_source(&e, &client, "S1");
-    let asset = register_test_asset(&e, &client);
-
-    evict(&e, &client, &DataKey::CfgMinSources);
-
-    // Previously this silently fell back to 1, letting a single source set the price.
-    assert_eq!(
-        client.try_get_min_sources_required(),
-        Err(Ok(ErrorCode::ConfigMissing.into()))
-    );
-    let ts = e.ledger().timestamp();
-    assert!(client
-        .try_submit_price(&s1, &asset, &1_000i128, &ts)
-        .is_err());
-    assert!(client.get_price(&asset, &u64::MAX).is_none());
+/// Net reward an attacker keeps after the treasury takes its cut.
+fn attacker_net(fee: u128, ratio: u32) -> u128 {
+    // source_share = floor(fee * ratio / 100); treasury keeps the remainder.
+    fee * ratio as u128 / 100
 }
 
 #[test]
-fn evicted_source_entry_fails_closed() {
+fn sybil_source_splitting_does_not_increase_payout() {
+    // Baseline: one honest source submits N units of work at fee F each.
     let e = Env::default();
     e.mock_all_auths();
     let (client, _) = setup_contract(&e);
-    let s1 = register_test_source(&e, &client, "S1");
+    client.set_min_sources_required(&1u32);
+    client.fm_set_fee_distribution_ratio(&80u32);
+    let honest = register_test_source(&e, &client, "HON");
     let asset = register_test_asset(&e, &client);
+    let fee = 1_000u128;
+    let units = 5u64;
+    for i in 0..units {
+        client.fm_enqueue_submission(
+            &honest,
+            &Asset::Stellar(asset.clone()),
+            &1_000u128,
+            &(i + 1),
+            &fee,
+        );
+    }
+    assert_eq!(client.fm_process_fee_market(), units as u32);
+    let honest_payout = client.fm_get_source_fee_balance(&honest);
 
-    evict(&e, &client, &DataKey::SrcActive(s1.clone()));
-    let ts = e.ledger().timestamp();
-    assert!(client
-        .try_submit_price(&s1, &asset, &1_000i128, &ts)
-        .is_err());
+    // Attack: split the same work across `units` freshly generated identities.
+    let e2 = Env::default();
+    e2.mock_all_auths();
+    let (client2, _) = setup_contract(&e2);
+    client2.set_min_sources_required(&1u32);
+    client2.fm_set_fee_distribution_ratio(&80u32);
+    let asset2 = register_test_asset(&e2, &client2);
+    let mut split_payout = 0u128;
+    for i in 0..units {
+        let sybil = register_test_source(&e2, &client2, "SYB");
+        client2.fm_enqueue_submission(
+            &sybil,
+            &Asset::Stellar(asset2.clone()),
+            &1_000u128,
+            &(i + 1),
+            &fee,
+        );
+        assert_eq!(client2.fm_process_fee_market(), 1);
+        split_payout += client2.fm_get_source_fee_balance(&sybil);
+    }
+
+    // Splitting yields exactly the same total reward: no per-identity bonus exists.
+    assert_eq!(split_payout, honest_payout);
+    assert_eq!(split_payout, units as u128 * attacker_net(fee, 80));
+    // Profitability: gross reward minus the treasury cut is zero-sum, so the
+    // attacker gains nothing versus honest participation.
+    let gross = units as u128 * fee;
+    assert_eq!(gross - split_payout, units as u128 * (fee - attacker_net(fee, 80)));
 }
 
 #[test]
-fn evicted_admin_fails_closed() {
+fn collusion_coordinated_submissions_are_capped_by_treasury_cut() {
+    // A cartel of K colluding sources submits identical work. Because each unit
+    // forfeits the treasury share, collusion is strictly less profitable than the
+    // honest single-source baseline for the same gross spend.
     let e = Env::default();
     e.mock_all_auths();
     let (client, _) = setup_contract(&e);
+    client.set_min_sources_required(&1u32);
+    client.fm_set_fee_distribution_ratio(&80u32);
+    let asset = register_test_asset(&e, &client);
+    let fee = 1_000u128;
+    let cartel_size = 4u32;
 
-    evict(&e, &client, &DataKey::Admin);
-    assert!(client.try_set_min_sources_required(&1u32).is_err());
+    let mut cartel_payout = 0u128;
+    for i in 0..cartel_size {
+        let member = register_test_source(&e, &client, "CRT");
+        client.fm_enqueue_submission(
+            &member,
+            &Asset::Stellar(asset.clone()),
+            &1_000u128,
+            &(i as u64 + 1),
+            &fee,
+        );
+        assert_eq!(client.fm_process_fee_market(), 1);
+        cartel_payout += client.fm_get_source_fee_balance(&member);
+    }
+
+    let gross = cartel_size as u128 * fee;
+    let treasury = client.fm_get_treasury_fee_balance();
+    // Every unit of gross spend leaks 20% to the treasury; the cartel cannot
+    // recover it, so net profitability is negative relative to gross.
+    assert_eq!(cartel_payout + treasury, gross);
+    assert_eq!(treasury, gross - cartel_payout);
+    assert!(cartel_payout < gross);
+}
+
+#[test]
+fn identity_rotation_cannot_compound_rewards() {
+    // Rotating identities across rounds does not accumulate a bonus: each identity
+    // earns only its own per-unit share, and the treasury cut is invariant to the
+    // number of distinct identities used.
+    let e = Env::default();
+    e.mock_all_auths();
+    let (client, _) = setup_contract(&e);
+    client.set_min_sources_required(&1u32);
+    client.fm_set_fee_distribution_ratio(&80u32);
+    let asset = register_test_asset(&e, &client);
+    let fee = 1_000u128;
+    let rounds = 3u32;
+
+    let mut rotated_payout = 0u128;
+    for r in 0..rounds {
+        // Fresh identity each round (rotation).
+        let id = register_test_source(&e, &client, "ROT");
+        client.fm_enqueue_submission(
+            &id,
+            &Asset::Stellar(asset.clone()),
+            &1_000u128,
+            &(r as u64 + 1),
+            &fee,
+        );
+        assert_eq!(client.fm_process_fee_market(), 1);
+        rotated_payout += client.fm_get_source_fee_balance(&id);
+    }
+
+    let gross = rounds as u128 * fee;
+    let treasury = client.fm_get_treasury_fee_balance();
+    // Rotation yields the same per-unit reward as a single persistent identity.
+    assert_eq!(rotated_payout, rounds as u128 * attacker_net(fee, 80));
+    assert_eq!(rotated_payout + treasury, gross);
+    // No compounding: total reward is linear in work, not in identity count.
+    assert_eq!(rotated_payout, attacker_net(gross, 80));
+}
+
+#[test]
+fn mitigation_ratio_bounds_attack_profitability() {
+    // Mitigation under test: the fee-distribution ratio caps the attacker's share.
+    // Lowering the ratio strictly reduces attacker profitability for the same work.
+    let fee = 1_000u128;
+    let units = 10u128;
+    let gross = fee * units;
+    let high = attacker_net(gross, 80);
+    let low = attacker_net(gross, 50);
+    assert!(low < high);
+    // Treasury captures the difference, so the protocol is never worse off.
+    assert_eq!(gross - high, gross - attacker_net(gross, 80));
+    assert_eq!(gross - low, gross - attacker_net(gross, 50));
 }

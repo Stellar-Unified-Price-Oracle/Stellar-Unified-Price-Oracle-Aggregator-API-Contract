@@ -960,6 +960,26 @@ pub enum DataKey {
     /// Admin-set canonical base price for an asset, used by the derivation engine
     /// in preference to the live aggregate when present.
     DerivedFeedBase(Address),
+
+    // -------------------------------------------------------------------------
+    // #712 — Historical query completeness watermark
+    // -------------------------------------------------------------------------
+    /// The [`CompletenessWatermark`] for an asset — the highest ledger through
+    /// which historical data is complete and contiguous.
+    HistoryWatermark(Address),
+
+    // -------------------------------------------------------------------------
+    // #713 — Consumer-visible uncertainty and confidence semantics
+    // -------------------------------------------------------------------------
+    /// The latest [`SpreadIndicator`] for an asset, updated on every aggregation.
+    SpreadIndicator(Address),
+
+    // -------------------------------------------------------------------------
+    // #714 — Data retention and correction trace policy
+    // -------------------------------------------------------------------------
+    /// The global [`DataRetentionPolicy`] specifying retention windows for
+    /// history, audit entries, and correction traces.
+    RetentionPolicy,
 }
 
 /// A price submission from a single oracle source for a specific asset.
@@ -4098,4 +4118,184 @@ pub enum DeadManState {
     /// The heartbeat deadline passed. Submissions are rejected and reads serve
     /// no value, until the recovery path clears the state.
     Degraded = 1,
+}
+
+// -------------------------------------------------------------------------
+// #712 — Historical query completeness watermark
+// -------------------------------------------------------------------------
+
+/// The completeness watermark for an asset's historical price data.
+///
+/// The watermark is the highest ledger sequence number up to and including
+/// which historical data is known to be complete and contiguous. No gaps
+/// exist in the range `[first_ledger, watermark_ledger]`.
+///
+/// A gap in event ingestion (a ledger range with no recorded history entry)
+/// prevents the watermark from advancing past the start of that gap. Consumers
+/// MUST NOT treat ledgers above `watermark_ledger` as queryable without first
+/// checking whether a snapshot exists for those ledgers.
+///
+/// Stored under [`DataKey::HistoryWatermark`] keyed by asset address.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct CompletenessWatermark {
+    /// The asset this watermark belongs to.
+    pub asset: Address,
+    /// The highest ledger (inclusive) through which history is confirmed
+    /// complete. `0` when no history has ever been recorded for this asset.
+    pub watermark_ledger: u32,
+    /// Unix timestamp of the `watermark_ledger` snapshot, or `0` when absent.
+    pub watermark_timestamp: u64,
+    /// The ledger of the oldest retained history entry. Together with
+    /// `watermark_ledger`, this defines the complete range
+    /// `[first_ledger, watermark_ledger]`.
+    pub first_ledger: u32,
+    /// Whether the watermark is fully contiguous (no gaps detected from
+    /// `first_ledger` through `watermark_ledger`). When `false` there is at
+    /// least one gap present within the retained window; `gap_start_ledger`
+    /// holds the first ledger of the lowest detected gap.
+    pub is_contiguous: bool,
+    /// When `is_contiguous` is `false`, the first ledger of the lowest gap
+    /// in the retained history. `0` when `is_contiguous` is `true`.
+    pub gap_start_ledger: u32,
+    /// Total number of distinct ledger snapshots retained for this asset.
+    pub snapshot_count: u32,
+}
+
+// -------------------------------------------------------------------------
+// #713 — Consumer-visible uncertainty and confidence semantics
+// -------------------------------------------------------------------------
+
+/// Spread and confidence indicator for an asset's current aggregate price.
+///
+/// This struct describes the **statistical dispersion** of the contributing
+/// source submissions, NOT a probability. A narrow spread means sources agree;
+/// a wide spread means sources diverge. Neither width implies a specific
+/// probability that the published price is correct.
+///
+/// ## Statistical meaning
+///
+/// The spread is derived from the interquartile range (IQR) of the contributing
+/// prices. For `n` sorted prices `s[0..n]`:
+///
+/// ```text
+/// Q1  = s[floor((n-1)/4)]        (lower quartile)
+/// Q3  = s[ceil(3*(n-1)/4)]       (upper quartile)
+/// IQR = Q3 - Q1
+/// relative_spread_bps = IQR * 10_000 / median   (in basis points)
+/// ```
+///
+/// ## Appropriate use
+///
+/// | `spread_interpretation` | Suggested consumer action |
+/// |---|---|
+/// | `Tight` (< 50 bps) | Use the aggregate directly. |
+/// | `Normal` (50–200 bps) | Use with standard risk margins. |
+/// | `Wide` (200–500 bps) | Widen safety margins; verify with a second source. |
+/// | `VeryWide` (> 500 bps or `low_confidence`) | Treat aggregate as indicative; do not act on it for risk-sensitive operations. |
+///
+/// ## Limits
+///
+/// - This is **dispersion**, not **accuracy**. Sources can agree on a wrong price.
+/// - A `Tight` spread does NOT guarantee the price is correct; it means sources agree.
+/// - With fewer than 3 sources the IQR collapses to a single value; `low_confidence`
+///   is `true` in that case to signal the width is not meaningful.
+/// - Do not interpret `relative_spread_bps` as a percentage probability. It has
+///   no probabilistic interpretation.
+///
+/// Stored under [`DataKey::SpreadIndicator`] keyed by asset address, updated
+/// on every successful aggregation.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct SpreadIndicator {
+    /// The published aggregate (median) price, at the contract's `decimals`.
+    pub price: i128,
+    /// The lower quartile (Q1) of the contributing prices.
+    pub q1: i128,
+    /// The upper quartile (Q3) of the contributing prices.
+    pub q3: i128,
+    /// Interquartile range: `q3 - q1`.
+    pub iqr: i128,
+    /// `iqr * 10_000 / price` — relative spread in basis points. `0` when
+    /// `price == 0`. This is a dispersion metric, NOT a probability.
+    pub relative_spread_bps: u32,
+    /// Human-readable dispersion classification.
+    pub spread_interpretation: SpreadInterpretation,
+    /// Number of sources that contributed to this aggregate.
+    pub num_sources: u32,
+    /// Decimal precision of `price`, `q1`, `q3`, and `iqr`.
+    pub decimals: u32,
+    /// `true` when `num_sources < 3`, meaning the quartiles each represent
+    /// at most one data point and the spread width is not statistically
+    /// meaningful. Treat aggregate as indicative only.
+    pub low_confidence: bool,
+    /// Ledger sequence number when this indicator was last computed.
+    pub ledger: u32,
+    /// Unix timestamp of the most-recent contributing submission.
+    pub timestamp: u64,
+}
+
+/// Human-readable classification of the dispersion observed across sources.
+///
+/// **These are dispersion bands, not probabilities.** See [`SpreadIndicator`]
+/// for interpretation guidance and limits.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[contracttype]
+pub enum SpreadInterpretation {
+    /// All sources agree closely: relative spread < 50 bps (0.5%).
+    Tight = 0,
+    /// Sources show normal disagreement: relative spread 50–200 bps.
+    Normal = 1,
+    /// Significant divergence: spread 200–500 bps. Widen safety margins.
+    Wide = 2,
+    /// Very high divergence or `low_confidence`: spread > 500 bps or
+    /// fewer than 3 sources. Do not rely for risk-sensitive operations.
+    VeryWide = 3,
+}
+
+// -------------------------------------------------------------------------
+// #714 — Data retention and correction trace policy
+// -------------------------------------------------------------------------
+
+/// Explicit retention policy for all categories of oracle data.
+///
+/// This is the single authoritative record of how long each category of data
+/// is kept and the rationale. Operators and auditors can query this policy
+/// on-chain to understand what records are available and when they expire.
+///
+/// ## Retention categories
+///
+/// | Category | Default window | Rationale |
+/// |---|---|---|
+/// | Price history | `history_ledgers` | Query support for time-series consumers |
+/// | Rejected submissions | `audit_ledgers` | Audit trail for source quality and dispute resolution |
+/// | Price corrections | `correction_ledgers` | Mandatory correction trace; survives normal pruning |
+/// | Audit log entries | `audit_ledgers` | Tamper-evident hash-chain for governance review |
+///
+/// ## Invariant: corrections survive pruning
+///
+/// `correction_ledgers >= history_ledgers` is enforced on write. A correction
+/// entry MUST remain available for at least as long as the underlying history
+/// entry it replaced. Tests in `issues_712_713_714_tests` verify this invariant.
+///
+/// Stored under [`DataKey::RetentionPolicy`].
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct DataRetentionPolicy {
+    /// Minimum ledgers price-history snapshots are retained. Must be >= 1.
+    /// Snapshots may be pruned earlier if `max_history_length` is reached first.
+    pub history_ledgers: u32,
+    /// Minimum ledgers audit log entries (including rejected-submission records)
+    /// are retained. Must be >= `history_ledgers` to ensure rejected entries
+    /// remain auditable for at least as long as accepted ones.
+    pub audit_ledgers: u32,
+    /// Minimum ledgers price-correction revision chains are retained.
+    /// Must be >= `history_ledgers` so a correction can always be traced back
+    /// to the history entry it replaced.
+    pub correction_ledgers: u32,
+    /// Ledger sequence when this policy was last set by the admin.
+    pub set_ledger: u32,
+    /// Whether this policy is currently active. When `false` the system falls
+    /// back to the default retention (TTL expiry only, no guaranteed minimum).
+    pub active: bool,
 }

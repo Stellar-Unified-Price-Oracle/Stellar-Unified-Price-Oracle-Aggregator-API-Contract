@@ -173,14 +173,25 @@ pub fn get_historical_prices(
 ) -> Vec<PriceHistoryEntry> {
     check_registered_asset(env, &asset);
     let max_range = get_max_history_length(env);
-    if end_ledger < start_ledger || end_ledger - start_ledger > max_range {
+    if end_ledger < start_ledger {
         panic_with_error!(env, ErrorCode::NoData);
     }
+    let ledger_span = end_ledger - start_ledger;
+    if ledger_span > max_range {
+        panic_with_error!(env, ErrorCode::NoData);
+    }
+    if ledger_span >= MAX_PAGE_SIZE {
+        panic_with_error!(env, ErrorCode::RecordsLimitExceeded);
+    }
+
     let mut entries: Vec<PriceHistoryEntry> = Vec::new(env);
     let mut ledger = start_ledger;
-    while ledger <= end_ledger {
+    loop {
         if let Some(entry) = read_history_entry(env, &asset, ledger) {
             entries.push_back(entry);
+        }
+        if ledger == end_ledger {
+            break;
         }
         ledger += 1;
     }
@@ -229,11 +240,11 @@ pub fn get_historical_prices_paginated(
         if l < cursor {
             continue;
         }
-        if entries.len() >= limit {
-            next_cursor = Some(l);
-            break;
-        }
         if let Some(entry) = read_history_entry(env, &asset, l) {
+            if entries.len() >= limit {
+                next_cursor = Some(l);
+                break;
+            }
             entries.push_back(entry);
         }
     }

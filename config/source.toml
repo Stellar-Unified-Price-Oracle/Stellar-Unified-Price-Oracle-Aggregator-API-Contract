@@ -1,0 +1,36 @@
+# Source submission backpressure protocol (issue #650)
+#
+# Defines how the source client behaves when RPC or contract capacity is
+# constrained. All limits are explicit and bounded so the client cannot grow
+# memory without limit or replay stale submissions.
+
+[source]
+# Maximum number of submissions held in the in-memory queue. When the queue is
+# full, new submissions are rejected (backpressure) rather than buffered, which
+# bounds memory usage.
+queue_max_size = 256
+
+# Maximum number of submissions that may be in flight (sent but not yet
+# confirmed) at any time. Additional submissions wait in the bounded queue.
+max_in_flight = 16
+
+[source.retry]
+# Bounded retry: total attempts per submission (first try + retries).
+max_attempts = 5
+
+# Exponential backoff base delay in milliseconds. Delay for attempt n is
+# base_delay_ms * 2^(n-1), capped at max_delay_ms.
+base_delay_ms = 200
+max_delay_ms = 5000
+
+# Add jitter (0.0-1.0) to backoff delays to avoid thundering herds.
+jitter = 0.2
+
+[source.stale]
+# A submission older than this (milliseconds since enqueue) is considered
+# stale and is dropped instead of being retried or replayed. This prevents
+# replaying stale submissions after a capacity outage.
+max_age_ms = 60000
+
+# Drop stale submissions on recovery instead of replaying them.
+drop_on_recovery = true
