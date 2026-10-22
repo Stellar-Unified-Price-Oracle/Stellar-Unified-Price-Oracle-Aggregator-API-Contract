@@ -297,3 +297,6 @@ See [docs/SLA.md](docs/SLA.md) for price freshness guarantees, uptime commitment
 
 <!-- handsoff-issue-628 -->
 - #628: [Integrations] Consumer-side price freshness guard example
+
+<!-- handsoff-issue-629 -->
+- #629: [Integrations] Consumer migration guide for interface changes
