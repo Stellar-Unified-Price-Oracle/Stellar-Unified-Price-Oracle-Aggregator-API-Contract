@@ -3,13 +3,30 @@ name = "price-oracle"
 version = "0.1.0"
 edition = "2021"
 publish = false
+license = "MIT"
 
 [lib]
-crate-type = ["cdylib"]
+crate-type = ["cdylib", "rlib"]
 doctest = false
 
+[lints.rust]
+# `cfg(kani)` is set by the Kani verifier when discharging the #512 proofs. It is
+# not a Cargo feature, so declare it here to keep `unexpected_cfgs` quiet —
+# otherwise `cargo clippy -- -D warnings` fails on the proof module.
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(kani)'] }
+
+[features]
+# Expose pure core module for fuzzing (disables WASM-only restrictions).
+fuzz = []
+# Enables the host-only helper paths in `gas_metering.rs` that need the
+# soroban-sdk budget API. Test builds get them via `cfg(test)` as well.
+testutils = []
+
 [dependencies]
-soroban-sdk = { version = "26" }
+soroban-sdk = { version = "=26.0.1" }
 
 [dev-dependencies]
-soroban-sdk = { version = "26", features = ["testutils"] }
+soroban-sdk = { version = "=26.0.1", features = ["testutils"] }
+proptest = { version = "=1.11.0", default-features = false, features = ["std"] }
+ed25519-dalek = { version = "=2.2.0", features = ["rand_core"] }
+

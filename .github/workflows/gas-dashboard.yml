@@ -1,0 +1,27 @@
+name: Gas Dashboard
+
+# #417: per-endpoint / per-caller cost attribution and amplification report.
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  dashboard:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.91.0
+      - uses: Swatinem/rust-cache@v2
+      - name: Generate dashboard
+        run: |
+          set -o pipefail
+          cargo test -p price-oracle --lib gas_amplification -- --nocapture --test-threads=1 \
+            | python3 scripts/gas_dashboard.py > gas-dashboard.md
+          cat gas-dashboard.md >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: gas-dashboard
+          path: gas-dashboard.md

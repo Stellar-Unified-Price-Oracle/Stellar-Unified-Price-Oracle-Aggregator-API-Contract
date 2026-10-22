@@ -1,0 +1,12 @@
+{
+  "name": "oracle-quickstart-indexer",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node src/indexer.js",
+    "test": "node --test test/*.test.js"
+  },
+  "dependencies": {
+    "@stellar/stellar-sdk": "13.3.0"
+  }
+}

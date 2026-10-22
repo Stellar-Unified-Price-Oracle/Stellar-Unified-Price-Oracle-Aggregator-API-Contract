@@ -1,0 +1,10 @@
+{
+  "_comment": "Copy this to executor_config.json and fill in your values. Environment variables override all keys.",
+  "oracle_contract_id": "CXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX",
+  "admin_secret_key": "SXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX",
+  "stellar_network": "testnet",
+  "poll_interval_secs": 6,
+  "grace_ledgers": 0,
+  "max_retry_attempts": 5,
+  "alert_webhook_url": null
+}

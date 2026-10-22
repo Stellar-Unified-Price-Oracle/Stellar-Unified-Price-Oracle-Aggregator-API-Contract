@@ -1,0 +1,15 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://stellar-unified-price-oracle/schemas/events/v1/price_submitted.schema.json",
+  "title": "PriceSubmittedEvent",
+  "description": "Emitted when a source submits a new price for an asset.",
+  "type": "object",
+  "properties": {
+    "asset": { "type": "string", "description": "Stellar contract/account address of the asset (topic)." },
+    "source": { "type": "string", "description": "Stellar address of the submitting oracle source (topic)." },
+    "price": { "type": "string", "description": "Raw price value scaled by 10^decimals, encoded as a decimal string (i128)." },
+    "timestamp": { "type": "integer", "minimum": 0, "description": "Unix timestamp (seconds) provided by the source." }
+  },
+  "required": ["asset", "source", "price", "timestamp"],
+  "additionalProperties": false
+}

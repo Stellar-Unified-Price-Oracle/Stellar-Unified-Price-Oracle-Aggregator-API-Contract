@@ -1,0 +1,33 @@
+# Canonical, containerized build environment for the price-oracle contract
+# (#501). Two builds of this image must produce the same WASM digest; the
+# digest is published in build-artifacts/wasm-hashes.txt and in the
+# reproducible-build CI job.
+#
+#   docker build -f docker/Dockerfile.canonical-build -t price-oracle-build .
+#   docker run --rm -v "$PWD":/src -w /src price-oracle-build
+#
+# The toolchain version must stay equal to `channel` in rust-toolchain.toml:
+# the build script refuses to run on any other toolchain.
+FROM rust:1.91.0-bookworm
+
+# The wasm32v1-none target and the exact target the contract links against.
+# `rustup target add` installs precisely the toolchain pinned by the image tag.
+RUN rustup target add wasm32v1-none \
+ && rustup component add rustfmt clippy \
+ && apt-get update \
+ && apt-get install -y --no-install-recommends ca-certificates git \
+ && rm -rf /var/lib/apt/lists/*
+
+# Neutralize everything that could vary between hosts: locale, timezone and
+# build concurrency ordering.
+ENV LC_ALL=C \
+    LANG=C \
+    TZ=UTC \
+    CARGO_INCREMENTAL=0 \
+    CARGO_TERM_COLOR=never \
+    RUST_BACKTRACE=1
+
+WORKDIR /src
+COPY . /src
+RUN chmod +x scripts/reproducible-build.sh
+CMD ["./scripts/reproducible-build.sh"]

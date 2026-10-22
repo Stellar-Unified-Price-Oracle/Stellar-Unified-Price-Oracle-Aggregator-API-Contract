@@ -1,0 +1,272 @@
+{
+  "schema": "oracle.tx_review.cases.v1",
+  "policy": {
+    "environment": "production",
+    "required_reviewers": 2,
+    "max_review_window_secs": 86400,
+    "max_fee_stroops": 10000000
+  },
+  "now": "2026-10-20T09:30:00Z",
+  "cases": [
+    {
+      "name": "reviewed set_admin payload is approved",
+      "payload": "payload_set_admin.json",
+      "approval": "approval_set_admin.json",
+      "expect": "approved"
+    },
+    {
+      "name": "reviewed upgrade payload is approved",
+      "payload": "payload_upgrade.json",
+      "approval": "approval_upgrade.json",
+      "expect": "approved"
+    },
+    {
+      "name": "new admin edited after review",
+      "payload": "payload_set_admin.json",
+      "approval": "approval_set_admin.json",
+      "tamper": {
+        "kind": "payload_arg",
+        "arg": "new_admin",
+        "value": {
+          "type": "address",
+          "value": "GDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDD"
+        }
+      },
+      "expect": "payload_mismatch"
+    },
+    {
+      "name": "sequence edited after review",
+      "payload": "payload_set_admin.json",
+      "approval": "approval_set_admin.json",
+      "tamper": {
+        "kind": "payload_sequence",
+        "value": 123456790
+      },
+      "expect": "payload_mismatch"
+    },
+    {
+      "name": "source account edited after review",
+      "payload": "payload_set_admin.json",
+      "approval": "approval_set_admin.json",
+      "tamper": {
+        "kind": "payload_source",
+        "value": "GEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE"
+      },
+      "expect": "payload_mismatch"
+    },
+    {
+      "name": "fee edited after review",
+      "payload": "payload_set_admin.json",
+      "approval": "approval_set_admin.json",
+      "tamper": {
+        "kind": "payload_fee",
+        "value": 5000
+      },
+      "expect": "payload_mismatch"
+    },
+    {
+      "name": "time bounds edited after review",
+      "payload": "payload_set_admin.json",
+      "approval": "approval_set_admin.json",
+      "tamper": {
+        "kind": "payload_max_time",
+        "value": 1792494000
+      },
+      "expect": "payload_mismatch"
+    },
+    {
+      "name": "second operation appended after review",
+      "payload": "payload_set_admin.json",
+      "approval": "approval_set_admin.json",
+      "tamper": {
+        "kind": "payload_extra_operation",
+        "value": {
+          "contract_id": "CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC",
+          "function": "pause",
+          "args": {}
+        }
+      },
+      "expect": "payload_mismatch"
+    },
+    {
+      "name": "payload swapped for another reviewed payload",
+      "payload": "payload_upgrade.json",
+      "approval": "approval_set_admin.json",
+      "tamper": {
+        "kind": "payload_swap",
+        "fixture": "payload_upgrade.json"
+      },
+      "expect": "payload_mismatch"
+    },
+    {
+      "name": "untyped argument slipped into a reviewed call",
+      "payload": "payload_set_admin.json",
+      "approval": "approval_set_admin.json",
+      "tamper": {
+        "kind": "payload_untyped_arg",
+        "arg": "new_admin",
+        "value": "GDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDD"
+      },
+      "expect": "untyped_argument"
+    },
+    {
+      "name": "function the guard does not model",
+      "payload": "payload_set_admin.json",
+      "approval": "approval_set_admin.json",
+      "tamper": {
+        "kind": "payload_unknown_function",
+        "value": "drain_treasury"
+      },
+      "expect": "unknown_function"
+    },
+    {
+      "name": "payload field outside the reviewed schema",
+      "payload": "payload_set_admin.json",
+      "approval": "approval_set_admin.json",
+      "tamper": {
+        "kind": "payload_extra_field",
+        "field": "memo"
+      },
+      "expect": "unknown_field"
+    },
+    {
+      "name": "digest copied from another payload",
+      "payload": "payload_set_admin.json",
+      "approval": "approval_set_admin.json",
+      "tamper": {
+        "kind": "approval_digest",
+        "value": "cefd8d13106f0e60d11e27d7c9555aca6b99562b5737e42627426bcee0c35cfb"
+      },
+      "expect": "payload_mismatch"
+    },
+    {
+      "name": "rendered summary from another payload",
+      "payload": "payload_set_admin.json",
+      "approval": "approval_set_admin.json",
+      "tamper": {
+        "kind": "approval_summary",
+        "value": "PRIVILEGED TRANSACTION REVIEW\nnetwork: Test SDF Network ; September 2015\nsource account: GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\nfee: 2500 stroops\nsequence: 987654321\nmax time: 1792494000\noperations:\n  1. CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC::upgrade(new_wasm_hash=bytes:ABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABAB)"
+      },
+      "expect": "summary_mismatch"
+    },
+    {
+      "name": "simulation of a different payload",
+      "payload": "payload_set_admin.json",
+      "approval": "approval_set_admin.json",
+      "tamper": {
+        "kind": "approval_simulation_digest",
+        "value": "cefd8d13106f0e60d11e27d7c9555aca6b99562b5737e42627426bcee0c35cfb"
+      },
+      "expect": "simulation_mismatch"
+    },
+    {
+      "name": "simulation on another network",
+      "payload": "payload_set_admin.json",
+      "approval": "approval_set_admin.json",
+      "tamper": {
+        "kind": "approval_simulation_network",
+        "value": "Test SDF Network ; September 2015"
+      },
+      "expect": "simulation_mismatch"
+    },
+    {
+      "name": "simulation did not succeed",
+      "payload": "payload_set_admin.json",
+      "approval": "approval_set_admin.json",
+      "tamper": {
+        "kind": "approval_simulation_failed"
+      },
+      "expect": "simulation_failed"
+    },
+    {
+      "name": "simulation fee above the configured cap",
+      "payload": "payload_set_admin.json",
+      "approval": "approval_set_admin.json",
+      "tamper": {
+        "kind": "approval_fee",
+        "value": 20000000
+      },
+      "expect": "fee_above_cap"
+    },
+    {
+      "name": "single reviewer",
+      "payload": "payload_set_admin.json",
+      "approval": "approval_set_admin.json",
+      "tamper": {
+        "kind": "approval_single_reviewer"
+      },
+      "expect": "insufficient_reviewers"
+    },
+    {
+      "name": "same reviewer listed twice",
+      "payload": "payload_set_admin.json",
+      "approval": "approval_set_admin.json",
+      "tamper": {
+        "kind": "approval_duplicate_reviewer"
+      },
+      "expect": "insufficient_reviewers"
+    },
+    {
+      "name": "requester approves their own transaction",
+      "payload": "payload_set_admin.json",
+      "approval": "approval_set_admin.json",
+      "tamper": {
+        "kind": "approval_self_review"
+      },
+      "expect": "self_review"
+    },
+    {
+      "name": "approval expired before execution",
+      "payload": "payload_set_admin.json",
+      "approval": "approval_set_admin.json",
+      "now": "2026-10-20T11:00:00Z",
+      "expect": "approval_expired"
+    },
+    {
+      "name": "approval dated after the execution attempt",
+      "payload": "payload_set_admin.json",
+      "approval": "approval_set_admin.json",
+      "now": "2026-10-20T08:00:00Z",
+      "expect": "approval_not_yet_valid"
+    },
+    {
+      "name": "review window longer than the policy allows",
+      "payload": "payload_set_admin.json",
+      "approval": "approval_set_admin.json",
+      "tamper": {
+        "kind": "approval_expires_at",
+        "value": "2026-10-22T09:00:00Z"
+      },
+      "expect": "review_window_too_long"
+    },
+    {
+      "name": "approval without its simulation",
+      "payload": "payload_set_admin.json",
+      "approval": "approval_set_admin.json",
+      "tamper": {
+        "kind": "approval_no_simulation"
+      },
+      "expect": "simulation_missing"
+    },
+    {
+      "name": "approval field the guard does not verify",
+      "payload": "payload_set_admin.json",
+      "approval": "approval_set_admin.json",
+      "tamper": {
+        "kind": "approval_unknown_field",
+        "field": "emergency_override"
+      },
+      "expect": "approval_unknown_field"
+    },
+    {
+      "name": "approval with an unsupported schema",
+      "payload": "payload_set_admin.json",
+      "approval": "approval_set_admin.json",
+      "tamper": {
+        "kind": "approval_schema",
+        "value": "oracle.tx_review.approval.v0"
+      },
+      "expect": "unsupported_schema"
+    }
+  ]
+}

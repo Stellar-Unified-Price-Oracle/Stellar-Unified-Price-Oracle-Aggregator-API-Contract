@@ -1,0 +1,130 @@
+{
+  "schema": "oracle.rpc_guard.cases.v1",
+  "policy": {
+    "network_id": "testnet",
+    "passphrase": "Test SDF Network ; September 2015",
+    "min_protocol_version": 22,
+    "max_protocol_version": 27
+  },
+  "baseline": {
+    "network": "network_ok.json",
+    "ledger": "ledger_ok.json"
+  },
+  "transaction_hash": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+  "cases": [
+    {
+      "name": "matching network passphrase is accepted",
+      "step": "network",
+      "fixture": "network_ok.json",
+      "expect": "ok"
+    },
+    {
+      "name": "another network's passphrase is rejected",
+      "step": "network",
+      "fixture": "network_wrong_passphrase.json",
+      "expect": "network_mismatch"
+    },
+    {
+      "name": "unsupported protocol version is rejected",
+      "step": "network",
+      "fixture": "network_unsupported_protocol.json",
+      "expect": "protocol_unsupported"
+    },
+    {
+      "name": "network response without a passphrase is rejected",
+      "step": "network",
+      "fixture": "network_no_passphrase.json",
+      "expect": "malformed_response"
+    },
+    {
+      "name": "JSON-RPC error is rejected, not read as data",
+      "step": "network",
+      "fixture": "rpc_error.json",
+      "expect": "rpc_error"
+    },
+    {
+      "name": "valid ledger header is accepted",
+      "step": "ledger",
+      "fixture": "ledger_ok_next.json",
+      "expect": "ok"
+    },
+    {
+      "name": "ledger hash that is not 64 hex characters is rejected",
+      "step": "ledger",
+      "fixture": "ledger_bad_hash.json",
+      "expect": "ledger_hash"
+    },
+    {
+      "name": "ledger protocol disagreeing with the network is rejected",
+      "step": "ledger",
+      "fixture": "ledger_protocol_mismatch.json",
+      "expect": "protocol_unsupported"
+    },
+    {
+      "name": "ledger close time moving backwards is rejected",
+      "step": "ledger",
+      "fixture": "ledger_time_backwards.json",
+      "expect": "ledger_time"
+    },
+    {
+      "name": "ledger behind the validated head is rejected",
+      "step": "ledger",
+      "fixture": "ledger_regression.json",
+      "expect": "ledger_regression"
+    },
+    {
+      "name": "same height with a different hash is surfaced as a reorg",
+      "step": "ledger",
+      "fixture": "ledger_same_height_fork.json",
+      "expect": "ledger_reorg"
+    },
+    {
+      "name": "successful transaction is accepted",
+      "step": "transaction",
+      "fixture": "tx_ok.json",
+      "expect": "ok"
+    },
+    {
+      "name": "failed transaction is a valid response",
+      "step": "transaction",
+      "fixture": "tx_failed.json",
+      "expect": "ok"
+    },
+    {
+      "name": "NOT_FOUND is a rejection, never a result",
+      "step": "transaction",
+      "fixture": "tx_not_found.json",
+      "expect": "tx_status"
+    },
+    {
+      "name": "transaction hash from another submission is rejected",
+      "step": "transaction",
+      "fixture": "tx_wrong_hash.json",
+      "expect": "tx_hash"
+    },
+    {
+      "name": "transaction beyond the validated head is rejected",
+      "step": "transaction",
+      "fixture": "tx_future_ledger.json",
+      "expect": "tx_ledger"
+    },
+    {
+      "name": "status disagreeing with the result flag is rejected",
+      "step": "transaction",
+      "fixture": "tx_status_mismatch.json",
+      "expect": "tx_status"
+    },
+    {
+      "name": "successful transaction without result meta is rejected",
+      "step": "transaction",
+      "fixture": "tx_missing_meta.json",
+      "expect": "tx_envelope"
+    },
+    {
+      "name": "transaction creation time far from the ledger close is rejected",
+      "step": "transaction",
+      "fixture": "tx_time_skew.json",
+      "expect": "tx_time"
+    }
+  ]
+}

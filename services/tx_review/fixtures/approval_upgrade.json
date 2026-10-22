@@ -1,0 +1,18 @@
+{
+  "schema": "oracle.tx_review.approval.v1",
+  "payload_sha256": "cefd8d13106f0e60d11e27d7c9555aca6b99562b5737e42627426bcee0c35cfb",
+  "rendered_summary": "PRIVILEGED TRANSACTION REVIEW\nnetwork: Test SDF Network ; September 2015\nsource account: GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\nfee: 2500 stroops\nsequence: 987654321\nmax time: 1792494000\noperations:\n  1. CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC::upgrade(new_wasm_hash=bytes:ABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABAB)",
+  "requested_by": "ops-bot",
+  "reviewed_by": [
+    "alice",
+    "bob"
+  ],
+  "reviewed_at": "2026-10-20T09:00:00Z",
+  "expires_at": "2026-10-20T10:00:00Z",
+  "simulation": {
+    "payload_sha256": "cefd8d13106f0e60d11e27d7c9555aca6b99562b5737e42627426bcee0c35cfb",
+    "network": "Test SDF Network ; September 2015",
+    "success": true,
+    "fee_stroops": 1500
+  }
+}

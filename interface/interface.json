@@ -1,0 +1,1634 @@
+{
+  "name": "@stellar-unified-price-oracle/interface",
+  "version": "0.1.0",
+  "contract": "price-oracle",
+  "functions": {
+    "add_reference_oracle": {
+      "params": [
+        "contract_id: Address",
+        "asset_mapping: Map<Address, Address>"
+      ],
+      "returns": "()"
+    },
+    "add_relayer": {
+      "params": [
+        "relayer: Address",
+        "name: String"
+      ],
+      "returns": "()"
+    },
+    "add_source": {
+      "params": [
+        "source: Address",
+        "name: String"
+      ],
+      "returns": "()"
+    },
+    "add_source_asset": {
+      "params": [
+        "source: Address",
+        "asset: Address"
+      ],
+      "returns": "()"
+    },
+    "add_source_with_assets": {
+      "params": [
+        "source: Address",
+        "name: String",
+        "assets: Vec<Address>"
+      ],
+      "returns": "()"
+    },
+    "amm_add_liquidity": {
+      "params": [
+        "caller: Address",
+        "asset: Symbol",
+        "amount_x: i128",
+        "amount_y: i128"
+      ],
+      "returns": "()"
+    },
+    "amm_get_max_deviation_bps": {
+      "params": [],
+      "returns": "u32"
+    },
+    "amm_get_pool": {
+      "params": [
+        "asset: Symbol"
+      ],
+      "returns": "Option<AmmPool>"
+    },
+    "amm_init": {
+      "params": [
+        "asset: Symbol",
+        "asset_x: Address",
+        "asset_y: Address",
+        "initial_x: i128",
+        "initial_y: i128"
+      ],
+      "returns": "()"
+    },
+    "amm_set_max_deviation_bps": {
+      "params": [
+        "bps: u32"
+      ],
+      "returns": "()"
+    },
+    "amm_set_status": {
+      "params": [
+        "asset: Symbol",
+        "enabled: bool"
+      ],
+      "returns": "()"
+    },
+    "amm_swap": {
+      "params": [
+        "caller: Address",
+        "asset: Symbol",
+        "from_asset: Address",
+        "to_asset: Address",
+        "amount_in: i128",
+        "min_return: i128"
+      ],
+      "returns": "i128"
+    },
+    "approve_source": {
+      "params": [
+        "approver: Address",
+        "proposal_id: u32"
+      ],
+      "returns": "()"
+    },
+    "assets": {
+      "params": [],
+      "returns": "Vec<Asset>"
+    },
+    "base": {
+      "params": [],
+      "returns": "Asset"
+    },
+    "cancel_batch": {
+      "params": [
+        "batch_id: u32"
+      ],
+      "returns": "()"
+    },
+    "cancel_emergency_pause": {
+      "params": [],
+      "returns": "()"
+    },
+    "cancel_operation": {
+      "params": [
+        "op_id: u32"
+      ],
+      "returns": "()"
+    },
+    "cancel_source_removal": {
+      "params": [
+        "source: Address"
+      ],
+      "returns": "()"
+    },
+    "challenge_price": {
+      "params": [
+        "asset: Address",
+        "expected_price: i128",
+        "proof_data: Bytes"
+      ],
+      "returns": "()"
+    },
+    "check_and_prune_inactive_sources": {
+      "params": [],
+      "returns": "u32"
+    },
+    "check_reorg": {
+      "params": [
+        "asset: Address",
+        "suspect_ledger: u32"
+      ],
+      "returns": "bool"
+    },
+    "claim_rewards": {
+      "params": [],
+      "returns": "i128"
+    },
+    "clear_aggregation_round": {
+      "params": [],
+      "returns": "()"
+    },
+    "clear_asset_decimals": {
+      "params": [
+        "asset: Address"
+      ],
+      "returns": "()"
+    },
+    "clear_correlation_flag": {
+      "params": [
+        "source: Address",
+        "asset: Address"
+      ],
+      "returns": "()"
+    },
+    "commit_price": {
+      "params": [
+        "source: Address",
+        "asset: Address",
+        "hash: BytesN<32>"
+      ],
+      "returns": "()"
+    },
+    "compute_adaptive_interval": {
+      "params": [
+        "missed: u32"
+      ],
+      "returns": "u64"
+    },
+    "current_round_ledger": {
+      "params": [],
+      "returns": "u32"
+    },
+    "decimals": {
+      "params": [],
+      "returns": "u32"
+    },
+    "delegate_role": {
+      "params": [
+        "delegatee: Address",
+        "role: Role"
+      ],
+      "returns": "()"
+    },
+    "deposit_source_bond": {
+      "params": [
+        "source: Address"
+      ],
+      "returns": "()"
+    },
+    "dispute_proposal": {
+      "params": [
+        "proposal_id: u32"
+      ],
+      "returns": "()"
+    },
+    "emergency_pause": {
+      "params": [
+        "reason: String",
+        "auto_unpause_ledgers: u32"
+      ],
+      "returns": "()"
+    },
+    "execute_batch": {
+      "params": [
+        "batch_id: u32"
+      ],
+      "returns": "()"
+    },
+    "execute_operation": {
+      "params": [
+        "op_id: u32"
+      ],
+      "returns": "()"
+    },
+    "exotic_get_config": {
+      "params": [
+        "asset: Address"
+      ],
+      "returns": "Option<AssetPricingConfig>"
+    },
+    "exotic_get_price": {
+      "params": [
+        "asset: Address"
+      ],
+      "returns": "i128"
+    },
+    "exotic_set_config": {
+      "params": [
+        "asset: Address",
+        "config: AssetPricingConfig"
+      ],
+      "returns": "()"
+    },
+    "extend_emergency_pause": {
+      "params": [
+        "additional_ledgers: u32"
+      ],
+      "returns": "()"
+    },
+    "finalize_source_removal": {
+      "params": [
+        "source: Address"
+      ],
+      "returns": "()"
+    },
+    "fm_enqueue_submission": {
+      "params": [
+        "source: Address",
+        "asset: Asset",
+        "price: u128",
+        "timestamp: u64",
+        "priority_fee: u128"
+      ],
+      "returns": "()"
+    },
+    "fm_get_fee_distribution_ratio": {
+      "params": [],
+      "returns": "u32"
+    },
+    "fm_get_min_priority_fee": {
+      "params": [],
+      "returns": "u128"
+    },
+    "fm_get_pending_submissions": {
+      "params": [],
+      "returns": "u32"
+    },
+    "fm_get_source_fee_balance": {
+      "params": [
+        "source: Address"
+      ],
+      "returns": "u128"
+    },
+    "fm_get_treasury_fee_balance": {
+      "params": [],
+      "returns": "u128"
+    },
+    "fm_process_fee_market": {
+      "params": [],
+      "returns": "u32"
+    },
+    "fm_set_fee_distribution_ratio": {
+      "params": [
+        "ratio: u32"
+      ],
+      "returns": "()"
+    },
+    "fm_set_min_priority_fee": {
+      "params": [
+        "min_fee: u128"
+      ],
+      "returns": "()"
+    },
+    "fm_set_treasury_address": {
+      "params": [
+        "treasury: Address"
+      ],
+      "returns": "()"
+    },
+    "get_address_roles": {
+      "params": [
+        "holder: Address"
+      ],
+      "returns": "Vec<u32>"
+    },
+    "get_admin_address": {
+      "params": [],
+      "returns": "Address"
+    },
+    "get_admin_audit_log": {
+      "params": [
+        "from_id: u32",
+        "limit: u32"
+      ],
+      "returns": "Vec<AuditEntry>"
+    },
+    "get_admin_op_daily_count": {
+      "params": [
+        "op_type: u32"
+      ],
+      "returns": "u32"
+    },
+    "get_admin_op_daily_limit": {
+      "params": [
+        "op_type: u32"
+      ],
+      "returns": "u32"
+    },
+    "get_aggregation_cooldown": {
+      "params": [],
+      "returns": "u32"
+    },
+    "get_aggregation_method": {
+      "params": [],
+      "returns": "u32"
+    },
+    "get_all_prices": {
+      "params": [
+        "asset: Address"
+      ],
+      "returns": "Vec<PriceEntry>"
+    },
+    "get_asset_decimals": {
+      "params": [
+        "asset: Address"
+      ],
+      "returns": "u32"
+    },
+    "get_asset_resolution": {
+      "params": [
+        "asset: Address"
+      ],
+      "returns": "u32"
+    },
+    "get_audit_log_count": {
+      "params": [],
+      "returns": "u32"
+    },
+    "get_audit_log_head": {
+      "params": [],
+      "returns": "Bytes"
+    },
+    "get_bft_aggregation_method": {
+      "params": [],
+      "returns": "u32"
+    },
+    "get_bft_fault_tolerance": {
+      "params": [],
+      "returns": "u32"
+    },
+    "get_challenge_history": {
+      "params": [
+        "asset: Address",
+        "limit: u32"
+      ],
+      "returns": "Vec<Challenge>"
+    },
+    "get_challenger_rewards": {
+      "params": [
+        "challenger: Address"
+      ],
+      "returns": "i128"
+    },
+    "get_commit_window": {
+      "params": [],
+      "returns": "u32"
+    },
+    "get_compliant_sources": {
+      "params": [
+        "asset: Address"
+      ],
+      "returns": "Vec<Address>"
+    },
+    "get_cross_chain_deviation_threshold": {
+      "params": [],
+      "returns": "u32"
+    },
+    "get_cross_ref_deviation_bps": {
+      "params": [],
+      "returns": "u32"
+    },
+    "get_cross_reference": {
+      "params": [
+        "asset: Address"
+      ],
+      "returns": "Option<CrossReferenceResult>"
+    },
+    "get_current_aggregation_round": {
+      "params": [],
+      "returns": "Option<AggregationRound>"
+    },
+    "get_decentralization_report": {
+      "params": [],
+      "returns": "DecentralizationReport"
+    },
+    "get_decimals": {
+      "params": [],
+      "returns": "u32"
+    },
+    "get_demerit_config": {
+      "params": [],
+      "returns": "DemeritConfig"
+    },
+    "get_description": {
+      "params": [],
+      "returns": "String"
+    },
+    "get_emergency_pause": {
+      "params": [],
+      "returns": "Option<EmergencyPause>"
+    },
+    "get_finality_ledgers": {
+      "params": [],
+      "returns": "u32"
+    },
+    "get_finality_status": {
+      "params": [
+        "asset: Address",
+        "committed_ledger: u32"
+      ],
+      "returns": "FinalityStatus"
+    },
+    "get_finalized_price": {
+      "params": [
+        "asset: Address",
+        "min_finality: u32"
+      ],
+      "returns": "FinalizedPrice"
+    },
+    "get_gas_stats": {
+      "params": [],
+      "returns": "(u64, u64, Option<GasRecord>)"
+    },
+    "get_heartbeat_interval": {
+      "params": [],
+      "returns": "u64"
+    },
+    "get_heartbeat_window": {
+      "params": [],
+      "returns": "u32"
+    },
+    "get_historical_price": {
+      "params": [
+        "asset: Address",
+        "ledger: u32"
+      ],
+      "returns": "PriceHistoryEntry"
+    },
+    "get_historical_prices": {
+      "params": [
+        "asset: Address",
+        "start_ledger: u32",
+        "end_ledger: u32"
+      ],
+      "returns": "Vec<PriceHistoryEntry>"
+    },
+    "get_inactive_sources": {
+      "params": [],
+      "returns": "u32"
+    },
+    "get_interpolation_enabled": {
+      "params": [],
+      "returns": "bool"
+    },
+    "get_last_price_ledger": {
+      "params": [
+        "source: Address"
+      ],
+      "returns": "u32"
+    },
+    "get_latest_ledger": {
+      "params": [],
+      "returns": "u32"
+    },
+    "get_max_aggregation_sources": {
+      "params": [],
+      "returns": "u32"
+    },
+    "get_max_assets": {
+      "params": [],
+      "returns": "u32"
+    },
+    "get_max_events_per_call": {
+      "params": [],
+      "returns": "u32"
+    },
+    "get_max_history_length": {
+      "params": [],
+      "returns": "u32"
+    },
+    "get_max_history_per_asset": {
+      "params": [],
+      "returns": "u32"
+    },
+    "get_max_inactive_ledgers": {
+      "params": [],
+      "returns": "u32"
+    },
+    "get_max_price_deviation": {
+      "params": [],
+      "returns": "u32"
+    },
+    "get_max_sources": {
+      "params": [],
+      "returns": "u32"
+    },
+    "get_migration_state": {
+      "params": [],
+      "returns": "Option<MigrationState>"
+    },
+    "get_min_sources_required": {
+      "params": [],
+      "returns": "u32"
+    },
+    "get_min_submission_interval": {
+      "params": [],
+      "returns": "u32"
+    },
+    "get_missed_heartbeats": {
+      "params": [
+        "source: Address"
+      ],
+      "returns": "u32"
+    },
+    "get_oracle_sources": {
+      "params": [],
+      "returns": "OracleSources"
+    },
+    "get_price": {
+      "params": [
+        "asset: Address",
+        "max_age: u64"
+      ],
+      "returns": "Option<AggregatePrice>"
+    },
+    "get_price_bounds": {
+      "params": [
+        "asset: Address"
+      ],
+      "returns": "PriceBounds"
+    },
+    "get_price_override": {
+      "params": [
+        "asset: Address"
+      ],
+      "returns": "Option<PriceOverrideEntry>"
+    },
+    "get_price_with_confidence": {
+      "params": [
+        "asset: Address"
+      ],
+      "returns": "Option<(AggregatePrice, u32)>"
+    },
+    "get_proposal": {
+      "params": [
+        "proposal_id: u32"
+      ],
+      "returns": "Option<OptimisticProposal>"
+    },
+    "get_query_rate_limit": {
+      "params": [],
+      "returns": "u32"
+    },
+    "get_reference_oracles": {
+      "params": [],
+      "returns": "Vec<Address>"
+    },
+    "get_relayer_fee_balance": {
+      "params": [
+        "relayer: Address"
+      ],
+      "returns": "i128"
+    },
+    "get_relayer_fee_per_submission": {
+      "params": [],
+      "returns": "i128"
+    },
+    "get_relayer_info": {
+      "params": [
+        "relayer: Address"
+      ],
+      "returns": "Option<RelayerInfo>"
+    },
+    "get_relayer_submission_count": {
+      "params": [
+        "relayer: Address"
+      ],
+      "returns": "u64"
+    },
+    "get_removal_cooldown": {
+      "params": [],
+      "returns": "u32"
+    },
+    "get_reputation_decay_factor": {
+      "params": [],
+      "returns": "u32"
+    },
+    "get_resolution": {
+      "params": [],
+      "returns": "u32"
+    },
+    "get_reveal_window": {
+      "params": [],
+      "returns": "u32"
+    },
+    "get_role_holders": {
+      "params": [
+        "role: Role"
+      ],
+      "returns": "Vec<Address>"
+    },
+    "get_roles_for_holder": {
+      "params": [
+        "holder: Address"
+      ],
+      "returns": "Vec<Role>"
+    },
+    "get_source_assets": {
+      "params": [
+        "source: Address"
+      ],
+      "returns": "Vec<Address>"
+    },
+    "get_source_bond": {
+      "params": [],
+      "returns": "i128"
+    },
+    "get_source_demerits": {
+      "params": [
+        "source: Address"
+      ],
+      "returns": "SourceDemeritState"
+    },
+    "get_source_deposited_bond": {
+      "params": [
+        "source: Address"
+      ],
+      "returns": "i128"
+    },
+    "get_source_geo": {
+      "params": [
+        "source: Address"
+      ],
+      "returns": "Option<SourceGeoMetadata>"
+    },
+    "get_source_governance": {
+      "params": [],
+      "returns": "Option<SourceGovernance>"
+    },
+    "get_source_health": {
+      "params": [
+        "source: Address"
+      ],
+      "returns": "SourceHealthStatus"
+    },
+    "get_source_last_heartbeat": {
+      "params": [
+        "source: Address"
+      ],
+      "returns": "u64"
+    },
+    "get_source_price": {
+      "params": [
+        "asset: Address",
+        "source: Address"
+      ],
+      "returns": "PriceEntry"
+    },
+    "get_source_proposal": {
+      "params": [
+        "proposal_id: u32"
+      ],
+      "returns": "SourceProposal"
+    },
+    "get_source_reputation": {
+      "params": [
+        "source: Address"
+      ],
+      "returns": "i128"
+    },
+    "get_source_verification": {
+      "params": [
+        "source: Address"
+      ],
+      "returns": "Option<SourceVerification>"
+    },
+    "get_stake_token_contract": {
+      "params": [],
+      "returns": "Option<Address>"
+    },
+    "get_storage_ttl_status": {
+      "params": [],
+      "returns": "Vec<StorageTtlEntry>"
+    },
+    "get_storage_version": {
+      "params": [],
+      "returns": "u32"
+    },
+    "get_subscription_expiry": {
+      "params": [
+        "consumer: Address"
+      ],
+      "returns": "u64"
+    },
+    "get_subscription_plans": {
+      "params": [],
+      "returns": "SubscriptionPlans"
+    },
+    "get_timelock_duration": {
+      "params": [],
+      "returns": "u32"
+    },
+    "get_timestamp_threshold": {
+      "params": [],
+      "returns": "u64"
+    },
+    "get_twap": {
+      "params": [
+        "asset: Address",
+        "window_ledgers: u32",
+        "method: TwapMethod"
+      ],
+      "returns": "Option<PriceData>"
+    },
+    "has_historical_price": {
+      "params": [
+        "asset: Address",
+        "ledger: u32"
+      ],
+      "returns": "bool"
+    },
+    "has_role": {
+      "params": [
+        "caller: Address",
+        "role: Role"
+      ],
+      "returns": "bool"
+    },
+    "health_check": {
+      "params": [],
+      "returns": "HealthReport"
+    },
+    "initialize": {
+      "params": [
+        "admin: Address",
+        "min_sources_required: u32",
+        "max_history_length: u32",
+        "decimals: u32",
+        "description: String"
+      ],
+      "returns": "()"
+    },
+    "is_asset_paused": {
+      "params": [
+        "asset: Address"
+      ],
+      "returns": "bool"
+    },
+    "is_asset_registered": {
+      "params": [
+        "asset: Address"
+      ],
+      "returns": "bool"
+    },
+    "is_circuit_breaker_tripped": {
+      "params": [
+        "asset: Address"
+      ],
+      "returns": "bool"
+    },
+    "is_correlation_flagged": {
+      "params": [
+        "source: Address",
+        "asset: Address"
+      ],
+      "returns": "bool"
+    },
+    "is_cross_chain_verification_enabled": {
+      "params": [],
+      "returns": "bool"
+    },
+    "is_emergency_pause_active": {
+      "params": [],
+      "returns": "bool"
+    },
+    "is_paused": {
+      "params": [],
+      "returns": "bool"
+    },
+    "is_relayer": {
+      "params": [
+        "relayer: Address"
+      ],
+      "returns": "bool"
+    },
+    "is_source": {
+      "params": [
+        "source: Address"
+      ],
+      "returns": "bool"
+    },
+    "is_source_inactive": {
+      "params": [
+        "source: Address"
+      ],
+      "returns": "bool"
+    },
+    "is_source_pending_removal": {
+      "params": [
+        "source: Address"
+      ],
+      "returns": "bool"
+    },
+    "lastprice": {
+      "params": [
+        "asset: Asset"
+      ],
+      "returns": "Option<PriceData>"
+    },
+    "mark_price_pending": {
+      "params": [
+        "asset: Address"
+      ],
+      "returns": "()"
+    },
+    "mark_source_for_removal": {
+      "params": [
+        "source: Address"
+      ],
+      "returns": "()"
+    },
+    "migrate_storage": {
+      "params": [
+        "batch_size: u32"
+      ],
+      "returns": "()"
+    },
+    "ms_approve_operation": {
+      "params": [
+        "governor: Address",
+        "op_id: u32"
+      ],
+      "returns": "()"
+    },
+    "ms_cancel_operation": {
+      "params": [
+        "canceller: Address",
+        "op_id: u32"
+      ],
+      "returns": "()"
+    },
+    "ms_execute_operation": {
+      "params": [
+        "executor: Address",
+        "op_id: u32"
+      ],
+      "returns": "()"
+    },
+    "ms_get_governors": {
+      "params": [],
+      "returns": "Vec<Address>"
+    },
+    "ms_get_operation": {
+      "params": [
+        "op_id: u32"
+      ],
+      "returns": "MultiSigOperation"
+    },
+    "ms_get_queue_head": {
+      "params": [],
+      "returns": "u32"
+    },
+    "ms_get_required_approvals": {
+      "params": [],
+      "returns": "u32"
+    },
+    "ms_propose_operation": {
+      "params": [
+        "proposer: Address",
+        "op_type: u32",
+        "data: Bytes"
+      ],
+      "returns": "u32"
+    },
+    "ms_retract_approval": {
+      "params": [
+        "governor: Address",
+        "op_id: u32"
+      ],
+      "returns": "()"
+    },
+    "ms_set_governors": {
+      "params": [
+        "governors: Vec<Address>",
+        "required: u32"
+      ],
+      "returns": "()"
+    },
+    "override_price": {
+      "params": [
+        "asset: Address",
+        "price: i128",
+        "reason: String",
+        "expiry_ledger: u32"
+      ],
+      "returns": "()"
+    },
+    "pause": {
+      "params": [],
+      "returns": "()"
+    },
+    "pause_asset": {
+      "params": [
+        "asset: Address"
+      ],
+      "returns": "()"
+    },
+    "price": {
+      "params": [
+        "asset: Asset",
+        "timestamp: u64"
+      ],
+      "returns": "Option<PriceData>"
+    },
+    "prices": {
+      "params": [
+        "asset: Asset",
+        "records: u32"
+      ],
+      "returns": "Option<Vec<PriceData>>"
+    },
+    "propose_batch": {
+      "params": [
+        "operations: Vec<BatchOperation>"
+      ],
+      "returns": "u32"
+    },
+    "propose_operation": {
+      "params": [
+        "op_type: u32",
+        "data: Bytes"
+      ],
+      "returns": "u32"
+    },
+    "propose_price": {
+      "params": [
+        "asset: Address",
+        "price: i128",
+        "timestamp: u64",
+        "bond_amount: i128"
+      ],
+      "returns": "u32"
+    },
+    "propose_source": {
+      "params": [
+        "proposer: Address",
+        "source: Address",
+        "name: String"
+      ],
+      "returns": "u32"
+    },
+    "register_asset": {
+      "params": [
+        "asset: Address"
+      ],
+      "returns": "()"
+    },
+    "relay_emit_price_update": {
+      "params": [
+        "asset_symbol: Symbol",
+        "payload: PriceEventPayload"
+      ],
+      "returns": "()"
+    },
+    "relay_get_config": {
+      "params": [],
+      "returns": "Option<CrossChainRelayConfig>"
+    },
+    "relay_set_config": {
+      "params": [
+        "config: CrossChainRelayConfig"
+      ],
+      "returns": "()"
+    },
+    "relay_verify_event_proof": {
+      "params": [
+        "header_hash: BytesN<32>",
+        "proof: Vec<BytesN<32>>",
+        "event_data: PriceEventPayload"
+      ],
+      "returns": "bool"
+    },
+    "relay_verify_header": {
+      "params": [
+        "header: StellarHeader"
+      ],
+      "returns": "bool"
+    },
+    "relay_verify_validator_set": {
+      "params": [
+        "header_hash: BytesN<32>",
+        "validators: Vec<BytesN<32>>",
+        "signatures: Vec<BytesN<64>>"
+      ],
+      "returns": "bool"
+    },
+    "remove_price_override": {
+      "params": [
+        "asset: Address"
+      ],
+      "returns": "()"
+    },
+    "remove_reference_oracle": {
+      "params": [
+        "contract_id: Address"
+      ],
+      "returns": "()"
+    },
+    "remove_relayer": {
+      "params": [
+        "relayer: Address"
+      ],
+      "returns": "()"
+    },
+    "remove_source": {
+      "params": [
+        "source: Address"
+      ],
+      "returns": "()"
+    },
+    "remove_source_asset": {
+      "params": [
+        "source: Address",
+        "asset: Address"
+      ],
+      "returns": "()"
+    },
+    "renew_subscription": {
+      "params": [
+        "consumer: Address"
+      ],
+      "returns": "()"
+    },
+    "reset_source_demerits": {
+      "params": [
+        "source: Address"
+      ],
+      "returns": "()"
+    },
+    "resolution": {
+      "params": [],
+      "returns": "u32"
+    },
+    "resolve_challenge": {
+      "params": [
+        "challenge_id: u32",
+        "is_valid: bool"
+      ],
+      "returns": "()"
+    },
+    "resolve_dispute": {
+      "params": [
+        "proposal_id: u32",
+        "resolution: bool"
+      ],
+      "returns": "()"
+    },
+    "retract_price": {
+      "params": [
+        "asset: Address",
+        "committed_ledger: u32"
+      ],
+      "returns": "()"
+    },
+    "reveal_price": {
+      "params": [
+        "source: Address",
+        "asset: Address",
+        "price: i128",
+        "salt: Bytes",
+        "round_ledger: u32"
+      ],
+      "returns": "()"
+    },
+    "reveal_prices_batch": {
+      "params": [
+        "source: Address",
+        "reveals: Vec<(Address, i128, Bytes, u32)>"
+      ],
+      "returns": "()"
+    },
+    "revoke_role": {
+      "params": [
+        "delegatee: Address",
+        "role: Role"
+      ],
+      "returns": "()"
+    },
+    "rotate_source_key": {
+      "params": [
+        "source: Address",
+        "new_address: Address"
+      ],
+      "returns": "()"
+    },
+    "sc_close_channel": {
+      "params": [
+        "source: Address"
+      ],
+      "returns": "()"
+    },
+    "sc_dispute_channel": {
+      "params": [
+        "source: Address",
+        "last_known_batch: Vec<BatchItem>",
+        "signature: BytesN<64>",
+        "source_pubkey: BytesN<32>"
+      ],
+      "returns": "()"
+    },
+    "sc_get_channel": {
+      "params": [
+        "source: Address"
+      ],
+      "returns": "Option<StateChannel>"
+    },
+    "sc_open_channel": {
+      "params": [
+        "source: Address",
+        "deposit: i128",
+        "token_contract: Address"
+      ],
+      "returns": "()"
+    },
+    "sc_submit_batch": {
+      "params": [
+        "source: Address",
+        "batch: Vec<BatchItem>",
+        "signature: BytesN<64>",
+        "source_pubkey: BytesN<32>"
+      ],
+      "returns": "()"
+    },
+    "set_admin": {
+      "params": [
+        "new_admin: Address"
+      ],
+      "returns": "()"
+    },
+    "set_admin_op_daily_limit": {
+      "params": [
+        "op_type: u32",
+        "daily_limit: u32"
+      ],
+      "returns": "()"
+    },
+    "set_aggregation_cooldown": {
+      "params": [
+        "cooldown_ledgers: u32"
+      ],
+      "returns": "()"
+    },
+    "set_aggregation_method": {
+      "params": [
+        "method: u32"
+      ],
+      "returns": "()"
+    },
+    "set_asset_decimals": {
+      "params": [
+        "asset: Address",
+        "decimals: u32"
+      ],
+      "returns": "()"
+    },
+    "set_asset_resolution": {
+      "params": [
+        "asset: Address",
+        "resolution: u32"
+      ],
+      "returns": "()"
+    },
+    "set_bft_parameters": {
+      "params": [
+        "fault_tolerance: u32",
+        "method: u32"
+      ],
+      "returns": "()"
+    },
+    "set_commit_window": {
+      "params": [
+        "ledgers: u32"
+      ],
+      "returns": "()"
+    },
+    "set_correlation_pair": {
+      "params": [
+        "base_asset: Address",
+        "quote_asset: Address",
+        "min_ratio: u128",
+        "max_ratio: u128",
+        "enabled: bool"
+      ],
+      "returns": "()"
+    },
+    "set_cross_chain_deviation_threshold": {
+      "params": [
+        "threshold_bps: u32"
+      ],
+      "returns": "()"
+    },
+    "set_cross_chain_verification_enabled": {
+      "params": [
+        "enabled: bool"
+      ],
+      "returns": "()"
+    },
+    "set_cross_ref_deviation_bps": {
+      "params": [
+        "threshold_bps: u32"
+      ],
+      "returns": "()"
+    },
+    "set_decimals": {
+      "params": [
+        "new_decimals: u32"
+      ],
+      "returns": "()"
+    },
+    "set_demerit_config": {
+      "params": [
+        "config: DemeritConfig"
+      ],
+      "returns": "()"
+    },
+    "set_description": {
+      "params": [
+        "new_description: String"
+      ],
+      "returns": "()"
+    },
+    "set_finality_ledgers": {
+      "params": [
+        "ledgers: u32"
+      ],
+      "returns": "()"
+    },
+    "set_heartbeat_interval": {
+      "params": [
+        "interval: u64"
+      ],
+      "returns": "()"
+    },
+    "set_heartbeat_window": {
+      "params": [
+        "window: u32"
+      ],
+      "returns": "()"
+    },
+    "set_interpolation_enabled": {
+      "params": [
+        "enabled: bool"
+      ],
+      "returns": "()"
+    },
+    "set_max_aggregation_sources": {
+      "params": [
+        "new_max: u32"
+      ],
+      "returns": "()"
+    },
+    "set_max_assets": {
+      "params": [
+        "count: u32"
+      ],
+      "returns": "()"
+    },
+    "set_max_events_per_call": {
+      "params": [
+        "new_max: u32"
+      ],
+      "returns": "()"
+    },
+    "set_max_history_length": {
+      "params": [
+        "new_max: u32"
+      ],
+      "returns": "()"
+    },
+    "set_max_history_per_asset": {
+      "params": [
+        "new_max: u32"
+      ],
+      "returns": "()"
+    },
+    "set_max_inactive_ledgers": {
+      "params": [
+        "ledgers: u32"
+      ],
+      "returns": "()"
+    },
+    "set_max_price_deviation": {
+      "params": [
+        "deviation_basis_points: u32"
+      ],
+      "returns": "()"
+    },
+    "set_max_sources": {
+      "params": [
+        "new_max: u32"
+      ],
+      "returns": "()"
+    },
+    "set_min_sources_required": {
+      "params": [
+        "new_min: u32"
+      ],
+      "returns": "()"
+    },
+    "set_min_submission_interval": {
+      "params": [
+        "interval_ledgers: u32"
+      ],
+      "returns": "()"
+    },
+    "set_price_bounds": {
+      "params": [
+        "asset: Address",
+        "min_price: i128",
+        "max_price: i128",
+        "max_change_bps_per_ledger: u32"
+      ],
+      "returns": "()"
+    },
+    "set_query_rate_limit": {
+      "params": [
+        "max_per_ledger: u32"
+      ],
+      "returns": "()"
+    },
+    "set_relayer_fee_per_submission": {
+      "params": [
+        "fee: i128"
+      ],
+      "returns": "()"
+    },
+    "set_removal_cooldown": {
+      "params": [
+        "ledgers: u32"
+      ],
+      "returns": "()"
+    },
+    "set_reputation_decay_factor": {
+      "params": [
+        "factor: u32"
+      ],
+      "returns": "()"
+    },
+    "set_resolution": {
+      "params": [
+        "new_resolution: u32"
+      ],
+      "returns": "()"
+    },
+    "set_reveal_window": {
+      "params": [
+        "ledgers: u32"
+      ],
+      "returns": "()"
+    },
+    "set_source_bond": {
+      "params": [
+        "amount: i128"
+      ],
+      "returns": "()"
+    },
+    "set_source_geo": {
+      "params": [
+        "source: Address",
+        "metadata: SourceGeoMetadata"
+      ],
+      "returns": "()"
+    },
+    "set_source_governance": {
+      "params": [
+        "approvers: Vec<Address>",
+        "threshold: u32"
+      ],
+      "returns": "()"
+    },
+    "set_source_verification": {
+      "params": [
+        "source: Address",
+        "verified: bool",
+        "verification_method: String",
+        "verifier: Address"
+      ],
+      "returns": "()"
+    },
+    "set_stake_token_contract": {
+      "params": [
+        "token: Address"
+      ],
+      "returns": "()"
+    },
+    "set_subscription_price": {
+      "params": [
+        "duration: u32",
+        "amount: i128"
+      ],
+      "returns": "()"
+    },
+    "set_timelock_duration": {
+      "params": [
+        "duration: u32"
+      ],
+      "returns": "()"
+    },
+    "set_timestamp_threshold": {
+      "params": [
+        "threshold: u64"
+      ],
+      "returns": "()"
+    },
+    "simulate_aggregation": {
+      "params": [
+        "asset: Address",
+        "hypothetical_prices: Vec<(Address, i128)>"
+      ],
+      "returns": "Option<i128>"
+    },
+    "start_aggregation_round": {
+      "params": [
+        "start_ledger: u32",
+        "end_ledger: u32"
+      ],
+      "returns": "()"
+    },
+    "submit_cross_chain_price": {
+      "params": [
+        "asset: Address",
+        "oracle_chain: Address",
+        "price: i128",
+        "decimals: u32",
+        "chain_id: String",
+        "timestamp: u64"
+      ],
+      "returns": "()"
+    },
+    "submit_heartbeat": {
+      "params": [
+        "source: Address"
+      ],
+      "returns": "()"
+    },
+    "submit_price": {
+      "params": [
+        "source: Address",
+        "asset: Address",
+        "price: i128",
+        "timestamp: u64"
+      ],
+      "returns": "()"
+    },
+    "submit_price_merkle": {
+      "params": [
+        "source: Address",
+        "root: BytesN<32>",
+        "proofs: Vec<prices::MerkleProof>"
+      ],
+      "returns": "()"
+    },
+    "submit_price_relayed": {
+      "params": [
+        "relayer: Address",
+        "source: Address",
+        "asset: Address",
+        "price: i128",
+        "timestamp: u64"
+      ],
+      "returns": "()"
+    },
+    "submit_price_with_volume": {
+      "params": [
+        "source: Address",
+        "asset: Address",
+        "price: i128",
+        "timestamp: u64",
+        "volume: Option<i128>"
+      ],
+      "returns": "()"
+    },
+    "submit_prices": {
+      "params": [
+        "source: Address",
+        "asset_prices: Vec<(Address, i128, u64)>"
+      ],
+      "returns": "()"
+    },
+    "subscribe": {
+      "params": [
+        "consumer: Address",
+        "duration: u32"
+      ],
+      "returns": "()"
+    },
+    "trigger_aggregation": {
+      "params": [
+        "asset: Address"
+      ],
+      "returns": "()"
+    },
+    "try_finalize_price": {
+      "params": [
+        "asset: Address",
+        "committed_ledger: u32"
+      ],
+      "returns": "bool"
+    },
+    "unpause": {
+      "params": [],
+      "returns": "()"
+    },
+    "unpause_asset": {
+      "params": [
+        "asset: Address"
+      ],
+      "returns": "()"
+    },
+    "unregister_asset": {
+      "params": [
+        "asset: Address"
+      ],
+      "returns": "()"
+    },
+    "upgrade": {
+      "params": [
+        "new_wasm_hash: BytesN<32>"
+      ],
+      "returns": "()"
+    },
+    "vdf_get_current_seed": {
+      "params": [],
+      "returns": "BytesN<32>"
+    },
+    "vdf_get_sampling_size": {
+      "params": [],
+      "returns": "u32"
+    },
+    "vdf_sample_sources": {
+      "params": [
+        "proof: Bytes",
+        "output: BytesN<32>",
+        "iterations: u64"
+      ],
+      "returns": "Vec<Address>"
+    },
+    "vdf_set_sampling_size": {
+      "params": [
+        "n: u32"
+      ],
+      "returns": "()"
+    },
+    "vdf_verify_proof": {
+      "params": [
+        "seed: BytesN<32>",
+        "proof: Bytes",
+        "iterations: u64",
+        "output: BytesN<32>"
+      ],
+      "returns": "bool"
+    },
+    "verify_audit_chain": {
+      "params": [],
+      "returns": "bool"
+    },
+    "zk_get_verification_key": {
+      "params": [],
+      "returns": "Option<Groth16VerifyingKey>"
+    },
+    "zk_set_verification_key": {
+      "params": [
+        "vk: Groth16VerifyingKey"
+      ],
+      "returns": "()"
+    },
+    "zk_submit_price": {
+      "params": [
+        "source: Address",
+        "asset: Address",
+        "proof: Groth16Proof",
+        "public_signals: Vec<BytesN<32>>"
+      ],
+      "returns": "()"
+    }
+  }
+}

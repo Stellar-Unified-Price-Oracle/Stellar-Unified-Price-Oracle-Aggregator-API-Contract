@@ -1,0 +1,13 @@
+{
+  "private": true,
+  "scripts": {
+    "build:contract": "cargo build -p price-oracle --target wasm32v1-none --release",
+    "test:contract": "cargo test -p price-oracle --lib",
+    "lint:contract": "cargo clippy -p price-oracle -- -D warnings && cargo fmt --manifest-path contracts/price-oracle/Cargo.toml -- --check",
+    "prepush": "npm run build:contract && npm run test:contract",
+    "prepare": "husky"
+  },
+  "devDependencies": {
+    "husky": "^9.1.0"
+  }
+}

@@ -1,0 +1,6 @@
+# Off-chain anomaly-detection service dependencies
+requests==2.32.3
+
+# Optional extras (the service runs fully without these):
+#   pip install scikit-learn==1.5.2   — enables the isolation-forest secondary detector
+#   pip install psycopg2-binary==2.9.9 — enables streaming from the oracle_events Postgres table

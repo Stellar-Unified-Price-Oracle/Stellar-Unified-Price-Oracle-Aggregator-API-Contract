@@ -1,0 +1,48 @@
+[oracle]
+contract_id = "CXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX"
+network     = "testnet"
+rpc_url     = "https://soroban-testnet.stellar.org"
+decimals    = 14  # must match the oracle's configured decimals
+
+[source]
+# Stellar address of the oracle source this adapter signs on behalf of.
+# Must already be registered via add_source, and have called
+# register_submission_key with this seed's public key (see
+# `--register-key`, or docs/signed-price-adapters.md).
+address           = "GSOURCE..."
+# CLI identity used only to pay the relaying transaction fee — it does NOT
+# need to be the source's own key, since the signed proof carries the
+# source's authority. May be the same as `identity` below for simplicity.
+relayer_identity  = "default"
+# Stellar CLI identity matching `address`, used solely by --register-key.
+identity          = "oracle-source"
+# Name of the environment variable holding the Ed25519 signing seed as a
+# 64-character hex string. Never put the raw seed in this file.
+ed25519_seed_env  = "ADAPTER_ED25519_SEED"
+
+[state]
+nonce_file = "adapter_nonces.json"
+
+[health]
+port = 9101
+
+[schedule]
+interval_secs              = 30   # default submission interval, overridable per asset
+max_staleness_secs         = 120  # reject a provider's price older than this
+expiration_window_ledgers  = 100  # signed proof validity window (~500s at 5s/ledger)
+
+[assets.BTC]
+contract_address = "CBTC..."
+providers         = ["coingecko", "binance", "coinbase"]  # priority order
+[assets.BTC.feed_ids]
+coingecko = "bitcoin"
+binance   = "BTCUSDT"
+coinbase  = "BTC-USD"
+
+[assets.ETH]
+contract_address = "CETH..."
+providers         = ["coingecko", "binance", "coinbase"]
+[assets.ETH.feed_ids]
+coingecko = "ethereum"
+binance   = "ETHUSDT"
+coinbase  = "ETH-USD"

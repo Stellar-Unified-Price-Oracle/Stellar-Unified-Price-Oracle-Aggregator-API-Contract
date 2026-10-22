@@ -1,0 +1,7 @@
+# Pre-existing docs-freshness problems (#540), each to be fixed in a follow-up.
+# Owner: maintainers. This file may only shrink; the gate fails on fixed entries.
+docs/ohlcv.md: example calls `get_ohlcv`, which is not a contract endpoint
+docs/outlier-filtering.md: example calls `set_outlier_config`, which is not a contract endpoint
+docs/wormhole-relay.md: example calls `set_wormhole_chain_mapping`, which is not a contract endpoint
+docs/wormhole-relay.md: example calls `set_wormhole_guardian_set`, which is not a contract endpoint
+docs/wormhole-relay.md: example calls `submit_price_via_wormhole`, which is not a contract endpoint

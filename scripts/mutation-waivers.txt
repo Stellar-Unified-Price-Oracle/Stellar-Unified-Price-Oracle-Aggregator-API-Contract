@@ -1,0 +1,24 @@
+# Reviewed equivalent-mutant waivers for the per-module mutation gate (#520).
+#
+# An *equivalent* mutant is one the test suite cannot kill because the mutated
+# program is observably identical to the original — typically a change to a
+# literal, a redundant re-computation, or a bound the type system already
+# enforces. These are false negatives in the score, not gaps in the tests, so
+# waiving them keeps the threshold meaningful instead of eroding it.
+#
+# Format (one waiver per line, `#` starts a comment):
+#   <module>|<file>:<line>|<original>|<mutated>|<why equivalent>|<reviewer>|<date>
+#
+# Rules:
+#   * "why equivalent" must state the observable-behaviour argument, not just
+#     assert that the mutant is uninteresting.
+#   * A waiver is reviewed in the same PR that adds it. Self-waived, unowned
+#     waivers are rejected.
+#   * Waivers are finite by construction: the line number pins the waiver to one
+#     mutant, so a refactor that moves the line invalidates it and the mutant
+#     resurfaces rather than staying silently waived.
+#
+# The list is intentionally empty today: every mutant in the guarded modules is
+# currently either killed or is a true gap that needs a test, not a waiver.
+# The format is committed so the first genuine equivalent mutant has an
+# explicit, reviewable home instead of a blanket suppression.

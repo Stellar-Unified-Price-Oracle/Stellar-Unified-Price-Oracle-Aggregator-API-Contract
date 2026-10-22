@@ -1,0 +1,30 @@
+name: Onboarding map refresh
+
+# #542: keep docs/onboarding/live.md in step with open issues.
+on:
+  schedule:
+    - cron: "0 7 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python scripts/onboarding.py check
+      - run: python scripts/onboarding.py refresh
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - uses: peter-evans/create-pull-request@v6
+        with:
+          branch: chore/onboarding-refresh
+          title: "chore: refresh onboarding map"
+          commit-message: "chore: refresh onboarding live map"
+          add-paths: docs/onboarding/live.md

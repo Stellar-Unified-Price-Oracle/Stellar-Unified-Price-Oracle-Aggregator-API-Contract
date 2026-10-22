@@ -1,0 +1,2 @@
+[target.wasm32v1-none]
+rustflags = ["-C", "link-arg=-zstack-size=65536", "-C", "link-arg=--import-memory"]

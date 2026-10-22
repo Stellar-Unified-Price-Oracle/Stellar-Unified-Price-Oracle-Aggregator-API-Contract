@@ -1,0 +1,28 @@
+[oracle]
+contract_id = "CXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX"
+network     = "testnet"
+
+[source]
+name = "default"  # stellar CLI identity used to sign submissions
+
+[health]
+port = 9100
+
+[schedule]
+interval_secs = 60  # default submission interval, overridable per asset
+
+[assets.BTC]
+contract_address = "CBTC..."
+interval_secs     = 60
+[assets.BTC.feed_ids]
+coingecko = "bitcoin"
+binance   = "BTCUSDT"
+kraken    = "XBTUSD"
+
+[assets.ETH]
+contract_address = "CETH..."
+interval_secs     = 60
+[assets.ETH.feed_ids]
+coingecko = "ethereum"
+binance   = "ETHUSDT"
+kraken    = "ETHUSD"

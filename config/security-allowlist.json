@@ -1,0 +1,11 @@
+{
+  "_comment": [
+    "Acknowledged static-analysis findings that CI will not fail on (#500).",
+    "Every entry MUST carry: id, kind (advisory|unsafe|sast), owner, expires",
+    "(ISO date, at most 180 days out), reason, and a path scope. A blanket",
+    "scope ('**') is rejected: a false positive is tracked at its location.",
+    "Expired entries fail the gate, so this file cannot become a permanent mute.",
+    "Triage and re-baseline process: docs/static-analysis.md"
+  ],
+  "entries": []
+}

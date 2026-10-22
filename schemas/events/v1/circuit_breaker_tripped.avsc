@@ -1,0 +1,14 @@
+{
+  "type": "record",
+  "name": "CircuitBreakerTrippedEvent",
+  "namespace": "com.stellaroracle.events.v1",
+  "fields": [
+    { "name": "asset", "type": "string" },
+    { "name": "previous_price", "type": "string" },
+    { "name": "candidate_price", "type": "string" },
+    { "name": "change_bps", "type": "int" },
+    { "name": "max_change_bps", "type": "int" },
+    { "name": "ledger", "type": "int" },
+    { "name": "timestamp", "type": "long" }
+  ]
+}

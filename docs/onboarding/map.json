@@ -1,0 +1,70 @@
+{
+  "repo": "Stellar-Unified-Price-Oracle/Stellar-Unified-Price-Oracle-Aggregator-API-Contract",
+  "fallback_mentor": "@Stellar-Unified-Price-Oracle/maintainers",
+  "mentor_response_days": 3,
+  "areas": [
+    {
+      "id": "core",
+      "title": "Aggregation & core protocol",
+      "track": "Core Protocol",
+      "interests": ["rust", "smart-contracts", "algorithms"],
+      "paths": ["contracts/price-oracle/src/prices.rs", "contracts/price-oracle/src/storage.rs", "contracts/price-oracle/src/lib.rs"],
+      "labels": ["enhancement"],
+      "mentors": []
+    },
+    {
+      "id": "data-quality",
+      "title": "Data quality & anomaly detection",
+      "track": "Data Quality",
+      "interests": ["python", "data", "statistics"],
+      "paths": ["services/anomaly_detection", "contracts/price-oracle/src/prices.rs"],
+      "labels": ["enhancement"],
+      "mentors": []
+    },
+    {
+      "id": "devx",
+      "title": "Developer experience, SDK & docs",
+      "track": "Developer Experience",
+      "interests": ["docs", "tooling", "python", "typescript"],
+      "paths": ["docs", "sdk", "scripts", "explorer"],
+      "labels": ["documentation", "good first issue"],
+      "mentors": []
+    },
+    {
+      "id": "governance",
+      "title": "Governance & economics",
+      "track": "Governance / Economics",
+      "interests": ["rust", "economics", "governance"],
+      "paths": ["contracts/price-oracle/src/admin.rs"],
+      "labels": ["enhancement"],
+      "mentors": []
+    },
+    {
+      "id": "ops",
+      "title": "Operations & DevOps",
+      "track": "Operations / DevOps",
+      "interests": ["ci", "devops", "python", "bash"],
+      "paths": [".github/workflows", "services", "scripts"],
+      "labels": ["enhancement"],
+      "mentors": []
+    },
+    {
+      "id": "security",
+      "title": "Security (adversarial & hardening)",
+      "track": "Security",
+      "interests": ["security", "rust", "fuzzing"],
+      "paths": ["docs/security", "fuzz", "contracts/price-oracle/src/sources.rs"],
+      "labels": ["bug"],
+      "mentors": []
+    },
+    {
+      "id": "testing",
+      "title": "Testing & verification",
+      "track": "Testing / Verification",
+      "interests": ["rust", "testing", "property-testing"],
+      "paths": ["contracts/price-oracle/src/test.rs", "contracts/price-oracle/src/prop_tests.rs"],
+      "labels": ["enhancement"],
+      "mentors": []
+    }
+  ]
+}

@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Stellar Oracle Testnet Explorer</title>
+    <link rel="stylesheet" href="./styles.css" />
+    <script src="https://cdn.jsdelivr.net/npm/@stellar/stellar-sdk@12.0.0/stellar-sdk.min.js"></script>
+  </head>
+  <body>
+    <div class="shell">
+      <header class="topbar">
+        <div>
+          <p class="eyebrow">Stellar Unified Price Oracle</p>
+          <h1>Browser API Explorer</h1>
+        </div>
+        <div class="network-badge">Testnet</div>
+      </header>
+
+      <main class="layout">
+        <section class="panel">
+          <h2>Connection</h2>
+          <label>
+            RPC URL
+            <input id="rpcUrl" type="text" value="https://soroban-testnet.stellar.org" />
+          </label>
+          <label>
+            Contract ID
+            <input id="contractId" type="text" placeholder="CC..." />
+          </label>
+          <label>
+            Network passphrase
+            <input id="networkPassphrase" type="text" value="Test SDF Network ; September 2015" />
+          </label>
+          <div class="row split">
+            <label>
+              Method
+              <select id="methodSelect"></select>
+            </label>
+            <label>
+              Mode
+              <select id="modeSelect">
+                <option value="view">View</option>
+                <option value="invoke">Invoke</option>
+              </select>
+            </label>
+          </div>
+        </section>
+
+        <section class="panel">
+          <h2>Request Builder</h2>
+          <div id="argsContainer"></div>
+          <div id="writeFields" class="write-fields hidden">
+            <label>
+              Signer secret key
+              <input id="signerSecret" type="password" placeholder="S..." />
+            </label>
+          </div>
+          <div class="actions">
+            <button id="callBtn" class="primary">Call contract</button>
+            <button id="resetBtn" class="secondary" type="button">Reset</button>
+          </div>
+        </section>
+
+        <section class="panel wide">
+          <h2>Response</h2>
+          <pre id="responseOutput">{}</pre>
+        </section>
+
+        <section class="panel">
+          <h2>Error Code Lookup</h2>
+          <div class="row">
+            <input id="errorCodeInput" type="number" min="0" step="1" placeholder="e.g. 50" />
+            <button id="errorLookupBtn" class="secondary">Lookup</button>
+          </div>
+          <div id="errorLookupOutput" class="small-output">Enter an error code</div>
+        </section>
+      </main>
+    </div>
+
+    <script src="./app.js"></script>
+  </body>
+</html>

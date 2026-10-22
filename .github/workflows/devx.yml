@@ -1,0 +1,48 @@
+name: DevX
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  registry-and-interface:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Error registry is complete, current and stable
+        run: python3 scripts/devx/gen_error_registry.py --check
+      - name: Interface artifact is current and follows semver
+        run: python3 scripts/devx/gen_interface.py --check
+        env:
+          BASE_REF: ${{ github.event_name == 'pull_request' && format('origin/{0}', github.base_ref) || 'HEAD~1' }}
+      - name: Deprecation window + deprecated usage lint
+        run: python3 scripts/devx/lint_deprecated.py
+      - name: Interface package packs
+        working-directory: interface
+        run: npm pack --dry-run
+
+  templates:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        template: [web, indexer]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - working-directory: examples/${{ matrix.template }}
+        run: npm ci && npm test
+
+  python-bot:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - working-directory: examples/python-bot
+        run: pip install -r requirements.txt && pytest -q

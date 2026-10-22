@@ -1,0 +1,9 @@
+{
+  "type": "record",
+  "name": "SourceRemovedEvent",
+  "namespace": "com.stellaroracle.events.v1",
+  "fields": [
+    { "name": "source", "type": "string" },
+    { "name": "admin", "type": "string" }
+  ]
+}

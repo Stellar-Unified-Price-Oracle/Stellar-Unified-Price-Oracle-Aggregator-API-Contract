@@ -1,0 +1,176 @@
+# Synthetic-violation unit tests for docs/monitoring/alerts-v2.yml
+#
+# Run with: promtool test rules docs/monitoring/alerts-v2_test.yml
+#
+# Each test simulates a metric time series drifting into an SLA-violating state
+# and asserts the corresponding alert fires (or, for the "healthy" control case,
+# does NOT fire) at the expected evaluation time. This is the acceptance-criteria
+# check for "Alerts fire on synthetic violations" in the monitoring v2 issue.
+rule_files:
+  - alerts-v2.yml
+
+evaluation_interval: 1m
+
+tests:
+  # ── Freshness ──────────────────────────────────────────────────────────────
+  - interval: 1m
+    input_series:
+      - series: 'oracle_last_price_timestamp_seconds{asset="USDC",contract_id="CTEST"}'
+        # Price stops updating at t=0 and never moves again — simulates a frozen feed.
+        values: "0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0"
+
+    alert_rule_test:
+      # At t=3m, staleness is only ~3m — nowhere near any threshold yet.
+      - eval_time: 3m
+        alertname: OracleFreshnessTargetMissed
+        exp_alerts: []
+
+      # At t=70m, staleness > 60s target has held for well over the 5m `for:` window.
+      - eval_time: 70m
+        alertname: OracleFreshnessTargetMissed
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              sla_class: P3
+              asset: USDC
+              contract_id: CTEST
+            exp_annotations:
+              summary: "Oracle price for USDC has not updated within the 60s SLA target (SLA §1.2)"
+              runbook: "Check submission activity: rate(oracle_price_submissions_total{asset=\"USDC\"}[5m])"
+
+      # Same point in time: staleness (~70m) has cleared the 1h critical breach too.
+      - eval_time: 70m
+        alertname: OracleFreshnessBreach1h
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              sla_class: P1
+              asset: USDC
+              contract_id: CTEST
+            exp_annotations:
+              summary: "Oracle price for USDC stale for over 1h — SLA §6.2 credit tier (1-4h) engaged"
+              runbook: "Escalate per SLA §5 P1 (1h first response, 4h resolution target)"
+
+      # 24h breach must NOT have fired yet at 70m.
+      - eval_time: 70m
+        alertname: OracleFreshnessBreach24h
+        exp_alerts: []
+
+  # ── Deviation ───────────────────────────────────────────────────────────────
+  - interval: 1m
+    input_series:
+      - series: 'oracle_source_deviation_bps{asset="XLM",source_name="rogue-source",contract_id="CTEST"}'
+        # Deviation ramps from 0bps to 1500bps (15%) — crosses the 500bps flag
+        # threshold and then the 1000bps data-accuracy breach threshold.
+        values: "0+50x30"
+
+    alert_rule_test:
+      - eval_time: 2m
+        alertname: OracleSourceDeviationFlagged
+        exp_alerts: []
+
+      # At t=20m, deviation = 1000bps: past the 500bps flag threshold and held
+      # for over the 5m `for:` window.
+      - eval_time: 20m
+        alertname: OracleSourceDeviationFlagged
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              sla_class: P3
+              asset: XLM
+              source_name: rogue-source
+              contract_id: CTEST
+            exp_annotations:
+              summary: "Source rogue-source deviates >5% (500bps) from aggregate for XLM (SLA §3 default max_price_deviation)"
+              runbook: "Cross-check the source's feed against an independent reference before it accumulates reputation penalties"
+
+      # At t=29m, deviation = 1450bps: past the 1000bps (2x) accuracy-breach threshold.
+      - eval_time: 29m
+        alertname: OracleDataAccuracyBreach
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              sla_class: P1
+              asset: XLM
+              source_name: rogue-source
+              contract_id: CTEST
+            exp_annotations:
+              summary: "Source rogue-source deviates >2x the configured max_price_deviation for XLM (SLA §6.3 data accuracy breach)"
+              runbook: "Verify against independent reference prices; consider emergency source removal or asset pause"
+
+  # ── Source health ─────────────────────────────────────────────────────────
+  - interval: 1m
+    input_series:
+      - series: 'oracle_active_sources_total{contract_id="CTEST"}'
+        values: "3+0x120"
+      - series: 'oracle_config_min_sources_required{contract_id="CTEST"}'
+        values: "2+0x120"
+
+    alert_rule_test:
+      - eval_time: 10m
+        alertname: OracleBelowMinSourcesRequired
+        exp_alerts: []
+
+  - interval: 1m
+    input_series:
+      - series: 'oracle_active_sources_total{contract_id="CTEST"}'
+        # Drops from 3 active sources to 1 at t=5m, staying below the
+        # min_sources_required=2 threshold from then on.
+        values: "3 3 3 3 3 1+0x115"
+      - series: 'oracle_config_min_sources_required{contract_id="CTEST"}'
+        values: "2+0x120"
+
+    alert_rule_test:
+      - eval_time: 6m
+        alertname: OracleBelowMinSourcesRequired
+        exp_alerts: []
+
+      # Held below minimum for over the 5m `for:` window.
+      - eval_time: 11m
+        alertname: OracleBelowMinSourcesRequired
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              sla_class: P1
+              contract_id: CTEST
+            exp_annotations:
+              summary: "Active source count (1) is below min_sources_required for contract CTEST (SLA §2, §5 P1)"
+              runbook: "Emergency source addition target: 4h (SLA §2). Aggregation is halted until minimum is met."
+
+  - interval: 1m
+    input_series:
+      - series: 'oracle_registered_sources_total{contract_id="CTEST"}'
+        values: "0+0x10"
+
+    alert_rule_test:
+      - eval_time: 2m
+        alertname: OracleAllSourcesDown
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              sla_class: P0
+              contract_id: CTEST
+            exp_annotations:
+              summary: "No registered oracle sources for CTEST — aggregation cannot proceed (SLA §5 P0)"
+              runbook: "Page on-call immediately; 30m first response target"
+
+  - interval: 1m
+    input_series:
+      - series: 'oracle_paused{contract_id="CTEST"}'
+        values: "0 0 0 1+0x30"
+
+    alert_rule_test:
+      - eval_time: 2m
+        alertname: OracleContractPausedUnexpectedly
+        exp_alerts: []
+
+      - eval_time: 6m
+        alertname: OracleContractPausedUnexpectedly
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              sla_class: P0
+              contract_id: CTEST
+            exp_annotations:
+              summary: "Contract CTEST is paused — verify this was a planned maintenance window (SLA §4.2, §5 P0)"
+              runbook: "Cross-check against the announced pause schedule; if unplanned, treat as P0"

@@ -1,0 +1,661 @@
+{
+  "contract": "price-oracle",
+  "errors": [
+    {
+      "code": 0,
+      "name": "NotAuthorized",
+      "meaning": "The caller is not authorized to perform the requested operation.",
+      "class": "caller",
+      "cause": "Signer lacks the admin/role/source auth required by the endpoint.",
+      "remediation": "Sign with the admin or an address holding the required role; check `get_admin_address`/`has_role`."
+    },
+    {
+      "code": 1,
+      "name": "AlreadyInitialized",
+      "meaning": "`initialize` was called on a contract that has already been set up.",
+      "class": "state",
+      "cause": "`initialize` called on an initialized contract.",
+      "remediation": "Do not re-initialize; use admin setters (`set_admin`, config endpoints) instead."
+    },
+    {
+      "code": 2,
+      "name": "AssetNotRegistered",
+      "meaning": "The specified asset has not been registered with `register_asset`.",
+      "class": "config",
+      "cause": "Asset symbol not registered.",
+      "remediation": "Call `register_asset` (admin) or query `assets()` for the correct symbol."
+    },
+    {
+      "code": 3,
+      "name": "AssetAlreadyRegistered",
+      "meaning": "`register_asset` was called for an asset that is already registered.",
+      "class": "caller",
+      "cause": "Asset already registered.",
+      "remediation": "Treat as success (idempotent) or use asset update endpoints."
+    },
+    {
+      "code": 4,
+      "name": "SourceAlreadyExists",
+      "meaning": "`add_source` was called for an address that is already a registered source.",
+      "class": "caller",
+      "cause": "Source address already registered.",
+      "remediation": "Skip the add; it is already active."
+    },
+    {
+      "code": 5,
+      "name": "SourceNotFound",
+      "meaning": "The referenced oracle source address is not registered.",
+      "class": "config",
+      "cause": "Submitting/referenced address is not a registered source.",
+      "remediation": "Register the source via `add_source` or fix the signer key in the bot."
+    },
+    {
+      "code": 6,
+      "name": "InsufficientSources",
+      "meaning": "Fewer sources have submitted prices than the configured `min_sources_required`.",
+      "class": "transient",
+      "cause": "Fewer fresh submissions than `min_sources_required`.",
+      "remediation": "Wait for more sources to submit, or lower `min_sources_required` (admin)."
+    },
+    {
+      "code": 7,
+      "name": "InvalidPrice",
+      "meaning": "A submitted price value is zero or negative.",
+      "class": "caller",
+      "cause": "Submitted price is zero or negative.",
+      "remediation": "Validate price > 0 before submission; check feed scaling to contract `decimals()`."
+    },
+    {
+      "code": 8,
+      "name": "NoData",
+      "meaning": "No aggregate price data exists for the requested asset.",
+      "class": "transient",
+      "cause": "No aggregate exists yet for the asset.",
+      "remediation": "Retry after the first aggregation round; handle `None` from SEP-40 `lastprice`."
+    },
+    {
+      "code": 9,
+      "name": "InvalidTimestamp",
+      "meaning": "The submitted timestamp lies too far in the future relative to the current ledger time.",
+      "class": "caller",
+      "cause": "Timestamp too far in the future (or stale).",
+      "remediation": "Use ledger-close time in seconds, not milliseconds; sync the bot clock."
+    },
+    {
+      "code": 10,
+      "name": "InvalidConfiguration",
+      "meaning": "A configuration parameter is out of its valid range.",
+      "class": "config",
+      "cause": "Configuration value outside allowed range.",
+      "remediation": "Check the parameter bounds in the endpoint docs and resubmit."
+    },
+    {
+      "code": 11,
+      "name": "DescriptionTooLong",
+      "meaning": "The description string exceeds the maximum allowed length of 256 characters.",
+      "class": "caller",
+      "cause": "Description exceeds 256 chars.",
+      "remediation": "Truncate description to at most 256 characters."
+    },
+    {
+      "code": 12,
+      "name": "ContractPaused",
+      "meaning": "The contract is currently paused; no price submissions or reads are allowed.",
+      "class": "transient",
+      "cause": "Contract is paused by admin.",
+      "remediation": "Wait for unpause; monitor pause events. Consumers should fall back to cached prices."
+    },
+    {
+      "code": 13,
+      "name": "TimelockNotReady",
+      "meaning": "A timelock operation cannot yet be executed because its delay period has not elapsed.",
+      "class": "transient",
+      "cause": "Timelock delay has not elapsed.",
+      "remediation": "Retry `execute` after the operation's ETA."
+    },
+    {
+      "code": 14,
+      "name": "OperationNotFound",
+      "meaning": "No pending operation exists with the given ID.",
+      "class": "caller",
+      "cause": "No pending operation with this ID.",
+      "remediation": "Verify the operation ID from the `propose_operation` result/event."
+    },
+    {
+      "code": 15,
+      "name": "PriceBelowMinimum",
+      "meaning": "The submitted price is below the asset's configured minimum price floor.",
+      "class": "caller",
+      "cause": "Price below the asset's configured floor.",
+      "remediation": "Verify the feed; if legitimate, admin must lower the floor."
+    },
+    {
+      "code": 16,
+      "name": "RateLimitExceeded",
+      "meaning": "Rate limit exceeded for an operation.",
+      "class": "transient",
+      "cause": "Too many calls in the current window.",
+      "remediation": "Back off and retry in the next window; reduce submission frequency."
+    },
+    {
+      "code": 17,
+      "name": "InvalidDuration",
+      "meaning": "The requested subscription plan duration does not exist.",
+      "class": "caller",
+      "cause": "Unknown subscription plan duration.",
+      "remediation": "Use a duration from the published subscription plans."
+    },
+    {
+      "code": 18,
+      "name": "SubscriptionExpired",
+      "meaning": "The consumer's subscription has expired.",
+      "class": "state",
+      "cause": "Consumer subscription has expired.",
+      "remediation": "Renew the subscription, then retry."
+    },
+    {
+      "code": 19,
+      "name": "MigrationInProgress",
+      "meaning": "A migration is already in progress.",
+      "class": "transient",
+      "cause": "A storage migration is running.",
+      "remediation": "Wait for migration completion before retrying."
+    },
+    {
+      "code": 20,
+      "name": "NoMigrationInProgress",
+      "meaning": "No migration is currently in progress.",
+      "class": "state",
+      "cause": "Migration step called with no active migration.",
+      "remediation": "Start a migration first or skip the call."
+    },
+    {
+      "code": 21,
+      "name": "SourceNameEmpty",
+      "meaning": "The source name is empty.",
+      "class": "caller",
+      "cause": "Empty source name.",
+      "remediation": "Provide a non-empty source name."
+    },
+    {
+      "code": 22,
+      "name": "SourceNameTooLong",
+      "meaning": "The source name exceeds the maximum allowed length.",
+      "class": "caller",
+      "cause": "Source name exceeds max length.",
+      "remediation": "Shorten the source name."
+    },
+    {
+      "code": 23,
+      "name": "MaxSourcesReached",
+      "meaning": "The maximum number of sources has been reached.",
+      "class": "config",
+      "cause": "Source capacity reached.",
+      "remediation": "Remove an inactive source before adding a new one."
+    },
+    {
+      "code": 24,
+      "name": "InvalidOperationType",
+      "meaning": "The `op_type` discriminant passed to `propose_operation` is not valid.",
+      "class": "caller",
+      "cause": "Unknown `op_type` for `propose_operation`.",
+      "remediation": "Use a valid operation type discriminant."
+    },
+    {
+      "code": 25,
+      "name": "Reentrant",
+      "meaning": "A reentrancy attempt was detected.",
+      "class": "caller",
+      "cause": "Reentrant call detected.",
+      "remediation": "Do not call back into the oracle from within a callback; restructure the call flow."
+    },
+    {
+      "code": 26,
+      "name": "SourceNotPendingRemoval",
+      "meaning": "Source is not pending removal (cancel / finalize called on non-pending source).",
+      "class": "state",
+      "cause": "Source is not scheduled for removal.",
+      "remediation": "Schedule removal first, or skip cancel/finalize."
+    },
+    {
+      "code": 27,
+      "name": "CooldownNotElapsed",
+      "meaning": "The removal cooldown has not elapsed yet.",
+      "class": "transient",
+      "cause": "Removal cooldown still running.",
+      "remediation": "Retry after the cooldown expires."
+    },
+    {
+      "code": 28,
+      "name": "MaxAssetsReached",
+      "meaning": "Maximum number of registered assets reached.",
+      "class": "config",
+      "cause": "Asset capacity reached.",
+      "remediation": "Deregister an unused asset first."
+    },
+    {
+      "code": 29,
+      "name": "ReasonTooLong",
+      "meaning": "A reason string is too long.",
+      "class": "caller",
+      "cause": "Reason string too long.",
+      "remediation": "Shorten the reason string."
+    },
+    {
+      "code": 30,
+      "name": "RecordsLimitExceeded",
+      "meaning": "Records limit exceeded for price history query.",
+      "class": "caller",
+      "cause": "History query requested too many records.",
+      "remediation": "Request fewer records per call and paginate."
+    },
+    {
+      "code": 31,
+      "name": "CommitHashMismatch",
+      "meaning": "The revealed hash does not match the committed hash.",
+      "class": "caller",
+      "cause": "Revealed data does not match the commit hash.",
+      "remediation": "Reveal the exact price+salt used for the commit hash."
+    },
+    {
+      "code": 32,
+      "name": "CommitExpired",
+      "meaning": "The commit has expired (reveal window has closed for this round).",
+      "class": "transient",
+      "cause": "Reveal window for the round closed.",
+      "remediation": "Commit again in the next round."
+    },
+    {
+      "code": 33,
+      "name": "CommitNotFound",
+      "meaning": "No commit was found for this (source, asset, round).",
+      "class": "caller",
+      "cause": "No commit for (source, asset, round).",
+      "remediation": "Commit before revealing; verify the round number."
+    },
+    {
+      "code": 34,
+      "name": "RevealWindowClosed",
+      "meaning": "The reveal window is closed \u2014 too early or too late to reveal.",
+      "class": "transient",
+      "cause": "Reveal attempted outside the window.",
+      "remediation": "Reveal only between the commit and expiry ledgers of the round."
+    },
+    {
+      "code": 35,
+      "name": "AlreadyCommitted",
+      "meaning": "A commit already exists for this (source, asset, round); cannot double-commit.",
+      "class": "caller",
+      "cause": "Duplicate commit for the round.",
+      "remediation": "Wait for the next round."
+    },
+    {
+      "code": 36,
+      "name": "InvalidCommitRound",
+      "meaning": "The commit round ledger is invalid (e.g., in the future).",
+      "class": "caller",
+      "cause": "Commit round is in the future/invalid.",
+      "remediation": "Use the current round ledger."
+    },
+    {
+      "code": 37,
+      "name": "CommitRevealRequired",
+      "meaning": "Commit-reveal scheme is required (BFT fault tolerance > 0) but was bypassed.",
+      "class": "config",
+      "cause": "Direct submission while commit-reveal is mandatory.",
+      "remediation": "Use the commit/reveal flow instead of direct submit."
+    },
+    {
+      "code": 40,
+      "name": "AlreadyFinalized",
+      "meaning": "The price has already been finalized and cannot be changed.",
+      "class": "state",
+      "cause": "Price already finalized.",
+      "remediation": "No action; finalized prices are immutable."
+    },
+    {
+      "code": 41,
+      "name": "PriceRetracted",
+      "meaning": "The price was retracted due to a detected reorg.",
+      "class": "transient",
+      "cause": "Price retracted due to reorg.",
+      "remediation": "Re-read the price; use the next finalized value."
+    },
+    {
+      "code": 42,
+      "name": "FinalityPending",
+      "meaning": "The price is still in the finality pending window.",
+      "class": "transient",
+      "cause": "Price still in finality window.",
+      "remediation": "Retry after the finality window, or accept lower finality."
+    },
+    {
+      "code": 43,
+      "name": "InsufficientFinality",
+      "meaning": "The requested price does not meet the caller's minimum finality requirement.",
+      "class": "transient",
+      "cause": "Price does not meet requested finality.",
+      "remediation": "Lower the requested finality or wait."
+    },
+    {
+      "code": 44,
+      "name": "ReorgDetected",
+      "meaning": "A reorg was detected via ledger hash chain inconsistency.",
+      "class": "transient",
+      "cause": "Ledger hash chain inconsistency.",
+      "remediation": "Pause consumption and re-read after the chain stabilizes."
+    },
+    {
+      "code": 50,
+      "name": "RelayerNotAuthorized",
+      "meaning": "The caller is not a registered and approved relayer.",
+      "class": "config",
+      "cause": "Caller is not an approved relayer.",
+      "remediation": "Have the admin approve the relayer via `add_relayer`."
+    },
+    {
+      "code": 51,
+      "name": "RelayerAlreadyExists",
+      "meaning": "`add_relayer` was called for an address that is already an approved relayer.",
+      "class": "caller",
+      "cause": "Relayer already approved.",
+      "remediation": "Skip the add."
+    },
+    {
+      "code": 52,
+      "name": "ReputationTooHighToSlash",
+      "meaning": "Source reputation is too high to be eligible for slashing.",
+      "class": "state",
+      "cause": "Source reputation above slashing threshold.",
+      "remediation": "Slashing not applicable; use removal governance if needed."
+    },
+    {
+      "code": 53,
+      "name": "MaxSubscriptionsReached",
+      "meaning": "Maximum number of alert subscriptions has been reached.",
+      "class": "config",
+      "cause": "Alert subscription capacity reached.",
+      "remediation": "Remove unused alert subscriptions."
+    },
+    {
+      "code": 57,
+      "name": "ProposalNotFound",
+      "meaning": "The specified source proposal does not exist.",
+      "class": "caller",
+      "cause": "Unknown source proposal ID.",
+      "remediation": "Verify the proposal ID from the creation event."
+    },
+    {
+      "code": 58,
+      "name": "AlreadyApproved",
+      "meaning": "Approver has already approved the proposal.",
+      "class": "caller",
+      "cause": "Approver already approved.",
+      "remediation": "No action needed."
+    },
+    {
+      "code": 59,
+      "name": "ProposalAlreadyExecuted",
+      "meaning": "The source proposal was already executed.",
+      "class": "state",
+      "cause": "Proposal already executed.",
+      "remediation": "No action needed."
+    },
+    {
+      "code": 60,
+      "name": "InsufficientBond",
+      "meaning": "The source has not deposited the required bond.",
+      "class": "config",
+      "cause": "Source bond not deposited.",
+      "remediation": "Deposit the required bond before submitting."
+    },
+    {
+      "code": 61,
+      "name": "StakeTokenNotConfigured",
+      "meaning": "The staking/fee token contract has not been configured.",
+      "class": "config",
+      "cause": "Staking/fee token unset.",
+      "remediation": "Admin must configure the stake token."
+    },
+    {
+      "code": 62,
+      "name": "SourceSuspended",
+      "meaning": "The oracle source has been suspended due to progressive disqualification.",
+      "class": "state",
+      "cause": "Source suspended by demerits.",
+      "remediation": "Fix feed quality; wait for suspension expiry or admin reinstatement."
+    },
+    {
+      "code": 63,
+      "name": "InvalidDemeritThreshold",
+      "meaning": "Demerit configuration thresholds are invalid.",
+      "class": "config",
+      "cause": "Demerit thresholds inconsistent.",
+      "remediation": "Ensure thresholds are increasing and non-zero."
+    },
+    {
+      "code": 64,
+      "name": "InvalidGovernanceConfig",
+      "meaning": "Invalid source governance config.",
+      "class": "config",
+      "cause": "Source governance config invalid.",
+      "remediation": "Check quorum <= approver count and non-zero values."
+    },
+    {
+      "code": 65,
+      "name": "PriceOutOfBounds",
+      "meaning": "The submitted price falls outside the asset's configured price bounds.",
+      "class": "caller",
+      "cause": "Price outside the asset bounds.",
+      "remediation": "Verify the feed; admin may widen bounds if the move is real."
+    },
+    {
+      "code": 66,
+      "name": "AssetPaused",
+      "meaning": "The asset is currently paused and cannot accept new submissions.",
+      "class": "transient",
+      "cause": "Asset paused.",
+      "remediation": "Wait for the asset to be unpaused; fall back to cached price."
+    },
+    {
+      "code": 67,
+      "name": "CircuitBreakerTripped",
+      "meaning": "The circuit breaker tripped for the asset and rejected the update.",
+      "class": "transient",
+      "cause": "Deviation exceeded circuit breaker.",
+      "remediation": "Verify the market move; wait for reset or admin override."
+    },
+    {
+      "code": 75,
+      "name": "OperationLimitExceeded",
+      "meaning": "Daily admin operation limit exceeded.",
+      "class": "transient",
+      "cause": "Daily admin op limit hit.",
+      "remediation": "Retry the next day or batch operations."
+    },
+    {
+      "code": 76,
+      "name": "ArithmeticOverflow",
+      "meaning": "An arithmetic overflow occurred in a calculation.",
+      "class": "caller",
+      "cause": "Arithmetic overflow in computation.",
+      "remediation": "Check input magnitudes against `decimals()` scaling."
+    },
+    {
+      "code": 77,
+      "name": "PoolAlreadyExists",
+      "meaning": "AMM pool already exists for this asset pair.",
+      "class": "caller",
+      "cause": "AMM pool exists.",
+      "remediation": "Use the existing pool."
+    },
+    {
+      "code": 78,
+      "name": "PoolNotFound",
+      "meaning": "AMM pool not found for this asset pair.",
+      "class": "config",
+      "cause": "AMM pool missing.",
+      "remediation": "Create the pool or verify the asset pair."
+    },
+    {
+      "code": 79,
+      "name": "SlippageExceeded",
+      "meaning": "AMM swap would exceed maximum allowed slippage.",
+      "class": "transient",
+      "cause": "Swap exceeds max slippage.",
+      "remediation": "Increase slippage tolerance or reduce size."
+    },
+    {
+      "code": 80,
+      "name": "AmmPriceManipulation",
+      "meaning": "AMM price manipulation detected.",
+      "class": "transient",
+      "cause": "AMM price deviates from oracle.",
+      "remediation": "Retry later; do not rely on the AMM price now."
+    },
+    {
+      "code": 81,
+      "name": "OutOfSubmissionWindow",
+      "meaning": "Price challenge submission is outside the valid submission window.",
+      "class": "transient",
+      "cause": "Challenge outside submission window.",
+      "remediation": "Submit within the challenge window."
+    },
+    {
+      "code": 82,
+      "name": "ChannelNotFound",
+      "meaning": "State channel not found for this source.",
+      "class": "caller",
+      "cause": "No state channel for source.",
+      "remediation": "Open a channel first."
+    },
+    {
+      "code": 83,
+      "name": "ChannelAlreadyOpen",
+      "meaning": "State channel is already open for this source.",
+      "class": "caller",
+      "cause": "State channel already open.",
+      "remediation": "Reuse or close the existing channel."
+    },
+    {
+      "code": 84,
+      "name": "ExoticCycleLimitExceeded",
+      "meaning": "Exotic asset cycle depth limit exceeded.",
+      "class": "config",
+      "cause": "Exotic dependency depth too large.",
+      "remediation": "Reduce the derivation depth of the exotic asset."
+    },
+    {
+      "code": 85,
+      "name": "ExoticCycleDetected",
+      "meaning": "Exotic cycle detected in asset dependency graph.",
+      "class": "config",
+      "cause": "Cycle in exotic asset dependencies.",
+      "remediation": "Remove the cyclic dependency from the config."
+    },
+    {
+      "code": 86,
+      "name": "ExoticAssetNotConfigured",
+      "meaning": "Exotic asset pricing configuration not found.",
+      "class": "config",
+      "cause": "Exotic pricing config missing.",
+      "remediation": "Configure the exotic asset before querying."
+    },
+    {
+      "code": 87,
+      "name": "FeeMarketBelowMinimum",
+      "meaning": "Fee market submission is below the minimum priority fee.",
+      "class": "caller",
+      "cause": "Priority fee below minimum.",
+      "remediation": "Raise the priority fee."
+    },
+    {
+      "code": 88,
+      "name": "ApprovalNotFound",
+      "meaning": "Multi-sig: approval not found.",
+      "class": "caller",
+      "cause": "Multi-sig approval missing.",
+      "remediation": "Collect the approval before executing."
+    },
+    {
+      "code": 89,
+      "name": "MsNotQueueHead",
+      "meaning": "Multi-sig: not the queue head.",
+      "class": "state",
+      "cause": "Operation not at queue head.",
+      "remediation": "Execute earlier queued operations first."
+    },
+    {
+      "code": 90,
+      "name": "MsQuorumNotReached",
+      "meaning": "Multi-sig: quorum not reached.",
+      "class": "transient",
+      "cause": "Multi-sig quorum not reached.",
+      "remediation": "Collect more approvals."
+    },
+    {
+      "code": 91,
+      "name": "BondTooSmall",
+      "meaning": "Optimistic oracle: bond is too small.",
+      "class": "caller",
+      "cause": "Optimistic proposal bond too small.",
+      "remediation": "Post at least the minimum bond."
+    },
+    {
+      "code": 92,
+      "name": "ProposalAlreadyDisputed",
+      "meaning": "Optimistic oracle: proposal already disputed.",
+      "class": "state",
+      "cause": "Proposal already disputed.",
+      "remediation": "Wait for resolution."
+    },
+    {
+      "code": 93,
+      "name": "ProposalAlreadyResolved",
+      "meaning": "Optimistic oracle: proposal already resolved.",
+      "class": "state",
+      "cause": "Proposal already resolved.",
+      "remediation": "No action needed."
+    },
+    {
+      "code": 94,
+      "name": "ProposalExpired",
+      "meaning": "Optimistic oracle: proposal has expired.",
+      "class": "state",
+      "cause": "Proposal expired.",
+      "remediation": "Create a new proposal."
+    },
+    {
+      "code": 95,
+      "name": "ProposalNotDisputed",
+      "meaning": "Optimistic oracle: proposal not disputed (cannot resolve).",
+      "class": "state",
+      "cause": "Resolve called on undisputed proposal.",
+      "remediation": "Only resolve disputed proposals."
+    },
+    {
+      "code": 96,
+      "name": "ZkProofInvalid",
+      "meaning": "ZK proof is invalid.",
+      "class": "caller",
+      "cause": "ZK proof failed verification.",
+      "remediation": "Regenerate the proof against the current verifying key."
+    },
+    {
+      "code": 97,
+      "name": "ZkVkNotSet",
+      "meaning": "ZK verifying key not set.",
+      "class": "config",
+      "cause": "ZK verifying key unset.",
+      "remediation": "Admin must set the verifying key."
+    },
+    {
+      "code": 98,
+      "name": "ZkInvalidPublicSignals",
+      "meaning": "ZK invalid public signals.",
+      "class": "caller",
+      "cause": "Malformed ZK public signals.",
+      "remediation": "Match the public signal layout expected by the circuit."
+    }
+  ]
+}

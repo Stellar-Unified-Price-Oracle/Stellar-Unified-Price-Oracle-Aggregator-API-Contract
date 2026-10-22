@@ -1,0 +1,20 @@
+{
+  "schema": "oracle.tx_review.v1",
+  "network": "Public Global Stellar Network ; September 2015",
+  "source_account": "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+  "fee": 1000,
+  "sequence": 123456789,
+  "max_time": 0,
+  "operations": [
+    {
+      "contract_id": "CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC",
+      "function": "set_admin",
+      "args": {
+        "new_admin": {
+          "type": "address",
+          "value": "GBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB"
+        }
+      }
+    }
+  ]
+}

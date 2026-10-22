@@ -1,0 +1,11 @@
+{
+  "type": "record",
+  "name": "PriceSubmittedEvent",
+  "namespace": "com.stellaroracle.events.v1",
+  "fields": [
+    { "name": "asset", "type": "string" },
+    { "name": "source", "type": "string" },
+    { "name": "price", "type": "string", "doc": "i128 decimal string, scaled by 10^decimals" },
+    { "name": "timestamp", "type": "long" }
+  ]
+}

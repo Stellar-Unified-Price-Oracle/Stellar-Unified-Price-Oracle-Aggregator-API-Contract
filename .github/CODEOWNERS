@@ -1,0 +1,17 @@
+# CODEOWNERS
+#
+# Integration support intake & triage (see docs/integrations/support-intake.md)
+#
+# Response ownership for consumer integration reports filed via the public
+# intake path (GitHub issue form: .github/ISSUE_TEMPLATE/integration-report.yml).
+# Severity routing categories (S1-S4) are defined in the intake doc; the
+# owners below are the default responders for each triage category.
+
+# Default owners for everything in the repo.
+*                                   @stellar-oracle/maintainers
+
+# Integration support intake & triage ownership.
+# S1 (critical / funds-at-risk) and S2 (major) reports are routed to the
+# integrations maintainers; S3/S4 fall back to the default owners above.
+/docs/integrations/                 @stellar-oracle/integrations
+/.github/ISSUE_TEMPLATE/integration-report.yml  @stellar-oracle/integrations

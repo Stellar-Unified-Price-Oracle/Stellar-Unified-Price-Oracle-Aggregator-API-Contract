@@ -1,0 +1,9 @@
+{
+  "type": "record",
+  "name": "AssetRegisteredEvent",
+  "namespace": "com.stellaroracle.events.v1",
+  "fields": [
+    { "name": "asset", "type": "string" },
+    { "name": "admin", "type": "string" }
+  ]
+}

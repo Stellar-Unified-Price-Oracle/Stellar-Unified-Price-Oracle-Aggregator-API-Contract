@@ -1,0 +1,11 @@
+{
+  "hash": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+  "status": "FAILED",
+  "ledger": 1000,
+  "successful": false,
+  "envelopeXdr": "AAAAAgAAAABlbnZlbG9wZQ==",
+  "resultXdr": "AAAAAwAAAAByZXN1bHQ=",
+  "resultMetaXdr": "AAAAAwAAAABtZXRh",
+  "createdAt": 1792490402,
+  "feeCharged": 100
+}

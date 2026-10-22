@@ -1,0 +1,11 @@
+{
+  "hash": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+  "status": "SUCCESS",
+  "ledger": 1000,
+  "successful": true,
+  "envelopeXdr": "AAAAAgAAAABlbnZlbG9wZQ==",
+  "resultXdr": "AAAAAwAAAAByZXN1bHQ=",
+  "resultMetaXdr": "AAAAAwAAAABtZXRh",
+  "createdAt": 1792490405,
+  "feeCharged": 100
+}

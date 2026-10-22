@@ -1,0 +1,20 @@
+# Production image for price-submission-bot.py
+FROM python:3.11-slim
+
+ARG STELLAR_CLI_VERSION=22.0.0
+RUN apt-get update && apt-get install -y --no-install-recommends curl && \
+    curl -sSfL "https://github.com/stellar/stellar-cli/releases/download/v${STELLAR_CLI_VERSION}/stellar-cli-${STELLAR_CLI_VERSION}-x86_64-unknown-linux-gnu.tar.gz" \
+      | tar xz -C /usr/local/bin stellar && \
+    apt-get purge -y curl && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+COPY price-submission-bot.py .
+COPY bot_config.example.toml ./bot_config.toml
+
+ENV BOT_CONFIG=/app/bot_config.toml
+EXPOSE 9100
+
+CMD ["python", "price-submission-bot.py"]

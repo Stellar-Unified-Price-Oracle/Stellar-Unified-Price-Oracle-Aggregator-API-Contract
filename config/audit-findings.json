@@ -1,0 +1,10 @@
+{
+  "_comment": [
+    "External audit finding registry (#688). One entry per finding, see",
+    "docs/security/audit-finding-registry.md for the field reference.",
+    "A CLOSED finding must link fix_ref, fix_release, regression_test",
+    "(path::test_name, must exist), reviewer (not the owner) and accepted_at.",
+    "Validated by: python -m services.audit_findings.registry"
+  ],
+  "findings": []
+}

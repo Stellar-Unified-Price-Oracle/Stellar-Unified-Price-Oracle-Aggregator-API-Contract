@@ -1,0 +1,17 @@
+{
+  "_comment": [
+    "Private vulnerability disclosure policy (#690). SECURITY.md must state the",
+    "same channel, acknowledgement target and embargo. Validated by:",
+    "python -m services.disclosure.policy"
+  ],
+  "channel": {
+    "type": "github-private-vulnerability-reporting",
+    "url": "https://github.com/Stellar-Unified-Price-Oracle/Stellar-Unified-Price-Oracle-Aggregator-API-Contract/security/advisories/new"
+  },
+  "response_owner": {
+    "role": "Security Lead",
+    "team": "@Stellar-Unified-Price-Oracle/maintainers"
+  },
+  "acknowledgement_target_hours": 72,
+  "embargo_days": 90
+}

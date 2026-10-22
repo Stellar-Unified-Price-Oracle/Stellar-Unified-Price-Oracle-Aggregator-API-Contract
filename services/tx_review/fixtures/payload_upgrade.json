@@ -1,0 +1,20 @@
+{
+  "schema": "oracle.tx_review.v1",
+  "network": "Test SDF Network ; September 2015",
+  "source_account": "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+  "fee": 2500,
+  "sequence": 987654321,
+  "max_time": 1792494000,
+  "operations": [
+    {
+      "contract_id": "CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC",
+      "function": "upgrade",
+      "args": {
+        "new_wasm_hash": {
+          "type": "bytes",
+          "value": "ABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABAB"
+        }
+      }
+    }
+  ]
+}
