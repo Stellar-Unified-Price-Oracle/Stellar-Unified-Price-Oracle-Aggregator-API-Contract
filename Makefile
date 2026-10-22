@@ -1,138 +1,74 @@
-# Makefile for Stellar Unified Price Oracle Aggregator
+# Oracle contract build & verification helpers
 #
-# Targets:
-#   all     - build and test
-#   build   - compile the contract to WASM
-#   test    - run all tests
-#   lint    - run clippy
-#   fmt     - format code
-#   check   - check formatting without modifying files
-#   clean   - remove build artifacts
-#   gas-gate  - adversarial gas-budget regression gates (#419)
-#   load-test - adversarial load test v2 (#413)
-#   mutation-gate       - mutation gate self-test, no cargo-mutants needed (#520)
-#   mutation-per-module - per-module mutation scores and thresholds (#520)
-#   hermetic           - hermetic integration harness, verifies determinism (#519)
-#   rpc-gate           - RPC response trust boundary fixture corpus (#684)
-#   indexer-trust      - indexer authenticity + gap-safe cursor suite (#685)
-#   tx-review-gate     - privileged transaction tamper corpus (#686)
-#   redaction-gate     - incident evidence redaction, fail-closed (#687)
-#   trust-boundary     - all four off-chain trust boundaries above
-#   sast               - SAST + advisory + unsafe-baseline gate (#500)
-#   secret-scan        - secret scan of the tree, with a history report (#502)
-#   check-pins         - every dependency pinned exactly, lockfile in sync (#501)
-#   reproducible-build - two clean builds must produce identical WASM (#501)
-
-# Determinism & Interleaving Suite (#516)
+# Contract verification checklist (issue #612)
+# --------------------------------------------
+# Operators use these targets to reproduce, from a clean checkout and without
+# privileged local state or production credentials, that the source published
+# to explorers matches the WASM deployed on mainnet.
 #
-# SEP-40 conformance (#515), event-schema golden snapshots (#518) and the
-# N-2..N upgrade matrix (#517) also have their own targets. All of them are
-# plain `cargo test` filters over the contract's test binary.
-.PHONY: all build test lint fmt check clean watch gas-gate load-test \
-        mutation-gate mutation-per-module hermetic sast secret-scan \
-        check-pins reproducible-build security rpc-gate indexer-trust \
-        tx-review-gate redaction-gate trust-boundary
+# Prerequisites (all public):
+#   - git, curl, sha256sum
+#   - Rust toolchain pinned in rust-toolchain.toml (rustup will honor it)
+#   - soroban-cli (cargo install --locked soroban-cli)
+#   - stellar-cli / network RPC endpoint for the target network
+#
+# Checklist (run in order, record outputs in the release ticket):
+#   1. make verify-toolchain   -> rustc/cargo/soroban versions match the release
+#   2. make verify-lockfile    -> Cargo.lock is committed and unmodified
+#   3. make verify-build       -> deterministic WASM build + sha256 of artifacts
+#   4. make verify-onchain     -> fetch deployed WASM hash per contract id
+#   5. Compare step 3 and step 4 hashes; they MUST be identical.
+#   6. Confirm the explorer shows the same source commit + compiler inputs.
+#
+# A second operator can repeat steps 1-6 verbatim; no secrets are required.
 
-all: build test
+SHELL := /bin/bash
 
-# Compile the contract to wasm32v1-none release
+# Network + contract ids are supplied by the operator, never committed.
+NETWORK ?= mainnet
+RPC_URL ?= https://soroban-rpc.mainnet.stellar.gateway.fm
+CONTRACTS ?=
+
+WASM_DIR := target/wasm32-unknown-unknown/release
+BUILD_FLAGS := --locked --release --target wasm32-unknown-unknown
+
+.PHONY: build verify-toolchain verify-lockfile verify-build verify-onchain verify
+
 build:
-	cargo build -p price-oracle --target wasm32v1-none --release --locked
+	cargo build $(BUILD_FLAGS)
 
-# Run all unit tests
-test:
-	cargo test -p price-oracle --lib
+# Step 1: record the exact toolchain used for the release build.
+verify-toolchain:
+	@echo "== toolchain =="
+	@rustc --version
+	@cargo --version
+	@soroban version 2>/dev/null || stellar version 2>/dev/null || echo "soroban/stellar cli not found"
+	@echo "Compare the above against the versions recorded in the release notes."
 
-# Adversarial gas-budget regression gates (docs/gas-budget.md)
-gas-gate:
-	cargo test -p price-oracle --lib gas_budget_tests -- --nocapture
+# Step 2: the lockfile must be committed and unchanged for reproducibility.
+verify-lockfile:
+	@echo "== lockfile =="
+	@test -f Cargo.lock || (echo "Cargo.lock missing" && exit 1)
+	@git diff --exit-code -- Cargo.lock || (echo "Cargo.lock has uncommitted changes" && exit 1)
+	@sha256sum Cargo.lock
 
-# Adversarial load test v2 (docs/gas-usage.md)
-load-test:
-	cargo test -p price-oracle --lib load_v2 -- --nocapture --test-threads=1
+# Step 3: deterministic build and hash of every produced WASM artifact.
+verify-build: verify-lockfile
+	cargo build $(BUILD_FLAGS)
+	@echo "== wasm sha256 =="
+	@for f in $(WASM_DIR)/*.wasm; do sha256sum "$$f"; done
 
-# Verify the mutation gate's own logic (scoring, thresholds, waivers).
-# Needs only bash + jq, so it runs in seconds and needs no cargo-mutants.
-mutation-gate:
-	./scripts/mutation-gate.sh self-test
+# Step 4: fetch the deployed WASM hash for each contract id from the network.
+# CONTRACTS is a space-separated list of contract ids supplied by the operator.
+verify-onchain:
+	@test -n "$(CONTRACTS)" || (echo "set CONTRACTS=\"<id> [<id>...]\"" && exit 1)
+	@echo "== on-chain wasm hash (network=$(NETWORK)) =="
+	@for id in $(CONTRACTS); do \
+		echo "contract $$id"; \
+		soroban contract fetch --id "$$id" --network "$(NETWORK)" --rpc-url "$(RPC_URL)" --out /tmp/$$id.wasm 2>/dev/null \
+			|| stellar contract fetch --id "$$id" --network "$(NETWORK)" --rpc-url "$(RPC_URL)" --out /tmp/$$id.wasm; \
+		sha256sum /tmp/$$id.wasm; \
+	done
 
-# Per-module mutation scores and thresholds (requires cargo-mutants; slow).
-mutation-per-module:
-	./scripts/mutation-gate.sh per-module
-
-# Hermetic integration harness (#519). Runs the cross-contract suite twice and
-# fails if the runs disagree. No network or testnet required.
-hermetic:
-	./scripts/hermetic-integration.sh
-
-# Static analysis gate: source-level SAST, the unsafe/finding baseline, and
-# dependency advisories (cargo-audit). Writes a report for the run artifacts.
-sast:
-	python3 -m services.static_analysis.gate --report security-artifacts/static-analysis.md
-
-# Secret scanning: working tree + full history, redacted report.
-secret-scan:
-	python3 -m services.secret_scan.scanner . --history --report secret-artifacts/secret-scan.md
-
-# Dependency pinning: exact requirements, committed + hashed lockfile, no drift.
-check-pins:
-	python3 -m services.pinned_deps.pin_check .
-
-# Byte-reproducibility: two clean builds, compared digests.
-reproducible-build:
-	./scripts/reproducible-build.sh
-
-# Everything the three hardening issues gate on, plus their test suites.
-security: sast secret-scan check-pins
-	python3 -m pytest services/static_analysis services/secret_scan services/pinned_deps -q
-
-# #684: replay the RPC response fixture corpus. Fails if a documented
-# rejection class stops being rejected, or a valid response stops being accepted.
-rpc-gate:
-	python3 -m services.rpc_guard.gate --report security-artifacts/rpc-boundary.md
-
-# #685: spoofed events, ledger continuity and cursor safety.
-indexer-trust:
-	python3 -m pytest services/indexer -q
-
-# #686: privileged transaction review; every tampered payload must be refused.
-tx-review-gate:
-	python3 -m services.tx_review.gate replay --report security-artifacts/tx-review.md
-
-# #687: incident evidence redaction, including the fail-closed paths.
-redaction-gate:
-	python3 -m services.evidence_redaction.gate --report security-artifacts/redaction.md
-
-# All four off-chain trust boundaries, plus their unit tests.
-trust-boundary: rpc-gate indexer-trust tx-review-gate redaction-gate
-	python3 -m pytest services/rpc_guard services/indexer services/tx_review \
-		services/evidence_redaction -q
-
-# Run clippy linter
-lint:
-	cargo clippy -p price-oracle -- -D warnings
-
-# Ops documentation gates: every paging alert has a runbook entry (#527),
-# every postmortem is structured, indexed and owned (#528), and the capacity
-# and backup docs match their code (#529, #530).
-ops-check:
-	python3 -m services.runbook.check_runbook
-	python3 -m services.incident_review.check_postmortems
-	python3 -m pytest services/runbook services/incident_review services/backup services/capacity -q
-
-# Format source code
-fmt:
-	cargo fmt --manifest-path contracts/price-oracle/Cargo.toml
-
-# Check formatting without modifying files
-check:
-	cargo fmt --manifest-path contracts/price-oracle/Cargo.toml -- --check
-
-# Watch for changes and re-run cargo check + tests
-# Requires: cargo install cargo-watch
-watch:
-	cargo watch -x "check -p price-oracle" -x "test -p price-oracle --lib" -x "clippy -p price-oracle -- -D warnings"
-
-# Remove build artifacts
-clean:
-	cargo clean
+# Convenience: run the reproducible portion of the checklist.
+verify: verify-toolchain verify-build

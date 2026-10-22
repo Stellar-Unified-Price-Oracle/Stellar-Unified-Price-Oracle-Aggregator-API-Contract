@@ -198,6 +198,86 @@ soroban contract deploy \
   --network testnet
 ```
 
+## Mainnet Contract Verification Checklist
+
+Operators and explorers use this checklist to independently verify that the source
+published for a deployed contract matches the on-chain WASM. It requires only
+public information (the contract ID, the published source repo, and a Stellar
+RPC endpoint) — no privileged local state or production credentials.
+
+### 1. Record the deployment facts
+
+For each deployed contract, capture the following in the release notes:
+
+- Contract ID (e.g. `C...`)
+- Network passphrase (`Public Global Stellar Network ; September 2015` for mainnet)
+- Git commit SHA and tag of the published source
+- SHA-256 of the deployed WASM (from step 3)
+
+### 2. Reproduce the build from published source
+
+```bash
+# Check out the exact commit recorded above
+git clone https://github.com/<org>/<repo>.git
+git -C <repo> checkout <commit-sha>
+
+# Confirm the pinned toolchain and locked dependencies
+cat rust-toolchain.toml          # rustc / target versions
+cat Cargo.lock | sha256sum       # record the lockfile hash
+
+# Build deterministically (same flags as CI / release)
+make build
+sha256sum target/wasm32v1-none/release/price_oracle.wasm
+```
+
+Record the toolchain versions (`rustc --version`, `cargo --version`,
+`stellar --version`) alongside the WASM hash. A second operator must obtain the
+**same** WASM hash from the same commit and toolchain; if it differs, stop and
+investigate before trusting the deployment.
+
+### 3. Fetch the on-chain WASM and compare hashes
+
+```bash
+export CONTRACT_ID=C...
+export RPC_URL=https://soroban-rpc.mainnet.stellar.gateway.fm
+
+# Download the WASM currently installed for the contract
+stellar contract fetch \
+  --id "$CONTRACT_ID" \
+  --rpc-url "$RPC_URL" \
+  --out deployed.wasm
+
+sha256sum deployed.wasm
+```
+
+The hash of `deployed.wasm` must equal the hash produced in step 2. This is the
+core verification: published source → reproducible build → identical WASM on chain.
+
+### 4. Verify the installed WASM hash on chain
+
+```bash
+stellar contract invoke \
+  --id "$CONTRACT_ID" \
+  --rpc-url "$RPC_URL" \
+  -- get_admin_address
+```
+
+Confirm the contract responds and that the admin address matches the expected
+operator. Cross-check the WASM hash against the `ContractUpgradedEvent`
+(`new_wasm_hash`) emitted at deploy/upgrade time in a block explorer.
+
+### 5. Publish the verification result
+
+Attach to the release: commit SHA, toolchain versions, `Cargo.lock` hash, the
+reproduced WASM hash, the on-chain WASM hash, and the block/ledger of the
+deployment. A second operator repeats steps 2–4 and confirms the hashes match.
+
+### Repeatable check
+
+The same steps run in CI via `scripts/verify-contract.sh` (see
+`.github/workflows/`), which builds from the tagged commit and compares the
+resulting WASM hash against the deployed contract — no secrets required.
+
 ## Project Structure
 
 ```
@@ -217,75 +297,3 @@ contracts/price-oracle/
 | Layer | Technology |
 |-------|-----------|
 | Contract | Rust, Soroban SDK v26 |
-| Target | `wasm32v1-none` (WebAssembly) |
-| Aggregation | On-chain median (Rust) |
-| Testing | `#[cfg(test)]` with `soroban-sdk/testutils` |
-
-## Error Codes
-
-| Code | Name | Description |
-|------|------|-------------|
-| 0 | `NotAuthorized` | Caller is not the admin or required signer |
-| 1 | `AlreadyInitialized` | Contract already initialized |
-| 2 | `AssetNotRegistered` | Asset not found |
-| 3 | `AssetAlreadyRegistered` | Asset already registered |
-| 4 | `SourceAlreadyExists` | Source already registered |
-| 5 | `SourceNotFound` | Source not found |
-| 6 | `InsufficientSources` | Not enough sources for aggregation |
-| 7 | `InvalidPrice` | Price is zero or negative |
-| 8 | `NoData` | No price data available (or gap with interpolation disabled) |
-| 9 | `InvalidTimestamp` | Submitted timestamp too far in the future |
-| 10 | `InvalidConfiguration` | Configuration parameter out of valid range |
-| 11 | `DescriptionTooLong` | Description exceeds 256 characters |
-| 12 | `ContractPaused` | Contract is paused; operations blocked |
-| 13 | `TimelockNotReady` | Timelock delay has not elapsed |
-| 14 | `OperationNotFound` | No pending timelock operation with that ID |
-| 15 | `PriceBelowMinimum` | Price is below the asset's configured minimum |
-
-See [`docs/error-codes.md`](docs/error-codes.md) for the full registry with causes and resolutions.
-
-## Documentation
-
-| Document | Description |
-|---|---|
-| [Architecture](docs/ARCHITECTURE.md) | System design, data flow, module structure |
-| [Hackathon Bounty Track](docs/hackathon-bounty-track.md) | Hackathon bounty track definition, curated project ideas, judging rubric, and reward tiers |
-| [Deployment Record](docs/deployment.md) | Contract addresses, initialization parameters, admin addresses, deployment checklist |
-| [Security Audit Checklist](docs/security-audit-checklist.md) | Pre-audit review items: access control, input validation, arithmetic safety, storage safety, upgrade mechanism, event integrity, known patterns |
-| [Attack-Regression Corpus](docs/security/attack-regression-corpus.md) | Every historical adversarial scenario pinned as a test, by attack class, with a mutation check proving the corpus has teeth (#511) |
-| [Formal Verification](docs/security/formal-verification.md) | Bounded proofs for the aggregation math, the stated bounded domain, and the proven-vs-sampled split (#512) |
-| [State-Machine Model](docs/security/state-machine-model.md) | Independently written model of the aggregate lifecycle, driven by shrinking random traces (#513) |
-| [Coverage-Guided Fuzzing](docs/security/fuzzing.md) | Fuzz targets, the committed minimized corpus, and the CI crash and size gates (#514) |
-| [Monitoring Dashboard](docs/monitoring/README.md) | Grafana dashboard setup and metrics reference |
-| [Quickstart Templates](examples/README.md) | CI-tested web (SEP-40), Python bot and indexer templates |
-| [Interface Package](docs/interface-versioning.md) | Versioned `@stellar-unified-price-oracle/interface` npm package, semver rules, deprecation policy |
-| [Error Registry](docs/errors/REGISTRY.md) | Every error code with meaning, cause and remediation ([JSON](docs/errors/registry.json)) |
-| [Migration Guides](docs/migrations/README.md) | Per-version guides for breaking changes and deprecation windows |
-| [Integration Case Studies](docs/case-studies.md) | Lending, DEX and payments integrations with threat models, worked exploits and countermeasures |
-| [Seam Invariant Catalogue](docs/seam-invariants.md) | Cross-module invariants and the regression tests that enforce them |
-| [SLA](docs/SLA.md) | Service levels and the machine-enforceable clause map checked by `services/sla_monitor` |
-| [Runbook](docs/runbook.md) | Every paging alert mapped to meaning, first check, mitigation, escalation, resolution, owner and review cadence (#527) |
-| [Incident Management](docs/incident-management/README.md) | Blameless postmortem process, template, index and tracked action items (#528) |
-| [Backup and Restore](docs/backup-restore.md) | Off-chain state inventory, encrypted backups, point-in-time restore and reconciliation (#529) |
-| [Capacity Planning](docs/capacity-planning.md) | Ingest, storage and ledger-budget model with headroom targets and load shedding (#530) |
-| [Price Revision Metrics](docs/price-revision-metrics.md) | Correction-rate metric per asset and per source, cause separation, volume normalization and sustained-increase alerting (#499) |
-| [Static Analysis](docs/static-analysis.md) | SAST rules, dependency-advisory gate, owned+expiring allowlist and the re-baseline process (#500) |
-| [Reproducible Builds](docs/reproducible-builds.md) | Exact dependency pins, canonical containerized build environment, two-build digest check (#501) |
-| [Secret Scanning](docs/secret-scanning.md) | Pre-commit and CI secret scanning, history scan, allowlist process and the rotation playbook (#502) |
-
-## Documentation
-
-- [Hackathon Bounty Track](docs/hackathon-bounty-track.md) — reusable hackathon track definition, curated ideas mapped to open issues, judging rubric, and reward tiers (#407)
-- [Price Submission Bot Design](docs/price-submission-bot.md) — off-chain bot architecture for automated price submissions
-- [Signed CEX/Aggregator Adapters](docs/signed-price-adapters.md) — CoinGecko/Binance/Coinbase adapters with failover, staleness handling, and signed submission (#216)
-- [Disaster Recovery Plan](docs/disaster-recovery.md) — failure scenario playbooks and recovery procedures
-- [Architecture](docs/ARCHITECTURE.md) — contract design and data flow
-- [Monitoring](docs/monitoring/README.md) — Grafana dashboard and alerting setup
-
-## License
-
-MIT
-
-## Service Level Agreement
-
-See [docs/SLA.md](docs/SLA.md) for price freshness guarantees, uptime commitments, deviation thresholds, incident response times, and compensation terms.

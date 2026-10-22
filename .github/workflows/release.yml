@@ -4,6 +4,11 @@ name: Release
 # WASM, a keyless cosign signature, and an in-toto/SLSA attestation binding the
 # artifact to its source commit and build environment. See
 # docs/release-provenance.md.
+#
+# #612: the same build also emits a machine-readable verification manifest
+# (compiler inputs + WASM hash) so operators can reproduce the explorer
+# verification checklist in docs/contract-verification.md without privileged
+# local state. See that checklist for the step-by-step procedure.
 on:
   push:
     tags: ["v*"]
@@ -47,6 +52,36 @@ jobs:
           WASM=target/wasm32v1-none/release/price_oracle.wasm
           test -f "$WASM"
           echo "sha256=$(sha256sum "$WASM" | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
+      - name: Emit verification manifest (compiler inputs + WASM hash)
+        env:
+          ARTIFACT: target/wasm32v1-none/release/price_oracle.wasm
+          COMMIT: ${{ github.sha }}
+          TAG: ${{ inputs.tag || github.ref_name }}
+        run: |
+          set -euo pipefail
+          # #612: capture the exact compiler inputs an operator needs to
+          # reproduce the build and compare against the deployed WASM. No
+          # secrets are recorded; only public toolchain and source metadata.
+          WASM_SHA256=$(sha256sum "$ARTIFACT" | cut -d' ' -f1)
+          RUSTC_VERSION=$(rustc --version)
+          CARGO_VERSION=$(cargo --version)
+          SOROBAN_VERSION=$(soroban --version 2>/dev/null || echo "unavailable")
+          CARGO_LOCK_SHA256=$(sha256sum Cargo.lock | cut -d' ' -f1)
+          cat > verification-manifest.json <<EOF
+          {
+            "tag": "${TAG}",
+            "commit": "${COMMIT}",
+            "artifact": "price_oracle.wasm",
+            "wasm_sha256": "${WASM_SHA256}",
+            "target": "wasm32v1-none",
+            "rustc": "${RUSTC_VERSION}",
+            "cargo": "${CARGO_VERSION}",
+            "soroban": "${SOROBAN_VERSION}",
+            "cargo_lock_sha256": "${CARGO_LOCK_SHA256}",
+            "build_command": "make build"
+          }
+          EOF
+          cat verification-manifest.json
       - name: Generate SLSA provenance
         env:
           ARTIFACT: target/wasm32v1-none/release/price_oracle.wasm
@@ -99,6 +134,7 @@ jobs:
             target/wasm32v1-none/release/price_oracle.wasm
             target/wasm32v1-none/release/price_oracle.wasm.sig
             provenance.json
+            verification-manifest.json
           retention-days: 365
 
   publish:
@@ -126,6 +162,7 @@ jobs:
             dist/price_oracle.wasm \
             dist/price_oracle.wasm.sig \
             dist/provenance.json \
+            dist/verification-manifest.json \
             --clobber
 
   verify-published:
@@ -162,6 +199,16 @@ jobs:
             --workflow-ref "$WORKFLOW_REF" \
             --report provenance-verification.md \
             | tee -a "$GITHUB_STEP_SUMMARY"
+      - name: Fresh build must match the published WASM hash
+        run: |
+          set -euo pipefail
+          # #612: the reproducible check backing the operator checklist. The
+          # fresh build's hash must equal the hash recorded in the manifest
+          # that ships with the release.
+          FRESH=$(sha256sum target/wasm32v1-none/release/price_oracle.wasm | cut -d' ' -f1)
+          PUBLISHED=$(python -c 'import json,sys; print(json.load(open("dist/verification-manifest.json"))["wasm_sha256"])')
+          echo "fresh=$FRESH published=$PUBLISHED" | tee -a "$GITHUB_STEP_SUMMARY"
+          test "$FRESH" = "$PUBLISHED"
       - uses: actions/upload-artifact@v4
         if: always()
         with:

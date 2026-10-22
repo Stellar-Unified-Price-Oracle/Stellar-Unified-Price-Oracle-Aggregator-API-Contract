@@ -61,6 +61,74 @@ For proposals related to contract upgrades, parameter changes, source additions/
 
 Submit completed proposals as a GitHub issue or pull request for community review before any on-chain action is taken.
 
+## Production Contract Verification Checklist
+
+Every deployed contract must be independently verifiable by a second operator using only
+public artifacts — no privileged local state, no production credentials. Run this checklist
+for each deployed contract before announcing a mainnet deployment and after every upgrade.
+
+### 1. Pin the source revision
+
+- Record the exact git commit SHA that was deployed (the tag or commit, not a branch).
+- Confirm the commit is reachable from `main` and matches the release notes.
+- Check out that SHA in a clean clone:
+  ```bash
+  git clone https://github.com/<org>/<repo>.git verify-oracle
+  cd verify-oracle
+  git checkout <commit-sha>
+  ```
+
+### 2. Reproduce the compiler inputs
+
+- Record the toolchain versions used for the build:
+  ```bash
+  rustc --version
+  cargo --version
+  stellar --version   # or soroban --version
+  ```
+- Confirm `Cargo.lock` is committed and unmodified at the deployed SHA (`git status --porcelain` is empty).
+- Confirm the build target and flags match the release notes:
+  ```bash
+  cargo build -p price-oracle --target wasm32v1-none --release
+  ```
+- Note any environment overrides (e.g. `RUSTFLAGS`) in the release notes; the build must be reproducible without them.
+
+### 3. Compare the WASM hash
+
+- Hash the locally built artifact:
+  ```bash
+  sha256sum target/wasm32v1-none/release/price_oracle.wasm
+  ```
+- Fetch the on-chain WASM for the deployed contract and hash it:
+  ```bash
+  stellar contract fetch --id <CONTRACT_ID> --network mainnet --out deployed.wasm
+  sha256sum deployed.wasm
+  ```
+- The two hashes **must match**. If they differ, stop and escalate — do not announce the deployment.
+
+### 4. Verify published source on the explorer
+
+- Open the contract on a public explorer (e.g. Stellar Expert / Stellar Lab) and confirm the
+  published source matches the deployed WASM hash from step 3.
+- Confirm the explorer's recorded commit SHA matches the one pinned in step 1.
+- If the explorer shows unverified source, publish the source and re-check before sign-off.
+
+### 5. Record the result
+
+- Attach the following to the deployment issue/PR:
+  - Commit SHA
+  - Toolchain versions (`rustc`, `cargo`, `stellar`)
+  - Local WASM `sha256`
+  - On-chain WASM `sha256`
+  - Explorer link showing verified source
+- A second operator repeats steps 1–4 independently and confirms the hashes match.
+
+### Repeatable check
+
+Steps 1–3 are scriptable and can be run in CI against a release tag to produce the WASM hash
+for comparison. Keep the recorded hashes in the deployment issue so any operator can re-run the
+check later without access to build infrastructure.
+
 ## Contributor Ladder
 
 The contributor ladder is a security control as much as a recognition scheme. Access escalates
