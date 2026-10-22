@@ -46,7 +46,10 @@ use soroban_sdk::{panic_with_error, Address, Env, String};
 
 use crate::events::{LagAlertEvent, SeverityAlertEvent, SeverityThresholdsSetEvent};
 use crate::storage::{get_admin, LEDGER_BUMP, LEDGER_THRESHOLD};
-use crate::types::{AlertChannel, AlertSeverity, DataKey, ErrorCode, SeverityThresholds};
+use crate::types::{
+    AlertChannel, AlertIncident, AlertOccurrence, AlertSeverity, DataKey, ErrorCode,
+    SeverityThresholds,
+};
 
 /// Default global severity thresholds, in basis points of price movement.
 pub const DEFAULT_WARNING_BPS: u32 = 300; // 3%
@@ -318,6 +321,7 @@ pub fn get_price_quality_status(env: &Env, asset: Address) -> PriceQualityStatus
         | Some(AlertSeverity::Emergency) => PriceQualityStatus::Degraded,
         _ => PriceQualityStatus::Fresh,
     }
+}
 
     (source_severity, consumer_severity)
 }

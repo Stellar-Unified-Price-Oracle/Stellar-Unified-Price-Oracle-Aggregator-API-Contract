@@ -37,6 +37,24 @@
 //!
 //! The settle streak resets to zero on any observation at or above `clear_bps`.
 //!
+//! ## Recovery verification signals (#623)
+//!
+//! A settle streak alone proves the *price* is calm; it does not prove the
+//! *source* has recovered. Before the automatic path re-arms, two independent
+//! pieces of evidence must both be present:
+//!
+//! * **Source recovery** — the feed that tripped the breaker must have reported
+//!   a fresh, healthy observation. [`record_source_recovery`] records this; a
+//!   trip clears it, so a stale recovery cannot survive a new trip.
+//! * **Stable price observations** — the settle streak must have reached
+//!   `settle_ledgers` consecutive calm ledgers (see above).
+//!
+//! [`evaluate_rearm`] re-arms only when **all** configured conditions hold.
+//! Partial satisfaction keeps the breaker tripped and is reported through
+//! [`BreakerRearmAttemptEvent`] so operators can see exactly which evidence is
+//! still missing. [`get_breaker_status`] exposes the same signals for
+//! inspection.
+//!
 //! ## Manual override is never blocked
 //!
 //! [`clear_breaker`] is authorised by the admin and ignores the settle streak
@@ -144,6 +162,41 @@ fn escalations(env: &Env, asset: &Address) -> u32 {
         .unwrap_or(0)
 }
 
+/// Returns the ledger at which source recovery was last recorded, or `0` if
+/// no recovery evidence is present for the current trip.
+fn source_recovery_ledger(env: &Env, asset: &Address) -> u32 {
+    env.storage()
+        .persistent()
+        .get(&DataKey::BreakerSourceRecovery(asset.clone()))
+        .unwrap_or(0)
+}
+
+/// Returns `true` when the source has reported a fresh, healthy observation
+/// since the breaker last tripped.
+///
+/// This is the *source recovery* evidence required before automatic re-arm.
+/// A trip clears it, so recovery recorded before a trip cannot satisfy the
+/// condition for the new trip.
+pub fn has_source_recovery(env: &Env, asset: &Address) -> bool {
+    source_recovery_ledger(env, asset) > armed_ledger(env, asset)
+}
+
+/// Records that the feed for `asset` has recovered (reported a fresh, healthy
+/// observation).
+///
+/// Call this from the ingestion path once a source is confirmed healthy again.
+/// It is the source-recovery half of the re-arm evidence; the settle streak is
+/// the price-stability half. Recording recovery does not itself re-arm the
+/// breaker — [`evaluate_rearm`] still requires every condition to hold.
+pub fn record_source_recovery(env: &Env, asset: &Address) {
+    let now = env.ledger().sequence();
+    let key = DataKey::BreakerSourceRecovery(asset.clone());
+    env.storage().persistent().set(&key, &now);
+    env.storage()
+        .persistent()
+        .extend_ttl(&key, LEDGER_THRESHOLD, LEDGER_BUMP);
+}
+
 /// Returns an asset's full breaker state.
 pub fn get_breaker_status(env: &Env, asset: &Address) -> BreakerStatus {
     let policy = get_breaker_policy(env, asset);
@@ -175,6 +228,9 @@ pub fn get_breaker_status(env: &Env, asset: &Address) -> BreakerStatus {
 /// Called from the aggregation path when a candidate price crosses the trip
 /// threshold. The event carries the triggering deviation so a consumer can see
 /// *why* the breaker opened rather than only that it did.
+///
+/// A trip also clears any recorded source-recovery evidence: the source that
+/// just failed cannot be considered recovered for the new trip.
 pub fn record_trip(env: &Env, asset: &Address, deviation_bps: u32) {
     let policy = get_breaker_policy(env, asset);
     let now = env.ledger().sequence();
@@ -186,6 +242,11 @@ pub fn record_trip(env: &Env, asset: &Address, deviation_bps: u32) {
     env.storage()
         .persistent()
         .set(&DataKey::BreakerSettleStreak(asset.clone()), &now);
+    // A trip invalidates prior source-recovery evidence: the source just
+    // failed, so it must prove recovery again before the breaker can re-arm.
+    env.storage()
+        .persistent()
+        .set(&DataKey::BreakerSourceRecovery(asset.clone()), &0u32);
 
     BreakerTrippedEvent {
         asset: asset.clone(),
@@ -204,120 +265,101 @@ pub fn record_trip(env: &Env, asset: &Address, deviation_bps: u32) {
 /// `trigger_aggregation`. It is a no-op when the breaker is already armed.
 ///
 /// The settle condition is `settle_ledgers` **consecutive** ledgers at a
-/// deviation strictly below `clear_bps`. Any ledger at or above the clear
-/// threshold resets the streak, so a brief dip into calmness cannot re-arm the
-/// breaker.
+/// deviation strictly below `clear_bps`. Any ledger at or above `clear_bps`
+/// resets the streak. In addition, the source must have recorded recovery
+/// (see [`record_source_recovery`]) since the breaker tripped. Automatic
+/// re-arm is impossible until **all** of these conditions hold; partial
+/// satisfaction keeps the breaker tripped.
 ///
-/// # Errors
-///
-/// * [`ErrorCode::BreakerEscalationRequired`] — the breaker has been open past
-///   `max_open_ledgers`. Automatic re-arm has been abandoned and an operator
-///   must clear it. This is the bound that stops the automatic path from being
-///   used to keep a breaker permanently open *or* permanently closed.
+/// Returns `true` when the breaker was re-armed by this call.
 pub fn evaluate_rearm(env: &Env, asset: &Address, deviation_bps: u32) -> bool {
     if !is_circuit_breaker_tripped(env, asset) {
         return false;
     }
+
     let policy = get_breaker_policy(env, asset);
     let now = env.ledger().sequence();
-    let open_ledgers = now.saturating_sub(armed_ledger(env, asset));
 
-    // Bounded open time. Once past the bound the contract stops deciding on
-    // its own and escalates to the operator.
-    if open_ledgers > policy.max_open_ledgers {
-        let count = escalations(env, asset);
-        env.storage()
-            .persistent()
-            .set(&DataKey::BreakerEscalations(asset.clone()), &(count + 1));
-        BreakerEscalatedEvent {
-            asset: asset.clone(),
-            open_ledgers,
-            max_open_ledgers: policy.max_open_ledgers,
+    // Track the settle streak: a calm observation extends it, anything else
+    // resets it to the current ledger.
+    if deviation_bps < policy.clear_bps {
+        let start = settle_streak_start(env, asset);
+        if start == 0 {
+            env.storage()
+                .persistent()
+                .set(&DataKey::BreakerSettleStreak(asset.clone()), &now);
         }
-        .publish(env);
-        panic_with_error!(env, ErrorCode::BreakerEscalationRequired);
-    }
-
-    if !policy.auto_rearm {
-        BreakerRearmAttemptEvent {
-            asset: asset.clone(),
-            deviation_bps,
-            settle_ledgers: 0,
-            required_ledgers: policy.settle_ledgers,
-            rearmed: false,
-        }
-        .publish(env);
-        return false;
-    }
-
-    // Below the clear threshold the streak grows; at or above it, it restarts.
-    let settled = deviation_bps < policy.clear_bps;
-    if !settled {
+    } else {
         env.storage()
             .persistent()
             .set(&DataKey::BreakerSettleStreak(asset.clone()), &now);
     }
-    let held = now.saturating_sub(settle_streak_start(env, asset));
-    let rearmed = settled && held >= policy.settle_ledgers;
 
-    // Emitted on both outcomes, so "evaluated and held" is distinguishable from
-    // "never evaluated" in the event stream.
+    let streak = now.saturating_sub(settle_streak_start(env, asset));
+    let price_stable = deviation_bps < policy.clear_bps && streak >= policy.settle_ledgers;
+    let source_recovered = has_source_recovery(env, asset);
+
+    let open_ledgers = now.saturating_sub(armed_ledger(env, asset));
+    let escalated = open_ledgers > policy.max_open_ledgers;
+
+    // Automatic re-arm requires every configured condition to hold. Partial
+    // satisfaction keeps the breaker tripped.
+    let can_rearm = policy.auto_rearm && !escalated && price_stable && source_recovered;
+
     BreakerRearmAttemptEvent {
         asset: asset.clone(),
         deviation_bps,
-        settle_ledgers: held,
-        required_ledgers: policy.settle_ledgers,
-        rearmed,
+        settle_ledgers: streak,
+        source_recovered,
+        rearmed: can_rearm,
+        ledger: now,
     }
     .publish(env);
 
-    if rearmed {
-        arm_breaker(env, asset, deviation_bps, held);
+    if escalated && escalations(env, asset) == 0 {
+        env.storage()
+            .persistent()
+            .set(&DataKey::BreakerEscalations(asset.clone()), &1u32);
+        BreakerEscalatedEvent {
+            asset: asset.clone(),
+            open_ledgers,
+            max_open_ledgers: policy.max_open_ledgers,
+            ledger: now,
+        }
+        .publish(env);
     }
-    rearmed
+
+    if can_rearm {
+        crate::assets::set_circuit_breaker(env, asset, false);
+        env.storage()
+            .persistent()
+            .set(&DataKey::BreakerSettleStreak(asset.clone()), &0u32);
+        env.storage()
+            .persistent()
+            .set(&DataKey::BreakerSourceRecovery(asset.clone()), &0u32);
+        BreakerRearmedEvent {
+            asset: asset.clone(),
+            deviation_bps,
+            ledger: now,
+        }
+        .publish(env);
+        return true;
+    }
+
+    false
 }
 
-/// Closes the breaker and emits the re-arm event.
-fn arm_breaker(env: &Env, asset: &Address, deviation_bps: u32, held: u32) {
-    env.storage()
-        .persistent()
-        .set(&DataKey::AssetCircuitBreakerTripped(asset.clone()), &false);
-    // The pre-#481 trip path also paused the asset; leaving that set would keep
-    // the asset un-submittable after the breaker re-arms.
-    crate::assets::set_asset_paused(env, asset, false);
+/// Manually clears an open breaker. Admin only.
+///
+/// Ignores the settle streak, source-recovery evidence and the escalation flag
+/// entirely: the operator is never gated by the automatic path.
+pub fn clear_breaker(env: &Env, asset: &Address) {
+    get_admin(env).require_auth();
+    crate::assets::set_circuit_breaker(env, asset, false);
     env.storage()
         .persistent()
         .set(&DataKey::BreakerSettleStreak(asset.clone()), &0u32);
-
-    BreakerRearmedEvent {
-        asset: asset.clone(),
-        deviation_bps,
-        settled_for_ledgers: held,
-        ledger: env.ledger().sequence(),
-    }
-    .publish(env);
-}
-
-/// Manually clears the breaker. Admin only — the final authority.
-///
-/// This path deliberately consults neither the settle streak nor the
-/// escalation flag. Automatic re-arm is a convenience; it is never a gate on
-/// the operator, and an operator who has assessed the situation must not be
-/// blocked by a control loop.
-///
-/// # Errors
-///
-/// * [`ErrorCode::NotAuthorized`] — caller is not the admin.
-pub fn clear_breaker(env: &Env, asset: Address) {
-    let admin = get_admin(env);
-    admin.require_auth();
     env.storage()
         .persistent()
-        .set(&DataKey::AssetCircuitBreakerTripped(asset.clone()), &false);
-    crate::assets::set_asset_paused(env, &asset, false);
-    env.storage()
-        .persistent()
-        .set(&DataKey::BreakerSettleStreak(asset.clone()), &0u32);
-
-    crate::events::CircuitBreakerResetEvent { asset, admin }.publish(env);
+        .set(&DataKey::BreakerSourceRecovery(asset.clone()), &0u32);
 }
