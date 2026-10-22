@@ -2,8 +2,11 @@
 //!
 //! Provides visibility into source performance metrics including accuracy, timeliness,
 //! uptime, and reputation trajectory over configurable rolling windows.
+//!
+//! Also provides a reproducible monthly service-level evidence report (#625) built
+//! from operational data: freshness, availability, correction rate, and incident time.
 
-use soroban_sdk::{Address, Env};
+use soroban_sdk::{Address, Env, Vec};
 
 use crate::events::SourceAnalyticsReportedEvent;
 use crate::reputation;
@@ -141,4 +144,126 @@ pub fn record_submission_accuracy(env: &Env, source: &Address, accuracy_score: u
         accuracy: accuracy_score,
     }
     .publish(env);
+}
+
+/// Raw operational inputs for a monthly service-level evidence report.
+///
+/// All fields are supplied by the operator from operational data so the report
+/// is fully reproducible: the same `ServiceLevelInputs` always yields the same
+/// [`ServiceLevelReport`].
+#[derive(Clone)]
+pub struct ServiceLevelInputs {
+    /// Number of expected price updates in the reporting window.
+    pub expected_updates: u32,
+    /// Number of price updates actually observed in the window.
+    pub observed_updates: u32,
+    /// Number of observed updates that were within the freshness SLA.
+    pub fresh_updates: u32,
+    /// Number of rounds the oracle was expected to be available.
+    pub expected_rounds: u32,
+    /// Number of rounds the oracle was actually available.
+    pub available_rounds: u32,
+    /// Number of published prices that required a correction.
+    pub corrected_prices: u32,
+    /// Total number of published prices in the window.
+    pub total_prices: u32,
+    /// Total incident duration in seconds during the window.
+    pub incident_seconds: u64,
+    /// Total seconds in the reporting window.
+    pub window_seconds: u64,
+}
+
+/// Deterministic monthly service-level evidence report (#625).
+///
+/// Percentages are expressed in basis points (0–10000) to avoid floating point
+/// and keep the report byte-for-byte reproducible for a fixed dataset.
+#[derive(Clone)]
+pub struct ServiceLevelReport {
+    /// Freshness: `fresh_updates / expected_updates` in basis points.
+    pub freshness_bps: u32,
+    /// Availability: `available_rounds / expected_rounds` in basis points.
+    pub availability_bps: u32,
+    /// Correction rate: `corrected_prices / total_prices` in basis points.
+    pub correction_rate_bps: u32,
+    /// Incident time: `incident_seconds / window_seconds` in basis points.
+    pub incident_time_bps: u32,
+    /// Human-readable metric definitions, in a stable order.
+    pub definitions: Vec<&'static str>,
+    /// Missing-data warnings, in a stable order. Empty when data is complete.
+    pub warnings: Vec<&'static str>,
+}
+
+/// Computes a ratio in basis points, saturating at 10000 (100%).
+fn ratio_bps(numerator: u32, denominator: u32) -> u32 {
+    if denominator == 0 {
+        return 0;
+    }
+    let scaled = (numerator as u64).saturating_mul(10_000) / denominator as u64;
+    scaled.min(10_000) as u32
+}
+
+/// Generates a reproducible monthly service-level evidence report (#625).
+///
+/// The report is deterministic for a fixed [`ServiceLevelInputs`]: it performs
+/// only integer arithmetic and emits metric definitions and missing-data
+/// warnings in a fixed order. Missing or zero denominators yield a `0` metric
+/// plus an explicit warning rather than a silent default.
+pub fn generate_service_level_report(
+    env: &Env,
+    inputs: &ServiceLevelInputs,
+) -> ServiceLevelReport {
+    let mut warnings: Vec<&'static str> = Vec::new(env);
+
+    if inputs.expected_updates == 0 {
+        warnings.push_back("freshness: no expected updates in window");
+    }
+    if inputs.expected_rounds == 0 {
+        warnings.push_back("availability: no expected rounds in window");
+    }
+    if inputs.total_prices == 0 {
+        warnings.push_back("correction rate: no published prices in window");
+    }
+    if inputs.window_seconds == 0 {
+        warnings.push_back("incident time: zero-length reporting window");
+    }
+    if inputs.observed_updates > inputs.expected_updates {
+        warnings.push_back("freshness: observed updates exceed expected");
+    }
+    if inputs.fresh_updates > inputs.observed_updates {
+        warnings.push_back("freshness: fresh updates exceed observed");
+    }
+    if inputs.available_rounds > inputs.expected_rounds {
+        warnings.push_back("availability: available rounds exceed expected");
+    }
+    if inputs.corrected_prices > inputs.total_prices {
+        warnings.push_back("correction rate: corrected prices exceed total");
+    }
+    if inputs.incident_seconds > inputs.window_seconds {
+        warnings.push_back("incident time: incident exceeds window");
+    }
+
+    let freshness_bps = ratio_bps(inputs.fresh_updates, inputs.expected_updates);
+    let availability_bps = ratio_bps(inputs.available_rounds, inputs.expected_rounds);
+    let correction_rate_bps = ratio_bps(inputs.corrected_prices, inputs.total_prices);
+    let incident_time_bps = if inputs.window_seconds == 0 {
+        0
+    } else {
+        let scaled = inputs.incident_seconds.saturating_mul(10_000) / inputs.window_seconds;
+        scaled.min(10_000) as u32
+    };
+
+    let mut definitions: Vec<&'static str> = Vec::new(env);
+    definitions.push_back("freshness: fresh_updates / expected_updates (bps)");
+    definitions.push_back("availability: available_rounds / expected_rounds (bps)");
+    definitions.push_back("correction_rate: corrected_prices / total_prices (bps)");
+    definitions.push_back("incident_time: incident_seconds / window_seconds (bps)");
+
+    ServiceLevelReport {
+        freshness_bps,
+        availability_bps,
+        correction_rate_bps,
+        incident_time_bps,
+        definitions,
+        warnings,
+    }
 }
