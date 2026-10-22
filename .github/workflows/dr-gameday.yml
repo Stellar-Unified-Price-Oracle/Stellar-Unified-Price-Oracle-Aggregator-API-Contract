@@ -1,7 +1,8 @@
 name: DR game day
 
-# Weekly disaster-recovery drills (#532). Drills run against throwaway
-# sandboxes only; the workflow holds no production secrets.
+# Weekly disaster-recovery drills (#532) and operator on-call readiness
+# drills (#626). Drills run against throwaway sandboxes only; the workflow
+# holds no production secrets.
 on:
   schedule:
     - cron: "0 6 * * 1"
@@ -38,6 +39,43 @@ jobs:
           jq -c '.issues[]' gameday-report.json | while read -r i; do
             gh issue create --title "$(jq -r .title <<<"$i")" --body "$(jq -r .body <<<"$i")" \
               --label disaster-recovery --label game-day || gh issue create \
+              --title "$(jq -r .title <<<"$i")" --body "$(jq -r .body <<<"$i")"
+          done
+          exit 1
+
+  oncall-readiness:
+    # Timed operator handover / on-call readiness drill (#626). Exercises
+    # shift handover, escalation contact reachability, and access to current
+    # runbooks, records per-step response times, and files owned corrective
+    # actions for any missed step. Uses only sandbox contacts and public
+    # runbook paths; no production credentials are referenced.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install pytest
+      - run: python -m pytest services/dr_gameday -q
+      - name: Run on-call readiness drill
+        id: readiness
+        run: |
+          python -m services.dr_gameday.oncall_readiness \
+            --out oncall-readiness-report.json
+        continue-on-error: true
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: oncall-readiness-report-${{ github.run_id }}
+          path: oncall-readiness-report.json
+      - name: File an issue for every missed step
+        if: steps.readiness.outcome == 'failure'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          jq -c '.issues[]' oncall-readiness-report.json | while read -r i; do
+            gh issue create --title "$(jq -r .title <<<"$i")" --body "$(jq -r .body <<<"$i")" \
+              --label operations --label oncall-readiness || gh issue create \
               --title "$(jq -r .title <<<"$i")" --body "$(jq -r .body <<<"$i")"
           done
           exit 1
