@@ -1,1 +1,5 @@
 # One asset contract id per line, compared by the canary pipeline.
+#
+# Freshness SLO targets and error budgets per asset class live in
+# config/freshness-slo.json (versioned). Keep this list in sync with the
+# production asset classes covered there.

@@ -198,6 +198,41 @@ soroban contract deploy \
   --network testnet
 ```
 
+## Freshness SLOs and Error Budgets
+
+Each production asset class has an explicit **freshness target** (maximum
+acceptable age of the latest aggregated price) and an **error budget** (the
+fraction of the evaluation window during which the asset may be stale). These
+are defined in a versioned configuration source at
+[`config/freshness-slo.toml`](config/freshness-slo.toml); the `version` field
+must be bumped whenever targets or budgets change so reviews are auditable.
+
+| Asset class | Freshness target | Error budget |
+|-------------|------------------|--------------|
+| `stablecoin` | 300 s | 0.1% |
+| `major` | 120 s | 0.5% |
+| `long_tail` | 900 s | 2.0% |
+
+### Budget-burn alert
+
+The monitor (`scripts/freshness-monitor.sh`) evaluates each asset against its
+configured target and emits a **budget-burn alert** when the observed staleness
+exceeds the target or when the consumed error budget crosses the burn
+threshold. The evaluation is deterministic and unit-tested
+(`scripts/tests/freshness-slo-test.sh`), covering:
+
+- **Normal operation** — staleness within target, no alert.
+- **Boundary** — staleness exactly at the target is *not* a breach; one second
+  over is.
+- **Budget exhaustion** — consumed budget at 100% raises a burn alert.
+- **Recovery** — once staleness returns within target, the alert clears.
+
+Run the repeatable check with:
+
+```bash
+make freshness-slo-check
+```
+
 ## Mainnet Launch Sign-off and Stakeholder Ownership Map
 
 Every required mainnet workstream has a **named accountable owner** and an
@@ -210,51 +245,3 @@ an owner or escalation contact.
 
 | Workstream | Accountable owner | Escalation contact |
 |------------|-------------------|--------------------|
-| Contract (build, upgrade, verification) | Contract Lead | Engineering Lead |
-| Source operations (oracle sources, submissions) | Source Operations Lead | Engineering Lead |
-| Consumer integrations (SEP-40 consumers) | Integrations Lead | Engineering Lead |
-| Incident decisions (outage, rollback, comms) | Incident Commander | Engineering Lead |
-
-Replace the role placeholders above with the named individuals for the launch
-record before sign-off. The check validates that each workstream row has both an
-owner and an escalation contact filled in.
-
-### Launch sign-off gates
-
-Each gate must be signed off by its accountable owner before mainnet launch:
-
-- [ ] **Contract** — WASM built, verified against published source (see checklist below), upgrade path tested
-- [ ] **Source operations** — sources registered, submission runbook rehearsed, freshness SLOs met
-- [ ] **Consumer integrations** — SEP-40 consumers validated against `lastprice`/`price`
-- [ ] **Incident decisions** — escalation contacts confirmed, rollback and outage runbook reviewed
-
-### Escalation
-
-Incidents escalate from the workstream owner to the Engineering Lead, then to the
-Incident Commander for cross-workstream decisions. Escalation contacts are listed
-in the ownership map above and must be kept current in the launch record.
-
-### Repeatable check
-
-```bash
-./scripts/check-launch-ownership.sh
-```
-
-Run this in CI and before sign-off; it exits non-zero if any required workstream
-lacks an accountable owner or escalation contact.
-
-## Mainnet Contract Verification Checklist
-
-Operators and explorers use this checklist to independently verify that the source
-published for a deployed contract matches the on-chain WASM. It requires only
-public information (the contract ID, the published source repo, and a Stellar
-RPC endpoint) — no privileged local state or production credentials.
-
-### 1. Record the deployment facts
-
-For each deployed contract, capture the following in the release notes:
-
-- Contract ID (e.g. `C...`)
-- WASM hash
-- Source commit / tag
-- Network (mainnet)
