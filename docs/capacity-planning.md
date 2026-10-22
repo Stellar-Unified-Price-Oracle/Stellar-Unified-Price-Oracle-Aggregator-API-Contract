@@ -163,14 +163,63 @@ Reviewing the projections against measured usage is the step that keeps this
 document honest. A model that is only consulted during an incident is not a
 capacity model.
 
-## 7. Out of scope
+## 7. Storage footprint forecast per asset (#698)
+
+The profile model above projects storage from assumed rates.
+[`services/capacity/footprint.py`](../services/capacity/footprint.py) forecasts
+it from **measured history** instead. It reads an indexer store, measures each
+supported asset's event and aggregation rates and the bytes the store actually
+spends per event, and extrapolates both footprints over a stated horizon:
+
+```bash
+python -m services.capacity.footprint oracle-index.db --horizon-days 90
+python -m services.capacity.footprint oracle-index.db --horizon-days 90 --persistent-tier --json
+```
+
+The two stores grow differently:
+
+| Store | Per asset | Growth |
+|---|---|---|
+| contract | 3 fixed entries (`AssetRegistered`, `Aggregate`, `PriceHistoryLedgers`), 2 per source (`Submission`, `LastSubmissionLedger`), plus history | **saturates**: history is pruned to `min(max_history_length, max_history_per_asset)` (100 by default), and on the temporary tier an entry lapses after `TEMPORARY_RETENTION_LEDGERS` (10 000) |
+| indexer | every event, at the store's measured bytes per event | **linear** for as long as the indexer runs; nothing is pruned |
+
+Forecast assumptions. Each one is a field of `ContractAssumptions` or an argument:
+
+* per-asset submission and aggregation rates stay at their measured averages;
+* the source set stays as measured, and source-lifecycle events do not recur;
+* the indexer's bytes per event (page-allocated, indexes included) stays at
+  its measured value;
+* a ledger closes every 5 s (`LEDGERS_PER_DAY = 17 280`);
+* contract bytes per entry are planning estimates (128 / 96 / 112 B for fixed,
+  per-source and history entries, plus 4 B per history index slot). Entry
+  counts are reconciled; contract bytes are not;
+* optional per-asset features (bounds, pause flags, metadata) are not modelled.
+
+The history caps and the retention window default to the contract's constants.
+`test_default_assumptions_match_the_contract_constants` reads them from
+`admin.rs` and `types.rs`, so the forecast cannot drift from the contract
+without a test failing.
+
+**Reconciliation.** `reconcile()` compares a forecast with a store observed at
+the forecast horizon, using the model's stated 20 % `TOLERANCE`.
+`test_sample_workload_reconciles_to_the_observed_footprint` measures the first
+150 ledgers of a four-asset sample workload, forecasts 150 ledgers ahead, then
+ingests those ledgers and checks the result. Entry and event counts reconcile
+exactly, and indexer bytes reconcile within tolerance.
+`test_reconciliation_flags_a_workload_that_changed_shape` covers a workload
+whose traffic tripled after measurement and checks that it fails
+reconciliation. As in §5, a failed reconciliation is a finding for the
+quarterly review.
+
+## 8. Out of scope
 
 Procuring or resizing infrastructure is explicitly out of scope for this
 issue. The model states what is needed and when; the decision to buy or resize
 lives elsewhere. Stellar network data availability is likewise out of scope.
 
-## 8. Related
+## 9. Related
 
+* [`docs/recovery-performance.md`](recovery-performance.md) — cold-start and derived-state recovery performance baselines (#703)
 * [`docs/gas-budget.md`](gas-budget.md) — the per-endpoint CPU budgets used as drivers
 * [`docs/runbook.md`](runbook.md) — what to do when a capacity alert pages
 * [`docs/SLA.md`](SLA.md) — the 60 s freshness target behind the lag budget

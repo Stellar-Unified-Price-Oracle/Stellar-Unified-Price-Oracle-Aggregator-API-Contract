@@ -1,0 +1,77 @@
+{
+  "$schema": "./governance-policy-registry.schema.json",
+  "description": "Registry of critical governance policies with owners, review cadence, change history, and supersession. Overdue reviews are flagged and cannot be reported as current.",
+  "generatedAt": "2025-01-01T00:00:00Z",
+  "reviewCadenceDays": 90,
+  "policies": [
+    {
+      "id": "GOV-001",
+      "title": "Oracle price feed authority and upgrade control",
+      "owner": "oracle-core-team",
+      "reviewCadenceDays": 90,
+      "lastReviewedAt": "2024-11-15",
+      "nextReviewDueAt": "2025-02-13",
+      "status": "current",
+      "supersedes": null,
+      "supersededBy": null,
+      "changeHistory": [
+        {
+          "version": 1,
+          "date": "2024-05-01",
+          "author": "oracle-core-team",
+          "summary": "Initial policy establishing admin authority over price feed updates."
+        },
+        {
+          "version": 2,
+          "date": "2024-11-15",
+          "author": "oracle-core-team",
+          "summary": "Added multisig requirement for authority rotation."
+        }
+      ]
+    },
+    {
+      "id": "GOV-002",
+      "title": "Emergency pause and recovery procedure",
+      "owner": "security-response-team",
+      "reviewCadenceDays": 90,
+      "lastReviewedAt": "2024-08-01",
+      "nextReviewDueAt": "2024-10-30",
+      "status": "overdue",
+      "supersedes": null,
+      "supersededBy": null,
+      "changeHistory": [
+        {
+          "version": 1,
+          "date": "2024-08-01",
+          "author": "security-response-team",
+          "summary": "Initial emergency pause and recovery policy."
+        }
+      ]
+    },
+    {
+      "id": "GOV-003",
+      "title": "Alerting thresholds and escalation policy",
+      "owner": "oracle-ops-team",
+      "reviewCadenceDays": 90,
+      "lastReviewedAt": "2024-12-01",
+      "nextReviewDueAt": "2025-03-01",
+      "status": "current",
+      "supersedes": "GOV-003-v0",
+      "supersededBy": null,
+      "changeHistory": [
+        {
+          "version": 1,
+          "date": "2024-06-10",
+          "author": "oracle-ops-team",
+          "summary": "Initial alerting thresholds policy (GOV-003-v0)."
+        },
+        {
+          "version": 2,
+          "date": "2024-12-01",
+          "author": "oracle-ops-team",
+          "summary": "Superseded v0; added escalation tiers and on-call rotation."
+        }
+      ]
+    }
+  ]
+}

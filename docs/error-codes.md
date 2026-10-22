@@ -448,6 +448,9 @@ Error(Contract, #15)
 | 188 | `InvalidFreshnessWindow` | A freshness window exceeds `604800` seconds (#489) |
 | 189 | `InvalidScorecardConfig` | A scorecard window or threshold is outside its bounds (#490) |
 | 190 | `InvalidSanityRatio` | A peg ratio has a non-positive numerator or a zero denominator (#488) |
+| 30 | `RecordsLimitExceeded` | A query response exceeds its fixed result-size limit |
+| 118 | `InvalidPageSize` | A pagination limit is outside the allowed range |
+| 194 | `InvalidPageCursor` | An asset pagination cursor no longer identifies a registered asset |
 
 **Resolution**
 - **185** — assign a tier to every registered asset with `set_asset_risk_tier`
@@ -458,6 +461,9 @@ Error(Contract, #15)
 - **189** — keep `1 <= short_window <= long_window <= 512`, with
   `cold_start_samples <= long_window` and non-zero tolerance and cap.
 - **190** — supply a positive ratio numerator and a non-zero denominator.
+- **30** — reduce the response size or use the paginated endpoint.
+- **118** — use a page size between 1 and 50.
+- **194** — restart `assets_paginated` with a `None` cursor after a registry change removed the cursor asset.
 
 ---
 

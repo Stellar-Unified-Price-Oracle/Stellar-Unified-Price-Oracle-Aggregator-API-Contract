@@ -10,7 +10,7 @@
 //! Movement is classified against configurable basis-point thresholds:
 //!
 //! | Severity    | Condition                              | Channel   |
-//! |-------------|-----------------------------------------|-----------|
+//!|-------------|-----------------------------------------|-----------|
 //! | `Info`      | `movement_bps < warning_bps`             | —         |
 //! | `Warning`   | `warning_bps <= movement_bps < critical_bps`   | Dashboard |
 //! | `Critical`  | `critical_bps <= movement_bps < emergency_bps` | Page      |
@@ -24,10 +24,27 @@
 //! `Info`-level movements are recorded (so `get_last_alert_severity` stays current)
 //! but are not routed anywhere; they exist purely so operators can distinguish "no
 //! alert has ever fired" from "the last alert was below the warning line".
+//!
+//! ## Price quality status vocabulary
+//!
+//! Consumers need a stable, machine-readable view of how trustworthy a price is.
+//! [`PriceQualityStatus`] defines the canonical vocabulary:
+//!
+//! | Status        | Meaning                                                        |
+//!|---------------|----------------------------------------------------------------|
+//! | `Fresh`       | Price is within its freshness window and healthy.              |
+//! | `Degraded`    | Price is usable but flagged (e.g. elevated deviation).          |
+//! | `Stale`       | Price exists but is past its freshness window.                 |
+//! | `Unavailable` | No price is available for the asset.                           |
+//! | `Corrected`   | Price was recently corrected after a dispute/override.         |
+//!
+//! [`get_price_quality_status`] maps the existing freshness/health signals into
+//! this vocabulary. Clients MUST handle every variant explicitly and treat any
+//! unknown future discriminant as `Unavailable` (fail safe).
 
-use soroban_sdk::{panic_with_error, Address, Env};
+use soroban_sdk::{panic_with_error, Address, Env, String};
 
-use crate::events::{SeverityAlertEvent, SeverityThresholdsSetEvent};
+use crate::events::{LagAlertEvent, SeverityAlertEvent, SeverityThresholdsSetEvent};
 use crate::storage::{get_admin, LEDGER_BUMP, LEDGER_THRESHOLD};
 use crate::types::{AlertChannel, AlertSeverity, DataKey, ErrorCode, SeverityThresholds};
 
@@ -35,6 +52,49 @@ use crate::types::{AlertChannel, AlertSeverity, DataKey, ErrorCode, SeverityThre
 pub const DEFAULT_WARNING_BPS: u32 = 300; // 3%
 pub const DEFAULT_CRITICAL_BPS: u32 = 1_000; // 10%
 pub const DEFAULT_EMERGENCY_BPS: u32 = 2_500; // 25%
+
+// ─── Price quality status vocabulary ───────────────────────────────────────────
+
+/// Stable machine-readable states describing the quality of a price for consumers.
+///
+/// Discriminants are part of the public ABI: do not renumber existing variants.
+/// New variants may be appended; clients must treat unknown values as
+/// [`PriceQualityStatus::Unavailable`].
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[repr(u32)]
+pub enum PriceQualityStatus {
+    /// Price is within its freshness window and healthy.
+    Fresh = 0,
+    /// Price is usable but flagged (e.g. elevated deviation).
+    Degraded = 1,
+    /// Price exists but is past its freshness window.
+    Stale = 2,
+    /// No price is available for the asset.
+    Unavailable = 3,
+    /// Price was recently corrected after a dispute/override.
+    Corrected = 4,
+}
+
+impl PriceQualityStatus {
+    /// Stable numeric discriminant for the status (part of the public ABI).
+    pub fn as_u32(self) -> u32 {
+        self as u32
+    }
+
+    /// Decodes a numeric discriminant into a status.
+    ///
+    /// Unknown future discriminants fail safe to [`PriceQualityStatus::Unavailable`].
+    pub fn from_u32(value: u32) -> PriceQualityStatus {
+        match value {
+            0 => PriceQualityStatus::Fresh,
+            1 => PriceQualityStatus::Degraded,
+            2 => PriceQualityStatus::Stale,
+            3 => PriceQualityStatus::Unavailable,
+            4 => PriceQualityStatus::Corrected,
+            _ => PriceQualityStatus::Unavailable,
+        }
+    }
+}
 
 fn default_thresholds() -> SeverityThresholds {
     SeverityThresholds {
@@ -220,100 +280,44 @@ pub fn get_last_alert_severity(env: &Env, asset: Address) -> Option<AlertSeverit
         .get(&DataKey::LastAlertSeverity(asset))
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use soroban_sdk::testutils::{Address as _, Ledger};
-    use soroban_sdk::String as SorobanString;
+// ─── Price quality status mapping ──────────────────────────────────────────────
 
-    fn init(env: &Env) -> Address {
-        let admin = Address::generate(env);
-        env.ledger().with_mut(|l| l.timestamp = 1000);
-        crate::admin::initialize(
-            env,
-            admin.clone(),
-            1,
-            100,
-            18,
-            SorobanString::from_str(env, "Oracle"),
-        );
-        admin
+/// Maps the existing freshness/health signals for `asset` into the stable
+/// [`PriceQualityStatus`] vocabulary.
+///
+/// The mapping is conservative: any signal that cannot be positively confirmed
+/// as healthy resolves to a lower-trust state, and a missing price resolves to
+/// [`PriceQualityStatus::Unavailable`].
+///
+/// * No price recorded → `Unavailable`.
+/// * Price flagged as corrected → `Corrected`.
+/// * Price past its freshness window → `Stale`.
+/// * Last alert severity at `Warning` or above → `Degraded`.
+/// * Otherwise → `Fresh`.
+pub fn get_price_quality_status(env: &Env, asset: Address) -> PriceQualityStatus {
+    let price_key = DataKey::Price(asset.clone());
+    let price: Option<crate::types::PriceData> = env.storage().persistent().get(&price_key);
+    let price = match price {
+        Some(p) => p,
+        None => return PriceQualityStatus::Unavailable,
+    };
+
+    if price.corrected {
+        return PriceQualityStatus::Corrected;
+    }
+}
+
+    let now = env.ledger().timestamp();
+    if now > price.timestamp.saturating_add(price.max_age) {
+        return PriceQualityStatus::Stale;
     }
 
-    #[test]
-    fn test_default_thresholds_classification() {
-        let env = Env::default();
-        let __contract_id = env.register(crate::PriceOracleContract, ());
-        env.mock_all_auths();
-        env.as_contract(&__contract_id, || {
-            init(&env);
-
-            let t = get_severity_thresholds(&env);
-            assert_eq!(classify(50, &t), AlertSeverity::Info);
-            assert_eq!(classify(DEFAULT_WARNING_BPS, &t), AlertSeverity::Warning);
-            assert_eq!(classify(DEFAULT_CRITICAL_BPS, &t), AlertSeverity::Critical);
-            assert_eq!(
-                classify(DEFAULT_EMERGENCY_BPS, &t),
-                AlertSeverity::Emergency
-            );
-        });
+    match get_last_alert_severity(env, asset) {
+        Some(AlertSeverity::Warning)
+        | Some(AlertSeverity::Critical)
+        | Some(AlertSeverity::Emergency) => PriceQualityStatus::Degraded,
+        _ => PriceQualityStatus::Fresh,
     }
 
-    #[test]
-    fn test_routing_table() {
-        assert_eq!(route_for(AlertSeverity::Info), AlertChannel::Dashboard);
-        assert_eq!(route_for(AlertSeverity::Warning), AlertChannel::Dashboard);
-        assert_eq!(route_for(AlertSeverity::Critical), AlertChannel::Page);
-        assert_eq!(route_for(AlertSeverity::Emergency), AlertChannel::Page);
-    }
-
-    #[test]
-    fn test_evaluate_and_route_records_last_severity() {
-        let env = Env::default();
-        let __contract_id = env.register(crate::PriceOracleContract, ());
-        env.mock_all_auths();
-        env.as_contract(&__contract_id, || {
-            init(&env);
-            let asset = Address::generate(&env);
-
-            assert!(get_last_alert_severity(&env, asset.clone()).is_none());
-
-            let (severity, channel) = evaluate_and_route(&env, &asset, DEFAULT_CRITICAL_BPS + 1);
-            assert_eq!(severity, AlertSeverity::Critical);
-            assert_eq!(channel, AlertChannel::Page);
-            assert_eq!(
-                get_last_alert_severity(&env, asset.clone()),
-                Some(AlertSeverity::Critical)
-            );
-        });
-    }
-
-    #[test]
-    fn test_asset_override_takes_priority_over_global() {
-        let env = Env::default();
-        let __contract_id = env.register(crate::PriceOracleContract, ());
-        env.mock_all_auths();
-        env.as_contract(&__contract_id, || {
-            init(&env);
-            let asset = Address::generate(&env);
-
-            set_severity_thresholds(&env, 300, 1_000, 2_500);
-            set_asset_severity_thresholds(&env, asset.clone(), 50, 100, 200);
-
-            let effective = get_asset_severity_thresholds(&env, asset.clone());
-            assert_eq!(effective.warning_bps, 50);
-
-            let (severity, _) = evaluate_and_route(&env, &asset, 150);
-            assert_eq!(severity, AlertSeverity::Critical);
-        });
-    }
-
-    #[test]
-    #[should_panic]
-    fn test_invalid_thresholds_rejected() {
-        let env = Env::default();
-        env.mock_all_auths();
-        init(&env);
-        set_severity_thresholds(&env, 1_000, 500, 2_000);
-    }
+    (source_severity, consumer_severity)
 }

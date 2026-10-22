@@ -1,6 +1,9 @@
 name: Testnet Lifecycle
 
 # #418: deploy → exercise (incl. adversarial phases) → tear down on testnet.
+# #641: source key rotation rehearsal (staged rotation, authorization
+# verification, rollback, and old-key retirement). See
+# docs/operations/source-key-rotation.md for the runbook.
 on:
   pull_request:
     branches: [main]
@@ -45,6 +48,11 @@ jobs:
           RUN_ID: ${{ github.run_id }}-${{ github.run_attempt }}
           METRICS_OUT: lifecycle-metrics.json
         run: ./scripts/testnet-lifecycle.sh
+      - name: Rehearse source key rotation
+        env:
+          RUN_ID: ${{ github.run_id }}-${{ github.run_attempt }}
+          ROTATION_METRICS_OUT: rotation-metrics.json
+        run: ./scripts/testnet-key-rotation.sh
       - name: Report metric deltas
         if: always()
         run: |
@@ -62,6 +70,17 @@ jobs:
             ' lifecycle-metrics.json
           } >> "$GITHUB_STEP_SUMMARY"
           cp lifecycle-metrics.json previous-metrics.json
+      - name: Report rotation rehearsal
+        if: always()
+        run: |
+          [[ -f rotation-metrics.json ]] || { echo "No rotation metrics (rehearsal failed early)." >> "$GITHUB_STEP_SUMMARY"; exit 0; }
+          {
+            echo "### Source key rotation rehearsal"
+            echo ""
+            echo "| phase | result |"
+            echo "|---|---|"
+            jq -r 'to_entries[] | "| \(.key) | \(.value) |"' rotation-metrics.json
+          } >> "$GITHUB_STEP_SUMMARY"
       - name: Save metrics for next run
         if: success()
         uses: actions/cache/save@v4

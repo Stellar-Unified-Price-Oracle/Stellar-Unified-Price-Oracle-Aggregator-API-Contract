@@ -9,6 +9,8 @@ use crate::storage::{
 };
 use crate::types::{AssetMetadata, AssetMetadataUpdate, DataKey, ErrorCode, PriceBounds};
 
+pub const MAX_ASSET_QUERY_SIZE: u32 = 100;
+
 pub fn register_asset(env: &Env, asset: Address) {
     let admin = get_admin(env);
     admin.require_auth();
@@ -45,6 +47,48 @@ pub fn register_asset(env: &Env, asset: Address) {
     }
     .publish(env);
     emit_admin_action(env, symbol_short!("reg_asset"), admin, Bytes::new(env));
+}
+
+pub fn get_registered_assets_paginated(
+    env: &Env,
+    cursor: Option<Address>,
+    limit: u32,
+) -> (Vec<Address>, Option<Address>) {
+    if limit == 0 || limit > crate::history::MAX_PAGE_SIZE {
+        panic_with_error!(env, ErrorCode::InvalidPageSize);
+    }
+
+    let registered = read_registered_assets(env);
+    let start = match cursor {
+        Some(last_asset) => {
+            let mut next_index = None;
+            for i in 0..registered.len() {
+                if registered.get_unchecked(i) == last_asset {
+                    next_index = Some(i + 1);
+                    break;
+                }
+            }
+            match next_index {
+                Some(index) => index,
+                None => panic_with_error!(env, ErrorCode::InvalidPageCursor),
+            }
+        }
+        None => 0,
+    };
+
+    let mut page: Vec<Address> = Vec::new(env);
+    let mut index = start;
+    while index < registered.len() && page.len() < limit {
+        page.push_back(registered.get_unchecked(index));
+        index += 1;
+    }
+
+    let next_cursor = if index < registered.len() {
+        Some(page.get_unchecked(page.len() - 1))
+    } else {
+        None
+    };
+    (page, next_cursor)
 }
 
 pub fn unregister_asset(env: &Env, asset: Address) {
@@ -248,107 +292,6 @@ pub fn set_price_bounds(
 
 pub fn get_price_bounds(env: &Env, asset: Address) -> PriceBounds {
     crate::storage::check_registered_asset(env, &asset);
-    let key = DataKey::AssetPriceBounds(asset.clone());
-    if env.storage().persistent().has(&key) {
-        env.storage()
-            .persistent()
-            .extend_ttl(&key, LEDGER_THRESHOLD, LEDGER_BUMP);
-    }
-    env.storage().persistent().get(&key).unwrap_or(PriceBounds {
-        min_price: 0,
-        max_price: i128::MAX,
-        max_change_bps_per_ledger: 0,
-    })
-}
+    let key = DataK
 
-pub fn is_asset_paused(env: &Env, asset: &Address) -> bool {
-    let key = DataKey::AssetPauseFlag(asset.clone());
-    if env.storage().persistent().has(&key) {
-        env.storage()
-            .persistent()
-            .extend_ttl(&key, LEDGER_THRESHOLD, LEDGER_BUMP);
-    }
-    env.storage().persistent().get(&key).unwrap_or(false)
-}
-
-pub fn set_asset_paused(env: &Env, asset: &Address, paused: bool) {
-    let key = DataKey::AssetPauseFlag(asset.clone());
-    env.storage().persistent().set(&key, &paused);
-}
-
-pub fn is_circuit_breaker_tripped(env: &Env, asset: &Address) -> bool {
-    let key = DataKey::AssetCircuitBreakerTripped(asset.clone());
-    if env.storage().persistent().has(&key) {
-        env.storage()
-            .persistent()
-            .extend_ttl(&key, LEDGER_THRESHOLD, LEDGER_BUMP);
-    }
-    env.storage().persistent().get(&key).unwrap_or(false)
-}
-
-pub fn pause_asset(env: &Env, asset: Address) {
-    let admin = get_admin(env);
-    admin.require_auth();
-    crate::storage::check_registered_asset(env, &asset);
-    set_asset_paused(env, &asset, true);
-    emit_admin_action(env, symbol_short!("pause_ast"), admin, Bytes::new(env));
-}
-
-pub fn unpause_asset(env: &Env, asset: Address) {
-    let admin = get_admin(env);
-    admin.require_auth();
-    crate::storage::check_registered_asset(env, &asset);
-    set_asset_paused(env, &asset, false);
-    env.storage()
-        .persistent()
-        .set(&DataKey::AssetCircuitBreakerTripped(asset.clone()), &false);
-    CircuitBreakerResetEvent {
-        asset: asset.clone(),
-        admin: admin.clone(),
-    }
-    .publish(env);
-    emit_admin_action(env, symbol_short!("unp_asts"), admin, Bytes::new(env));
-}
-
-pub fn trip_circuit_breaker(
-    env: &Env,
-    asset: Address,
-    previous_price: i128,
-    candidate_price: i128,
-    change_bps: i128,
-    max_change_bps: u32,
-) {
-    set_asset_paused(env, &asset, true);
-    env.storage()
-        .persistent()
-        .set(&DataKey::AssetCircuitBreakerTripped(asset.clone()), &true);
-
-    let count_key = DataKey::AssetCircuitBreakerLogCount(asset.clone());
-    let count: u32 = env.storage().persistent().get(&count_key).unwrap_or(0);
-    let next_count = count + 1;
-    let entry = CircuitBreakerEventEntry {
-        asset: asset.clone(),
-        previous_price,
-        candidate_price,
-        change_bps: change_bps.min(i128::from(u32::MAX)) as u32,
-        max_change_bps,
-        ledger: env.ledger().sequence(),
-        timestamp: env.ledger().timestamp(),
-    };
-    env.storage().persistent().set(
-        &DataKey::AssetCircuitBreakerLog(asset.clone(), next_count),
-        &entry,
-    );
-    env.storage().persistent().set(&count_key, &next_count);
-
-    CircuitBreakerTrippedEvent {
-        asset: asset.clone(),
-        previous_price,
-        candidate_price,
-        change_bps: entry.change_bps,
-        max_change_bps,
-        ledger: env.ledger().sequence(),
-        timestamp: env.ledger().timestamp(),
-    }
-    .publish(env);
-}
+/* … truncated 3334 chars — edit only what you need near the top … */

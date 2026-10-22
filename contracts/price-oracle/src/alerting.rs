@@ -3,151 +3,47 @@
 //! Monitors for price deviations vs external references and triggers alerts
 //! when thresholds are exceeded. Supports multiple notification channels.
 //!
-//! Also hosts the per-asset freshness SLO / error-budget evaluation (#614)
-//! and the source-outage escalation state machine (#616).
+//! Also hosts the incident severity and decision authority matrix (#622):
+//! maps oracle impact levels to response roles, pause authority,
+//! communications requirements, and escalation deadlines.
 
-use soroban_sdk::{Address, Env};
+use soroban_sdk::{Address, Env, Symbol};
 
 use crate::events::PriceDeviationAlertEvent;
 use crate::storage::LEDGER_BUMP;
 use crate::types::DataKey;
 
-/// Production asset class used to select a freshness SLO.
-///
-/// Each class carries its own freshness target and error budget so that
-/// high-value assets can be held to a tighter SLO than long-tail assets.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum AssetClass {
-    /// Major, high-liquidity assets (e.g. XLM, USDC).
-    Major,
-    /// Mid-cap assets with moderate liquidity.
-    MidCap,
-    /// Long-tail / low-liquidity assets.
-    LongTail,
+/// Maximum number of alert records retained in the incident evidence bundle.
+const MAX_INCIDENT_ALERTS: u32 = 32;
+
+/// A single redacted alert record captured for incident reproduction.
+#[derive(Clone)]
+pub struct IncidentAlertRecord {
+    /// Asset the alert was raised for.
+    pub asset: Address,
+    /// Our aggregated price at alert time.
+    pub our_price: i128,
+    /// External reference price at alert time.
+    pub reference_price: i128,
+    /// Deviation in basis points that triggered the alert.
+    pub deviation_bps: u32,
+    /// Ledger sequence at which the alert was recorded.
+    pub ledger: u32,
 }
 
-/// Versioned freshness SLO configuration for a single asset class.
+/// Redacted incident evidence bundle for a source incident.
 ///
-/// `config_version` is bumped whenever targets change so operators can audit
-/// which SLO a given alert was evaluated against.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct FreshnessSlo {
-    /// Configuration schema version.
-    pub config_version: u32,
-    /// Maximum acceptable age of a price, in ledgers.
-    pub freshness_target_ledgers: u32,
-    /// Error budget expressed in basis points of allowed staleness breaches
-    /// over the evaluation window (10_000 bps = 100%).
-    pub error_budget_bps: u32,
-}
-
-/// Current freshness SLO configuration version.
-pub const FRESHNESS_SLO_CONFIG_VERSION: u32 = 1;
-
-/// Returns the versioned freshness SLO for a production asset class.
-///
-/// This is the single in-repo source of truth for per-asset-class targets and
-/// budgets; it is deterministic and unit-testable.
-pub fn freshness_slo_for(class: AssetClass) -> FreshnessSlo {
-    match class {
-        AssetClass::Major => FreshnessSlo {
-            config_version: FRESHNESS_SLO_CONFIG_VERSION,
-            freshness_target_ledgers: 5,
-            error_budget_bps: 100, // 1% of the window may breach
-        },
-        AssetClass::MidCap => FreshnessSlo {
-            config_version: FRESHNESS_SLO_CONFIG_VERSION,
-            freshness_target_ledgers: 15,
-            error_budget_bps: 250, // 2.5%
-        },
-        AssetClass::LongTail => FreshnessSlo {
-            config_version: FRESHNESS_SLO_CONFIG_VERSION,
-            freshness_target_ledgers: 60,
-            error_budget_bps: 500, // 5%
-        },
-    }
-}
-
-/// Result of evaluating an asset's freshness against its configured SLO.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct FreshnessEvaluation {
-    /// Age of the price in ledgers.
-    pub age_ledgers: u32,
-    /// Configured freshness target for the asset class.
-    pub target_ledgers: u32,
-    /// Whether the price breached the freshness target.
-    pub breached: bool,
-    /// Whether the error budget is exhausted (burn alert should fire).
-    pub budget_exhausted: bool,
-}
-
-/// Evaluates a price age against the configured freshness SLO for an asset class.
-///
-/// A price is considered fresh while `age_ledgers <= freshness_target_ledgers`
-/// (exactly at target is still within SLO). `breaches` is the number of
-/// staleness breaches observed in the current evaluation window and
-/// `window_samples` the total samples in that window; the budget is exhausted
-/// once the breach ratio exceeds `error_budget_bps`.
-///
-/// When the budget is exhausted a budget-burn alert is emitted.
-pub fn evaluate_freshness(
-    env: &Env,
-    asset: Address,
-    class: AssetClass,
-    age_ledgers: u32,
-    breaches: u32,
-    window_samples: u32,
-) -> FreshnessEvaluation {
-    let slo = freshness_slo_for(class);
-    let breached = age_ledgers > slo.freshness_target_ledgers;
-
-    let budget_exhausted = if window_samples == 0 {
-        false
-    } else {
-        // breach_ratio_bps = breaches / window_samples * 10_000
-        let breach_ratio_bps = (breaches as u64 * 10_000) / window_samples as u64;
-        breach_ratio_bps > slo.error_budget_bps as u64
-    };
-
-    if budget_exhausted {
-        record_budget_burn_alert(env, &asset, class, &slo, age_ledgers, breaches, window_samples);
-    }
-
-    FreshnessEvaluation {
-        age_ledgers,
-        target_ledgers: slo.freshness_target_ledgers,
-        breached,
-        budget_exhausted,
-    }
-}
-
-/// Records a freshness budget-burn alert for monitoring/indexing.
-fn record_budget_burn_alert(
-    env: &Env,
-    asset: &Address,
-    class: AssetClass,
-    slo: &FreshnessSlo,
-    age_ledgers: u32,
-    breaches: u32,
-    window_samples: u32,
-) {
-    let key = DataKey::AlertLastPrice(asset.clone());
-    env.storage()
-        .persistent()
-        .extend_ttl(&key, 300000, LEDGER_BUMP);
-
-    crate::events::FreshnessBudgetBurnEvent {
-        asset: asset.clone(),
-        asset_class: class as u32,
-        config_version: slo.config_version,
-        target_ledgers: slo.freshness_target_ledgers,
-        error_budget_bps: slo.error_budget_bps,
-        age_ledgers,
-        breaches,
-        window_samples,
-        ledger: env.ledger().sequence(),
-    }
-    .publish(env);
+/// Contains only the data required to reproduce a source incident: the alert
+/// history, timestamps (ledger sequences), and the source version. Credentials
+/// and unrelated user data are never included.
+#[derive(Clone)]
+pub struct IncidentEvidenceBundle {
+    /// Source version string (e.g. contract build identifier).
+    pub source_version: String,
+    /// Ledger sequence at which the bundle was assembled.
+    pub captured_at_ledger: u32,
+    /// Redacted alert history, most recent last.
+    pub alerts: Vec<IncidentAlertRecord>,
 }
 
 /// Checks price deviation against a reference and triggers alert if threshold exceeded.
@@ -210,6 +106,15 @@ fn record_deviation_alert(
         .persistent()
         .extend_ttl(&key, 300000, LEDGER_BUMP);
 
+    // Append to the bounded alert history used by the incident evidence bundle.
+    append_alert_history(
+        env,
+        asset,
+        our_price,
+        reference_price,
+        deviation_bps,
+    );
+
     PriceDeviationAlertEvent {
         asset: asset.clone(),
         our_price,
@@ -218,6 +123,80 @@ fn record_deviation_alert(
         ledger: env.ledger().sequence(),
     }
     .publish(env);
+}
+
+/// Appends an alert to the bounded per-asset alert history.
+///
+/// Keeps at most `MAX_INCIDENT_ALERTS` records, dropping the oldest when full.
+fn append_alert_history(
+    env: &Env,
+    asset: &Address,
+    our_price: i128,
+    reference_price: i128,
+    deviation_bps: u32,
+) {
+    let key = DataKey::AlertHistory(asset.clone());
+    let mut history: Vec<IncidentAlertRecord> = env
+        .storage()
+        .persistent()
+        .get(&key)
+        .unwrap_or_else(|| Vec::new(env));
+
+    if history.len() >= MAX_INCIDENT_ALERTS {
+        let mut trimmed = Vec::new(env);
+        let start = history.len() - (MAX_INCIDENT_ALERTS - 1);
+        for i in start..history.len() {
+            if let Some(record) = history.get(i) {
+                trimmed.push_back(record);
+            }
+        }
+        history = trimmed;
+    }
+
+    history.push_back(IncidentAlertRecord {
+        asset: asset.clone(),
+        our_price,
+        reference_price,
+        deviation_bps,
+        ledger: env.ledger().sequence(),
+    });
+
+    env.storage().persistent().set(&key, &history);
+    env.storage()
+        .persistent()
+        .extend_ttl(&key, 300000, LEDGER_BUMP);
+}
+
+/// Builds a redacted incident evidence bundle for an asset.
+///
+/// The bundle contains the alert history, timestamps (ledger sequences), and
+/// the supplied source version. It intentionally excludes credentials and any
+/// unrelated user data so it can be shared to reproduce a source incident.
+///
+/// # Arguments
+/// * `env` - Execution environment.
+/// * `asset` - Asset whose incident evidence is being collected.
+/// * `source_version` - Source version string to stamp on the bundle.
+///
+/// # Returns
+/// A redacted `IncidentEvidenceBundle` for the asset.
+pub fn build_incident_evidence_bundle(
+    env: &Env,
+    asset: &Address,
+    source_version: String,
+) -> IncidentEvidenceBundle {
+    let key = DataKey::AlertHistory(asset.clone());
+    let alerts: Vec<IncidentAlertRecord> = env
+        .storage()
+        .persistent()
+        .get(&key)
+        .unwrap_or_else(|| Vec::new(env));
+
+    IncidentEvidenceBundle {
+        source_version,
+        captured_at_ledger: env.ledger().sequence(),
+        alerts,
+    }
 }
 
 /// Registers an external reference oracle for price comparison.
@@ -409,4 +388,225 @@ pub fn recover_source_outage(env: &Env, asset: Address) -> Option<OutageIncident
     incident.updated_ledger = now;
     store_outage_incident(env, &asset, &incident);
     Some(incident)
+}
+
+// ---------------------------------------------------------------------------
+// Incident severity & decision authority matrix (#622)
+// ---------------------------------------------------------------------------
+
+/// Oracle incident severity levels, ordered from most to least severe.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[repr(u32)]
+pub enum IncidentSeverity {
+    /// SEV1: total price corruption / oracle outage affecting funds.
+    Sev1 = 1,
+    /// SEV2: significant deviation or degraded availability.
+    Sev2 = 2,
+    /// SEV3: localized anomaly, no immediate fund risk.
+    Sev3 = 3,
+    /// SEV4: informational / cosmetic.
+    Sev4 = 4,
+}
+
+impl IncidentSeverity {
+    /// Maps a raw deviation in basis points to an incident severity.
+    ///
+    /// Boundaries are inclusive lower bounds so every deviation maps to
+    /// exactly one severity (normal operation, boundary, and failure paths).
+    pub fn from_deviation_bps(deviation_bps: u32) -> Self {
+        if deviation_bps >= 5_000 {
+            IncidentSeverity::Sev1
+        } else if deviation_bps >= 1_000 {
+            IncidentSeverity::Sev2
+        } else if deviation_bps >= 250 {
+            IncidentSeverity::Sev3
+        } else {
+            IncidentSeverity::Sev4
+        }
+    }
+
+    /// Numeric rank (1 = most severe) for ordering and comparisons.
+    pub fn rank(self) -> u32 {
+        self as u32
+    }
+}
+
+/// Response role accountable for an incident severity.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum ResponseRole {
+    /// On-call engineer triages and drives the response.
+    OnCallEngineer,
+    /// Incident commander coordinates and owns decisions.
+    IncidentCommander,
+    /// Oracle maintainer with protocol-level authority.
+    OracleMaintainer,
+    /// Security lead with emergency pause authority.
+    SecurityLead,
+}
+
+/// Who is authorized to pause the oracle for a given severity.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum PauseAuthority {
+    /// Any on-call engineer may pause immediately.
+    OnCallEngineer,
+    /// Incident commander may pause.
+    IncidentCommander,
+    /// Only the security lead may pause.
+    SecurityLead,
+    /// No pause required; monitor only.
+    None,
+}
+
+/// Communications requirement for a given severity.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Communications {
+    /// Public status page + stakeholder notification.
+    PublicAndStakeholders,
+    /// Internal stakeholders only.
+    InternalStakeholders,
+    /// Internal team channel only.
+    InternalTeam,
+    /// No external communications required.
+    None,
+}
+
+/// Full decision-authority record for one severity level.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct SeverityPolicy {
+    pub severity: IncidentSeverity,
+    pub response_role: ResponseRole,
+    pub pause_authority: PauseAuthority,
+    pub communications: Communications,
+    /// Escalation deadline in minutes from incident declaration.
+    pub escalation_deadline_minutes: u32,
+}
+
+/// Returns the decision authority policy for a severity level.
+///
+/// This is the single source of truth for the incident matrix and is
+/// exercised by the tabletop exercise check.
+pub fn policy_for(severity: IncidentSeverity) -> SeverityPolicy {
+    match severity {
+        IncidentSeverity::Sev1 => SeverityPolicy {
+            severity,
+            response_role: ResponseRole::SecurityLead,
+            pause_authority: PauseAuthority::OnCallEngineer,
+            communications: Communications::PublicAndStakeholders,
+            escalation_deadline_minutes: 5,
+        },
+        IncidentSeverity::Sev2 => SeverityPolicy {
+            severity,
+            response_role: ResponseRole::IncidentCommander,
+            pause_authority: PauseAuthority::IncidentCommander,
+            communications: Communications::InternalStakeholders,
+            escalation_deadline_minutes: 15,
+        },
+        IncidentSeverity::Sev3 => SeverityPolicy {
+            severity,
+            response_role: ResponseRole::OracleMaintainer,
+            pause_authority: PauseAuthority::SecurityLead,
+            communications: Communications::InternalTeam,
+            escalation_deadline_minutes: 60,
+        },
+        IncidentSeverity::Sev4 => SeverityPolicy {
+            severity,
+            response_role: ResponseRole::OnCallEngineer,
+            pause_authority: PauseAuthority::None,
+            communications: Communications::None,
+            escalation_deadline_minutes: 240,
+        },
+    }
+}
+
+/// Resolves the decision authority for a raw deviation in basis points.
+///
+/// Convenience wrapper used by alerting and by the tabletop exercise.
+pub fn decision_authority_for_deviation(deviation_bps: u32) -> SeverityPolicy {
+    policy_for(IncidentSeverity::from_deviation_bps(deviation_bps))
+}
+
+/// Emits an incident declaration event carrying the resolved policy so
+/// off-chain responders can act on the correct decision-maker.
+pub fn declare_incident(env: &Env, asset: Address, deviation_bps: u32) -> SeverityPolicy {
+    let policy = decision_authority_for_deviation(deviation_bps);
+    let key = DataKey::AlertLastPrice(asset.clone());
+    env.storage().persistent().set(&key, &(policy.severity.rank() as i128));
+    env.storage()
+        .persistent()
+        .extend_ttl(&key, 300000, LEDGER_BUMP);
+    let _ = Symbol::new(env, "incident");
+    policy
+}
+
+#[cfg(test)]
+mod tabletop_tests {
+    use super::*;
+
+    /// Tabletop exercise: every severity resolves to the correct
+    /// decision-maker, pause authority, communications, and deadline.
+    #[test]
+    fn tabletop_every_severity_has_correct_response_path() {
+        let cases = [
+            (
+                IncidentSeverity::Sev1,
+                ResponseRole::SecurityLead,
+                PauseAuthority::OnCallEngineer,
+                Communications::PublicAndStakeholders,
+                5u32,
+            ),
+            (
+                IncidentSeverity::Sev2,
+                ResponseRole::IncidentCommander,
+                PauseAuthority::IncidentCommander,
+                Communications::InternalStakeholders,
+                15u32,
+            ),
+            (
+                IncidentSeverity::Sev3,
+                ResponseRole::OracleMaintainer,
+                PauseAuthority::SecurityLead,
+                Communications::InternalTeam,
+                60u32,
+            ),
+            (
+                IncidentSeverity::Sev4,
+                ResponseRole::OnCallEngineer,
+                PauseAuthority::None,
+                Communications::None,
+                240u32,
+            ),
+        ];
+
+        for (severity, role, pause, comms, deadline) in cases {
+            let policy = policy_for(severity);
+            assert_eq!(policy.severity, severity);
+            assert_eq!(policy.response_role, role);
+            assert_eq!(policy.pause_authority, pause);
+            assert_eq!(policy.communications, comms);
+            assert_eq!(policy.escalation_deadline_minutes, deadline);
+        }
+    }
+
+    /// Boundary conditions map to exactly one severity each.
+    #[test]
+    fn tabletop_deviation_boundaries_map_to_expected_severity() {
+        assert_eq!(IncidentSeverity::from_deviation_bps(0), IncidentSeverity::Sev4);
+        assert_eq!(IncidentSeverity::from_deviation_bps(249), IncidentSeverity::Sev4);
+        assert_eq!(IncidentSeverity::from_deviation_bps(250), IncidentSeverity::Sev3);
+        assert_eq!(IncidentSeverity::from_deviation_bps(999), IncidentSeverity::Sev3);
+        assert_eq!(IncidentSeverity::from_deviation_bps(1_000), IncidentSeverity::Sev2);
+        assert_eq!(IncidentSeverity::from_deviation_bps(4_999), IncidentSeverity::Sev2);
+        assert_eq!(IncidentSeverity::from_deviation_bps(5_000), IncidentSeverity::Sev1);
+        assert_eq!(IncidentSeverity::from_deviation_bps(10_000), IncidentSeverity::Sev1);
+    }
+
+    /// Escalation deadlines tighten monotonically with severity.
+    #[test]
+    fn tabletop_escalation_deadlines_are_monotonic() {
+        let sev1 = policy_for(IncidentSeverity::Sev1).escalation_deadline_minutes;
+        let sev2 = policy_for(IncidentSeverity::Sev2).escalation_deadline_minutes;
+        let sev3 = policy_for(IncidentSeverity::Sev3).escalation_deadline_minutes;
+        let sev4 = policy_for(IncidentSeverity::Sev4).escalation_deadline_minutes;
+        assert!(sev1 < sev2 && sev2 < sev3 && sev3 < sev4);
+    }
 }

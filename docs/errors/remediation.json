@@ -151,8 +151,18 @@
   },
   "RecordsLimitExceeded": {
     "class": "caller",
-    "cause": "History query requested too many records.",
+    "cause": "A query requested more results than its fixed response limit.",
     "remediation": "Request fewer records per call and paginate."
+  },
+  "InvalidPageSize": {
+    "class": "caller",
+    "cause": "The requested page limit is zero or exceeds the maximum page size.",
+    "remediation": "Choose a page limit from 1 to 50."
+  },
+  "InvalidPageCursor": {
+    "class": "caller",
+    "cause": "The supplied asset cursor is no longer present in the registry.",
+    "remediation": "Restart asset pagination with a `None` cursor."
   },
   "CommitHashMismatch": {
     "class": "caller",

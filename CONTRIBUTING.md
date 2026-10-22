@@ -1,161 +1,142 @@
 # Contributing
 
-Thanks for your interest in contributing to the Stellar Unified Price Oracle Aggregator.
+Thanks for your interest in improving this project. This document covers the
+basics of getting a change merged and the operational expectations for
+maintainers and on-call operators.
 
-## Getting Started
+## Development workflow
 
-New here? Start with the [onboarding guide](docs/ONBOARDING.md) to pick a first task and a mentor.
-Fastest setup: `make dev` provisions everything and runs the suite ([details](docs/dev-environment.md)).
+1. Fork the repository and create a topic branch from `main`.
+2. Make focused changes that address a single issue.
+3. Add or update tests that cover the change, including boundary and failure
+   paths where relevant.
+4. Update any directly related documentation.
+5. Open a pull request that references the issue it resolves.
 
+## Code style
 
-1. Fork and clone the repo.
-2. Install Rust (stable) with the `wasm32v1-none` target:
-   ```bash
-   rustup target add wasm32v1-none
-   ```
-3. Build the contract:
-   ```bash
-   cargo build -p price-oracle --target wasm32v1-none --release
-   ```
-4. Run tests:
-   ```bash
-   cargo test -p price-oracle --lib
-   ```
+- Follow the existing module structure, naming, and types.
+- Keep edits surgical; avoid unrelated refactors in the same pull request.
+- Do not commit secrets, tokens, or production credentials.
 
-All 56 tests should pass with zero warnings.
+## Operator handover and on-call readiness drill
 
-## Code Style
+Operators must be able to hand off a shift, reach the escalation contacts, and
+find the current runbooks under time pressure. Run the readiness drill below at
+least once per on-call rotation and after any change to the escalation policy or
+runbook layout.
 
-- Run `cargo fmt` before committing (formatting is enforced in CI).
-- Run `cargo clippy -- -D warnings` and fix any warnings (also enforced in CI).
-- Follow the existing patterns in the codebase — see `types.rs`, `storage.rs`, `events.rs` for reference.
-- Keep functions focused and modular.
-- Use meaningful names for types, fields, and variables.
+### Running the drill
 
-## Making Changes
+The drill is a timed exercise. Record the start time, then complete each step in
+order and record the elapsed time for that step. A step is **missed** if it
+cannot be completed within its target time or the required artifact is not
+available.
 
-1. Create a branch off `main`.
-2. Make your changes, keeping commits small and focused.
-3. Add or update tests in `test.rs` to cover your changes.
-4. Ensure all tests pass and clippy is clean.
-5. Open a pull request.
+| # | Step | Target |
+|---|------|--------|
+| 1 | Incoming operator receives shift handover notes and confirms open incidents | 10 min |
+| 2 | Escalation contact list is reachable (primary and secondary acknowledged) | 5 min |
+| 3 | Current runbooks are located and the relevant one is opened | 5 min |
+| 4 | Handover summary is posted to the on-call channel | 5 min |
 
-## Pull Request Guidelines
+### Recording results
 
-- Link the PR to the issue it resolves.
-- Describe what the change does and why.
-- Mention any breaking changes or migration steps.
-- Keep PRs focused on a single concern — split large changes into multiple PRs.
+For each step record:
 
-## Reporting Issues
+- the step number and description,
+- the response time (elapsed time to complete the step),
+- whether the step was completed or missed.
 
-- Check existing issues before opening a new one.
-- Include the error code, the function called, and a minimal reproduction.
-- For feature requests, describe the use case and how it fits the oracle aggregator model.
+### Corrective actions
+
+## Integration Support Intake and Triage
+
+Consumers integrating with the oracle (wallets, dApps, indexers, downstream services) file
+integration reports through the **public path** below. This is the single supported channel for
+production consumer support; do not send integration reports through private channels.
+
+### Public Path for Filing Reports
+
+- **Where:** open a GitHub issue using the `integration-report` label on this repository.
+  This is the public, traceable intake path.
+- **Who may file:** any consumer, including external integrators without write access.
+- **Do not** include secrets, private keys, signing material, API tokens, or production
+  credentials in a report. Redact them before filing; if a secret may have leaked, report only
+  that a leak occurred and rotate it out-of-band — never paste the value.
+
+### Required Reproduction Data
+
+Every integration report must include the following fields so it can be reproduced and triaged:
+
+| Field | Description |
+|---|---|
+| `network` | Target network (`testnet`, `futurenet`, or `mainnet`) |
+| `contract_id` | Deployed oracle contract ID (public; never a secret) |
+| `sdk_version` | Client SDK / library name and version used to call the contract |
+| `function` | Contract entry point invoked (e.g. `get_price`, `get_prices`) |
+| `inputs` | Sanitized arguments passed to the call (asset pairs, amounts) |
+| `expected` | Expected result or behavior |
+| `actual` | Observed result, including error code if any |
+| `reproduction` | Minimal steps or snippet to reproduce (secrets redacted) |
+| `first_seen` | Timestamp (UTC) when the issue was first observed |
+
+Reports missing required fields are labeled `needs-info` and returned to the reporter for
+completion before triage proceeds.
+
+### Response Ownership
+
+- **Triagers** own first response: acknowledge within 2 business days, apply the triage label,
+  and request missing reproduction data.
+- **Maintainers** own resolution of `sev-1`/`sev-2` reports and coordinate fixes.
+- **Core Maintainers** own any report touching upgrade/admin paths or suspected secret exposure.
+
+### Severity Routing
+
+Each report is routed to exactly one triage category via label:
+
+| Label | Category | Routing |
+|---|---|---|
+| `sev-1` | Contract correctness / funds at risk / suspected secret exposure | Core Maintainers, immediate |
+| `sev-2` | Incorrect prices or broken core calls on `mainnet` | Maintainers, same day |
+| `sev-3` | Degraded behavior or workaround available | Triagers, within 2 business days |
+| `sev-4` | Documentation, ergonomics, or feature requests | Triagers, backlog |
+
+### Sample Report
+
+A minimal, secret-free report that traces to a documented category:
+
+```
+Title: get_price returns stale timestamp on testnet
+network: testnet
+contract_id: C...PUBLIC_CONTRACT_ID...
+sdk_version: @stellar/stellar-sdk 12.0.0
+function: get_price
+inputs: { asset: "XLM/USD" }
+expected: timestamp within 60s of ledger close
+actual: timestamp ~10m old; no error code
+reproduction: call get_price("XLM/USD") on testnet, compare timestamp to latest ledger
+first_seen: 2025-01-01T00:00:00Z
+```
+
+This sample routes to **`sev-3`** (degraded behavior, workaround available) and is owned by a
+**Triager** for first response. It contains no secrets — only a public contract ID and public
+inputs.
 
 ## Governance Proposals
 
-For proposals related to contract upgrades, parameter changes, source additions/removals, or asset management, use the standardized template:
+### Repeatable check
 
 👉 [Governance Proposal Template](docs/governance-proposal-template.md)
 
 Submit completed proposals as a GitHub issue or pull request for community review before any on-chain action is taken.
 
-## Production Contract Verification Checklist
+## Mainnet Release Go/No-Go
 
-Every deployed contract must be independently verifiable by a second operator using only
-public artifacts — no privileged local state, no production credentials. Run this checklist
-for each deployed contract before announcing a mainnet deployment and after every upgrade.
-
-### 1. Pin the source revision
-
-- Record the exact git commit SHA that was deployed (the tag or commit, not a branch).
-- Confirm the commit is reachable from `main` and matches the release notes.
-- Check out that SHA in a clean clone:
-  ```bash
-  git clone https://github.com/<org>/<repo>.git verify-oracle
-  cd verify-oracle
-  git checkout <commit-sha>
-  ```
-
-### 2. Reproduce the compiler inputs
-
-- Record the toolchain versions used for the build:
-  ```bash
-  rustc --version
-  cargo --version
-  stellar --version   # or soroban --version
-  ```
-- Confirm `Cargo.lock` is committed and unmodified at the deployed SHA (`git status --porcelain` is empty).
-- Confirm the build target and flags match the release notes:
-  ```bash
-  cargo build -p price-oracle --target wasm32v1-none --release
-  ```
-- Note any environment overrides (e.g. `RUSTFLAGS`) in the release notes; the build must be reproducible without them.
-
-### 3. Compare the WASM hash
-
-- Hash the locally built artifact:
-  ```bash
-  sha256sum target/wasm32v1-none/release/price_oracle.wasm
-  ```
-- Fetch the on-chain WASM for the deployed contract and hash it:
-  ```bash
-  stellar contract fetch --id <CONTRACT_ID> --network mainnet --out deployed.wasm
-  sha256sum deployed.wasm
-  ```
-- The two hashes **must match**. If they differ, stop and escalate — do not announce the deployment.
-
-### 4. Verify published source on the explorer
-
-- Open the contract on a public explorer (e.g. Stellar Expert / Stellar Lab) and confirm the
-  published source matches the deployed WASM hash from step 3.
-- Confirm the explorer's recorded commit SHA matches the one pinned in step 1.
-- If the explorer shows unverified source, publish the source and re-check before sign-off.
-
-### 5. Record the result
-
-- Attach the following to the deployment issue/PR:
-  - Commit SHA
-  - Toolchain versions (`rustc`, `cargo`, `stellar`)
-  - Local WASM `sha256`
-  - On-chain WASM `sha256`
-  - Explorer link showing verified source
-- A second operator repeats steps 1–4 independently and confirms the hashes match.
-
-### Repeatable check
-
-Steps 1–3 are scriptable and can be run in CI against a release tag to produce the WASM hash
-for comparison. Keep the recorded hashes in the deployment issue so any operator can re-run the
-check later without access to build infrastructure.
-
-## Mainnet Launch Sign-off and Stakeholder Ownership Map
-
-Before mainnet launch, every required workstream must have a **named accountable owner** and a
-**named escalation contact**. No gate may be unowned. The launch record below is the source of
-truth for sign-off; fill in real names (GitHub handles) and keep it current.
-
-### Ownership map
-
-| Workstream | Accountable owner | Escalation contact | Sign-off gate |
-|---|---|---|---|
-| Contract (build, upgrade, verification) | _TBD_ | _TBD_ | WASM hash verified per checklist above |
-| Source operations (feeders, uptime, freshness) | _TBD_ | _TBD_ | Freshness SLOs met in staging |
-| Consumer integrations (SDK, downstream apps) | _TBD_ | _TBD_ | At least one consumer validated on testnet |
-| Incident decisions (rollback, pause, comms) | _TBD_ | _TBD_ | On-call rotation and escalation path published |
-
-### Sign-off rules
-
-- Each workstream owner signs off on their gate before launch; the launch is blocked until all
-  four gates are signed off.
-- The incident-decisions owner is the final escalation point for launch go/no-go.
-- Any change to ownership must be recorded here in the same PR that changes the responsible party.
-- Escalation contacts must be reachable out-of-band (not only via the repository).
-
-### Repeatable check
-
-A launch record is valid only when every workstream row has a non-placeholder owner and
-escalation contact. Reviewers must reject a launch PR where any gate is unowned (`_TBD_`).
+Before any mainnet release, complete the [mainnet release checklist](docs/mainnet-release-checklist.md).
+Each production gate must record an owner, an evidence link, and an explicit pass/fail result.
+The release workflow runs `scripts/check-release-evidence.sh`, which blocks the release when any
+mandatory evidence is absent. Never commit secrets or production credentials as evidence.
 
 ## Contributor Ladder
 
@@ -200,6 +181,8 @@ Privileged access (Triager and above) expires automatically after **90 days of i
 2. The contributor is notified and may request reinstatement by demonstrating current activity.
 
 A dry run of the expiry process is performed quarterly by a Core Maintainer, with results documented as an issue.
+The same quarterly review covers deployment, monitoring, source and treasury access for humans and
+automation; see [docs/security/access-review.md](docs/security/access-review.md).
 
 ### Removal and Demotion
 

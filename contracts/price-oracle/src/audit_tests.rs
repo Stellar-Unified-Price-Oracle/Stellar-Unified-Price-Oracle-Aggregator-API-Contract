@@ -286,3 +286,208 @@ fn test_admin_action_emits_two_events_for_register_asset() {
         "register_asset should emit exactly 3 events"
     );
 }
+
+// ---------------------------------------------------------------------------
+// Governance event audit completeness checks (#659)
+//
+// These checks reconcile privileged state changes with their emitted
+// governance events and approval records across an upgrade cycle. A governance
+// event that is missing, malformed, or unlinked from its state change / audit
+// record causes the audit to fail.
+// ---------------------------------------------------------------------------
+
+/// A single privileged state change observed during an upgrade cycle.
+struct PrivilegedChange {
+    /// Human-readable label of the privileged operation.
+    label: &'static str,
+    /// Number of events emitted by the invocation that performed the change.
+    emitted_events: usize,
+}
+
+/// Result of auditing a single privileged change.
+#[derive(Debug, PartialEq)]
+enum AuditOutcome {
+    /// Change is fully accounted for: state change + governance event + audit record.
+    Complete,
+    /// No governance event was emitted for the state change.
+    MissingEvent,
+    /// A governance event was emitted but is malformed (wrong shape/count).
+    MalformedEvent,
+    /// The governance event is not linked to an approval/audit record.
+    UnlinkedEvent,
+}
+
+/// Minimum number of events a privileged change must emit to be considered
+/// complete: the domain event, the `AdminActionEvent`, and the
+/// `AdminAuditEntryAppendedEvent` approval/audit record.
+const REQUIRED_GOVERNANCE_EVENTS: usize = 3;
+
+/// Audit a single privileged change against the governance event contract.
+///
+/// - `emitted_events == 0` -> `MissingEvent` (no governance event at all)
+/// - `emitted_events < REQUIRED_GOVERNANCE_EVENTS` -> `MalformedEvent`
+///   (governance event present but not the full domain + action + audit trio)
+/// - `emitted_events == REQUIRED_GOVERNANCE_EVENTS` -> `Complete`
+/// - `emitted_events > REQUIRED_GOVERNANCE_EVENTS` -> `UnlinkedEvent`
+///   (extra events not attributable to this change's approval record)
+fn audit_change(change: &PrivilegedChange) -> AuditOutcome {
+    match change.emitted_events {
+        0 => AuditOutcome::MissingEvent,
+        n if n < REQUIRED_GOVERNANCE_EVENTS => AuditOutcome::MalformedEvent,
+        n if n == REQUIRED_GOVERNANCE_EVENTS => AuditOutcome::Complete,
+        _ => AuditOutcome::UnlinkedEvent,
+    }
+}
+
+/// Audit a full upgrade cycle: every privileged change must be `Complete`.
+/// Returns the first failing change label, if any.
+fn audit_cycle(changes: &[PrivilegedChange]) -> Result<(), (&'static str, AuditOutcome)> {
+    for change in changes {
+        let outcome = audit_change(change);
+        if outcome != AuditOutcome::Complete {
+            return Err((change.label, outcome));
+        }
+    }
+    Ok(())
+}
+
+#[test]
+fn test_audit_complete_cycle() {
+    // Normal operation: a representative upgrade cycle where every privileged
+    // change emits the full governance event trio.
+    let e = Env::default();
+    let (client, _admin) = setup_contract(&e);
+
+    let mut changes = Vec::new();
+
+    client.set_resolution(&60u32);
+    changes.push(PrivilegedChange {
+        label: "set_resolution",
+        emitted_events: event_count(&e),
+    });
+
+    client.set_max_history_length(&50u32);
+    changes.push(PrivilegedChange {
+        label: "set_max_history_length",
+        emitted_events: event_count(&e),
+    });
+
+    client.set_heartbeat_interval(&7200u64);
+    changes.push(PrivilegedChange {
+        label: "set_heartbeat_interval",
+        emitted_events: event_count(&e),
+    });
+
+    assert_eq!(
+        audit_cycle(&changes),
+        Ok(()),
+        "a fully-emitted upgrade cycle must pass the audit"
+    );
+}
+
+#[test]
+fn test_audit_empty_cycle_passes() {
+    // Boundary: an upgrade cycle with no privileged changes is trivially complete.
+    let changes: Vec<PrivilegedChange> = Vec::new();
+    assert_eq!(audit_cycle(&changes), Ok(()));
+}
+
+#[test]
+fn test_audit_multiple_upgrades_all_complete() {
+    // Boundary: multiple sequential upgrades, each fully accounted for.
+    let changes = vec![
+        PrivilegedChange {
+            label: "upgrade_1",
+            emitted_events: REQUIRED_GOVERNANCE_EVENTS,
+        },
+        PrivilegedChange {
+            label: "upgrade_2",
+            emitted_events: REQUIRED_GOVERNANCE_EVENTS,
+        },
+        PrivilegedChange {
+            label: "upgrade_3",
+            emitted_events: REQUIRED_GOVERNANCE_EVENTS,
+        },
+    ];
+    assert_eq!(audit_cycle(&changes), Ok(()));
+}
+
+#[test]
+fn test_audit_fails_on_missing_event() {
+    // Failure path: a privileged change emitted no governance event.
+    let changes = vec![PrivilegedChange {
+        label: "set_admin",
+        emitted_events: 0,
+    }];
+    assert_eq!(
+        audit_cycle(&changes),
+        Err(("set_admin", AuditOutcome::MissingEvent))
+    );
+}
+
+#[test]
+fn test_audit_fails_on_malformed_event() {
+    // Failure path: governance event present but missing the audit/approval record.
+    let changes = vec![PrivilegedChange {
+        label: "register_asset",
+        emitted_events: 2,
+    }];
+    assert_eq!(
+        audit_cycle(&changes),
+        Err(("register_asset", AuditOutcome::MalformedEvent))
+    );
+}
+
+#[test]
+fn test_audit_fails_on_unlinked_event() {
+    // Failure path: extra events not attributable to the change's approval record.
+    let changes = vec![PrivilegedChange {
+        label: "pause",
+        emitted_events: REQUIRED_GOVERNANCE_EVENTS + 1,
+    }];
+    assert_eq!(
+        audit_cycle(&changes),
+        Err(("pause", AuditOutcome::UnlinkedEvent))
+    );
+}
+
+#[test]
+fn test_audit_reports_first_failure_in_cycle() {
+    // Recovery path: a cycle with a good change followed by a broken one must
+    // surface the broken change, not silently pass.
+    let changes = vec![
+        PrivilegedChange {
+            label: "set_resolution",
+            emitted_events: REQUIRED_GOVERNANCE_EVENTS,
+        },
+        PrivilegedChange {
+            label: "set_admin",
+            emitted_events: 0,
+        },
+        PrivilegedChange {
+            label: "set_decimals",
+            emitted_events: REQUIRED_GOVERNANCE_EVENTS,
+        },
+    ];
+    assert_eq!(
+        audit_cycle(&changes),
+        Err(("set_admin", AuditOutcome::MissingEvent))
+    );
+}
+
+#[test]
+fn test_audit_recovers_after_fixing_missing_event() {
+    // Recovery path: once the missing governance event is restored, the same
+    // cycle passes the audit.
+    let mut changes = vec![PrivilegedChange {
+        label: "set_admin",
+        emitted_events: 0,
+    }];
+    assert_eq!(
+        audit_cycle(&changes),
+        Err(("set_admin", AuditOutcome::MissingEvent))
+    );
+
+    changes[0].emitted_events = REQUIRED_GOVERNANCE_EVENTS;
+    assert_eq!(audit_cycle(&changes), Ok(()));
+}
