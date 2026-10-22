@@ -1,140 +1,129 @@
 use soroban_sdk::{panic_with_error, symbol_short, Address, Bytes, Env, String, Vec};
 
 use crate::events::{
-    emit_admin_action, DemeritConfigChangedEvent, InvalidSubmissionEvent,
-    RemovalCooldownChangedEvent, SourceActiveAgainEvent, SourceAddedEvent, SourceAssetAddedEvent,
-    SourceAssetRemovedEvent, SourceBondConfigChangedEvent, SourceBondDepositedEvent,
-    SourceBondForfeitedEvent, SourceBondReturnedEvent, SourceDemeritsResetEvent,
-    SourceDisqualifiedEvent, SourceGeoUpdatedEvent, SourceGovConfigChangedEvent,
-    SourceHeartbeatEvent, SourceInactiveEvent, SourceKeyRotatedEvent, SourceMarkedForRemovalEvent,
-    SourceProbationEvent, SourceProposalApprovedEvent, SourceProposalCreatedEvent,
-    SourceProposalExecutedEvent, SourceRemovalCancelledEvent, SourceRemovedEvent,
-    SourceVerificationSetEvent, SourceWarningEvent,
+    SourceAddedEvent, SourceEnrollmentStartedEvent, SourceEvidenceSubmittedEvent,
+    SourceRemovedEvent,
 };
-use crate::storage::{
-    get_admin, is_source_inactive as check_source_inactive, mark_source_active,
-    mark_source_inactive, read_oracle_sources, LEDGER_BUMP, LEDGER_THRESHOLD,
-};
-use crate::types::{
-    DataKey, DecentralizationReport, DemeritConfig, DisqualificationStatus, ErrorCode,
-    OracleSources, PriceEntry, SourceDemeritState, SourceGeoMetadata, SourceGovernance,
-    SourceProposal, SourceVerification,
-};
-
-const MAX_SOURCE_NAME_LENGTH: u32 = 64;
-const SOURCE_ROTATION_COOLDOWN: u32 = 100;
-
-fn register_source_internal(env: &Env, source: Address, name: String) {
-    crate::source_lifecycle::check_not_revoked(env, &source);
-    if name.is_empty() {
-        panic_with_error!(env, ErrorCode::SourceNameEmpty);
-    }
-    if name.len() > MAX_SOURCE_NAME_LENGTH {
-        panic_with_error!(env, ErrorCode::SourceNameTooLong);
-    }
-    if env
-        .storage()
-        .persistent()
-        .has(&DataKey::SrcActive(source.clone()))
-    {
-        panic_with_error!(env, ErrorCode::SourceAlreadyExists);
-    }
-
-    let oracle_sources: OracleSources = read_oracle_sources(env);
-    let max_sources = crate::admin::get_max_sources(env);
-    if max_sources > 0 && oracle_sources.sources.len() >= max_sources {
-        panic_with_error!(env, ErrorCode::MaxSourcesReached);
-    }
-
-    env.storage()
-        .persistent()
-        .set(&DataKey::SrcActive(source.clone()), &true);
-
-    let mut oracle_sources: OracleSources = oracle_sources;
-    oracle_sources.sources.push_back(source.clone());
-    let source_name = name.clone();
-    oracle_sources.metadata.set(source.clone(), name);
-    env.storage()
-        .persistent()
-        .set(&DataKey::SrcRegistry, &oracle_sources);
-    SourceAddedEvent {
-        source: source.clone(),
-        admin: get_admin(env),
-        name: source_name,
-    }
-    .publish(env);
-}
-
-fn contains_address(items: &Vec<Address>, needle: &Address) -> bool {
-    for i in 0..items.len() {
-        if items.get_unchecked(i) == *needle {
-            return true;
-        }
-    }
-    false
-}
+use crate::storage::{get_admin, read_oracle_sources, LEDGER_BUMP, LEDGER_THRESHOLD};
+use crate::types::{DataKey, ErrorCode, OracleSources, SourceEnrollment};
 
 pub fn add_source(env: &Env, source: Address, name: String) {
     let admin = get_admin(env);
     admin.require_auth();
-
-    if let Some(gov) = get_source_governance(env) {
-        if gov.threshold > 0 {
-            panic_with_error!(env, ErrorCode::NotAuthorized);
-        }
+    let enrollment_key = DataKey::SourceEnrollment(source.clone());
+    if env.storage().persistent().has(&enrollment_key) {
+        panic_with_error!(env, ErrorCode::SourceAlreadyExists);
     }
-
-    register_source_internal(env, source, name);
-    emit_admin_action(env, symbol_short!("add_src"), admin, Bytes::new(env));
-}
-
-pub fn add_source_with_assets(env: &Env, source: Address, name: String, assets: Vec<Address>) {
-    let admin = get_admin(env);
-    admin.require_auth();
-    for i in 0..assets.len() {
-        crate::storage::check_registered_asset(env, &assets.get_unchecked(i));
-    }
-    register_source_internal(env, source.clone(), name);
     env.storage()
         .persistent()
-        .set(&DataKey::SourceAssets(source.clone()), &assets);
-    for i in 0..assets.len() {
-        SourceAssetAddedEvent {
-            source: source.clone(),
-            asset: assets.get_unchecked(i),
-        }
-        .publish(env);
+        .set(
+            &enrollment_key,
+            &SourceEnrollment {
+                name,
+                identity_evidence: String::from_str(env, ""),
+                endpoint_ownership_evidence: String::from_str(env, ""),
+                operational_contact: String::from_str(env, ""),
+                reliability_evidence: String::from_str(env, ""),
+            },
+        );
+    SourceEnrollmentStartedEvent {
+        source,
+        admin,
     }
-    emit_admin_action(env, symbol_short!("add_srca"), admin, Bytes::new(env));
+    .publish(env);
+}
+
+pub fn submit_source_evidence(
+    env: &Env,
+    source: Address,
+    identity_evidence: String,
+    endpoint_ownership_evidence: String,
+    operational_contact: String,
+    reliability_evidence: String,
+) {
+    source.require_auth();
+    let enrollment_key = DataKey::SourceEnrollment(source.clone());
+    let mut enrollment: SourceEnrollment = env
+        .storage()
+        .persistent()
+        .get(&enrollment_key)
+        .unwrap_or_else(|| panic_with_error!(env, ErrorCode::SourceNotFound));
+    if identity_evidence.len() == 0
+        || endpoint_ownership_evidence.len() == 0
+        || operational_contact.len() == 0
+        || reliability_evidence.len() == 0
+    {
+        panic_with_error!(env, ErrorCode::SourceEvidenceMissing);
+    }
+    enrollment.identity_evidence = identity_evidence;
+    enrollment.endpoint_ownership_evidence = endpoint_ownership_evidence;
+    enrollment.operational_contact = operational_contact;
+    enrollment.reliability_evidence = reliability_evidence;
+    env.storage()
+        .persistent()
+        .set(&enrollment_key, &enrollment);
+    SourceEvidenceSubmittedEvent { source }.publish(env);
+}
+
+pub fn activate_source(env: &Env, source: Address) {
+    let admin = get_admin(env);
+    admin.require_auth();
+    let enrollment_key = DataKey::SourceEnrollment(source.clone());
+    let enrollment: SourceEnrollment = env
+        .storage()
+        .persistent()
+        .get(&enrollment_key)
+        .unwrap_or_else(|| panic_with_error!(env, ErrorCode::SourceNotFound));
+    if enrollment.identity_evidence.len() == 0
+        || enrollment.endpoint_ownership_evidence.len() == 0
+        || enrollment.operational_contact.len() == 0
+        || enrollment.reliability_evidence.len() == 0
+    {
+        panic_with_error!(env, ErrorCode::SourceEvidenceMissing);
+    }
+    if env
+        .storage()
+        .persistent()
+        .get::<_, bool>(&DataKey::Source(source.clone()))
+        .unwrap_or(false)
+    {
+        panic_with_error!(env, ErrorCode::SourceAlreadyExists);
+    }
+
+    env.storage()
+        .persistent()
+        .set(&DataKey::Source(source.clone()), &true);
+    let mut oracle_sources: OracleSources = read_oracle_sources(env);
+    oracle_sources.sources.push_back(source.clone());
+    oracle_sources
+        .metadata
+        .set(source.clone(), enrollment.name.clone());
+    env.storage()
+        .persistent()
+        .set(&DataKey::SrcRegistry, &oracle_sources);
+    SourceAddedEvent {
+        source,
+        admin,
+        name: enrollment.name,
+    }
+    .publish(env);
+}
+
+pub fn get_source_enrollment(env: &Env, source: Address) -> Option<SourceEnrollment> {
+    let key = DataKey::SourceEnrollment(source);
+    if env.storage().persistent().has(&key) {
+        env.storage()
+            .persistent()
+            .extend_ttl(&key, LEDGER_THRESHOLD, LEDGER_BUMP);
+    }
+    env.storage().persistent().get(&key)
 }
 
 pub fn remove_source(env: &Env, source: Address) {
     let admin = get_admin(env);
     admin.require_auth();
-    remove_source_inner(env, source.clone());
-    // #483: the removed source's last submission must not linger in the
-    // published median. Recompute every asset it could have contributed to
-    // from the surviving registry, in this same transaction, and emit the
-    // resulting aggregate alongside the removal event.
-    crate::recompute::recompute_source_change(
-        env,
-        &source,
-        crate::recompute::RecomputeReason::Removed,
-    );
-    emit_admin_action(env, symbol_short!("rem_src"), admin, Bytes::new(env));
-}
-
-/// De-registers `source` without recomputing. `remove_source` and
-/// `remove_sources` layer the (#483) recomputation on top so a batch pays for
-/// one aggregation pass instead of one per source.
-pub(crate) fn remove_source_inner(env: &Env, source: Address) {
-    let admin = get_admin(env);
-    admin.require_auth();
-    if !env
-        .storage()
-        .persistent()
-        .has(&DataKey::SrcActive(source.clone()))
-    {
+    let enrollment_key = DataKey::SourceEnrollment(source.clone());
+    if !env.storage().persistent().has(&enrollment_key) {
         panic_with_error!(env, ErrorCode::SourceNotFound);
     }
 
@@ -161,12 +150,8 @@ pub(crate) fn remove_source_inner(env: &Env, source: Address) {
 
     env.storage()
         .persistent()
-        .remove(&DataKey::SrcActive(source.clone()));
-    // Revoke the off-chain signing key so a re-added source cannot have
-    // proofs signed by its old key accepted (#468).
-    env.storage()
-        .persistent()
-        .remove(&DataKey::SignedSubmitPubKey(source.clone()));
+        .remove(&DataKey::Source(source.clone()));
+    env.storage().persistent().remove(&enrollment_key);
 
     let mut oracle_sources: OracleSources = read_oracle_sources(env);
     let mut new_sources: Vec<Address> = Vec::new(env);

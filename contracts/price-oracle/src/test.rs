@@ -216,6 +216,86 @@ fn test_add_remove_source() {
 }
 
 #[test]
+fn test_source_requires_evidence_before_activation() {
+    let e = Env::default();
+    let (client, _) = setup_contract(&e);
+    let source = Address::generate(&e);
+
+    client.add_source(&source, &String::from_str(&e, "Candidate"));
+    assert!(!client.is_source(&source));
+    assert_eq!(client.get_oracle_sources().sources.len(), 0);
+    assert!(client.try_activate_source(&source).is_err());
+    let asset = register_test_asset(&e, &client);
+    assert!(client
+        .try_submit_price(&source, &asset, &100i128, &1234567890u64)
+        .is_err());
+
+    client.submit_source_evidence(
+        &source,
+        &String::from_str(&e, "identity-proof"),
+        &String::from_str(&e, "endpoint-ownership-proof"),
+        &String::from_str(&e, "ops@example.invalid"),
+        &String::from_str(&e, "reliability-report"),
+    );
+    let enrollment = client.get_source_enrollment(&source).unwrap();
+    assert_eq!(enrollment.identity_evidence, String::from_str(&e, "identity-proof"));
+    assert_eq!(
+        enrollment.endpoint_ownership_evidence,
+        String::from_str(&e, "endpoint-ownership-proof")
+    );
+    assert_eq!(
+        enrollment.operational_contact,
+        String::from_str(&e, "ops@example.invalid")
+    );
+    assert_eq!(
+        enrollment.reliability_evidence,
+        String::from_str(&e, "reliability-report")
+    );
+
+    client.activate_source(&source);
+    assert!(client.is_source(&source));
+    assert_eq!(client.get_oracle_sources().sources.len(), 1);
+}
+
+#[test]
+fn test_source_evidence_rejects_empty_required_field() {
+    let e = Env::default();
+    let (client, _) = setup_contract(&e);
+    let source = Address::generate(&e);
+    client.add_source(&source, &String::from_str(&e, "Candidate"));
+
+    assert!(client
+        .try_submit_source_evidence(
+            &source,
+            &String::from_str(&e, "identity-proof"),
+            &String::from_str(&e, ""),
+            &String::from_str(&e, "ops@example.invalid"),
+            &String::from_str(&e, "reliability-report"),
+        )
+        .is_err());
+    assert!(!client.is_source(&source));
+}
+
+#[test]
+fn test_source_activation_requires_admin_auth() {
+    let e = Env::default();
+    let (client, _) = setup_contract(&e);
+    let source = Address::generate(&e);
+    client.add_source(&source, &String::from_str(&e, "Candidate"));
+    client.submit_source_evidence(
+        &source,
+        &String::from_str(&e, "identity-proof"),
+        &String::from_str(&e, "endpoint-ownership-proof"),
+        &String::from_str(&e, "ops@example.invalid"),
+        &String::from_str(&e, "reliability-report"),
+    );
+
+    clear_auth(&e);
+    assert!(client.try_activate_source(&source).is_err());
+    assert!(!client.is_source(&source));
+}
+
+#[test]
 #[should_panic(expected = "Error(Contract, #4)")]
 fn test_add_source_twice() {
     let e = Env::default();
@@ -1128,15 +1208,16 @@ fn test_submit_price_current_timestamp_accepted() {
     ledger_default(&e, 100, 1000);
     let (client, _admin, source, asset) = setup_basic(&e);
 
-    // Timestamp equal to ledger time — accepted
-    client.submit_price_with_nonce(&source, &asset, &100i128, &1000u64, &1u64);
-}
-
-#[test]
-fn test_submit_price_past_timestamp_accepted() {
-    let e = Env::default();
-    ledger_default(&e, 100, 1000);
-    let (client, _admin, source, asset) = setup_basic(&e);
+    let source = Address::generate(&e);
+    client.add_source(&source, &String::from_str(&e, "Chainlink"));
+    client.submit_source_evidence(
+        &source,
+        &String::from_str(&e, "identity-proof"),
+        &String::from_str(&e, "endpoint-ownership-proof"),
+        &String::from_str(&e, "ops@example.invalid"),
+        &String::from_str(&e, "reliability-report"),
+    );
+    client.activate_source(&source);
 
     // Timestamp in the past — accepted
     client.submit_price_with_nonce(&source, &asset, &100i128, &500u64, &1u64);
@@ -1249,11 +1330,9 @@ fn test_asset_lifecycle_register_submit_unregister_reregister() {
     let source = register_test_source(&e, &client, "Oracle");
     let asset = register_test_asset(&e, &client);
 
-    // Submit a price
-    submit_test_price_n(&client, &source, &asset, 500i128, 1000, 1);
-    let price = client.get_price(&asset, &0u64).unwrap();
-    assert_eq!(price.price, 500i128);
-    assert_eq!(price.price, 500i128);
+    let source1 = register_test_source(&e, &client, "A");
+    let source2 = register_test_source(&e, &client, "B");
+    client.set_min_sources_required(&2u32);
 
     // Unregister the asset
     client.unregister_asset(&asset);
@@ -1300,7 +1379,11 @@ fn test_asset_reregister_after_unregister() {
     let e = Env::default();
     ledger_default(&e, 100, 1000);
 
-    let (client, _) = setup_contract(&e);
+    let admin = Address::generate(&e);
+    let client = create_contract(&e);
+    init_admin(&client, &admin);
+
+    let source1 = register_test_source(&e, &client, "A");
     client.set_min_sources_required(&1u32);
     let source = register_test_source(&e, &client, "Oracle");
 

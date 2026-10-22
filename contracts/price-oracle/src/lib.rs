@@ -412,45 +412,8 @@ mod issues_491_492_493_494_tests;
 mod upgrade_artifact_binding_tests;
 
 pub use types::{
-    AdminOpLimit, AdminOperationType, AggregatePrice, AggregationMethod, AggregationRound,
-    AlertSubscription, AmmPool, AmmWeightConfig, AnomalyExplanation, AnomalyRule, Asset,
-    AssetDecimalConfig, AssetMetadata, AssetMetadataUpdate, AssetPricingConfig,
-    AssetProofRequirement, AssetType, AuditEntry, AutoRenewRecord, BatchItem, BatchOperation,
-    BatchSimulationResult, BftAggregationMethod, BridgeOracleConfig, BridgedPrice,
-    CallbackRegistration, Challenge, CompactionMetadata, ConfigSnapshot, ConfirmedPrice,
-    ConsumerAccessMode, ConsumerInfo, ConsumerTier, ContractMetadata, ContribQualityRecord,
-    CorrelationBand, CorrelationPair, CoverageReport, CrossChainPriceEntry, CrossChainPricePayload,
-    CrossChainRelayConfig, CrossReferenceResult, DataKey, DeadManConfig, DeadManState,
-    DecentralizationReport, DegradationConfig, DegradationState, DegradationStats, DemeritConfig,
-    DerivedFeed, DerivedFeedInput, DerivedFeedKind, DeviationReport, DexPrice, DisagreementRecord,
-    DisqualificationStatus, DiversityThresholds, DriftReport, EcosystemMetadata, EffectivePolicy,
-    EmergencyPause, ErrorCode, ExportedEntry, ExportedHistorySnapshot, ExternalDataProof,
-    FeeMarketSubmission, FeedMetadata, FinalityStatus, FinalizedPrice, ForeignAssetMapping,
-    FreshnessCurve, FrozenPrice, GasRecord, Groth16Proof, Groth16VerifyingKey, GuardianRecovery,
-    HealthReport, HistoryStorageTier, LatencyReport, LatencySample, MigrationState,
-    MigrationStatus, MultiSigOperation, NotificationPreference, Operation, OperationKind,
-    OperationPriority, OperationSimulationResult, OperationStatus, OperationTemplate,
-    OperationType, OptimisticProposal, OptimisticProposalStatus, OracleSources, OutlierConfig,
-    OutlierExclusion, PendingBatch, PendingFeeSubmissions, PendingFinalityEntry, PendingOperation,
-    PolicyOverride, PriceBounds, PriceCommit, PriceData, PriceEntry, PriceEventPayload,
-    PriceHistoryEntry, PriceOverrideEntry, PriceProof, ProvenanceEntry, ProvenanceHead,
-    ProvenanceRecord, ReferenceOracleEntry, RelayedSubmission, RelayerAssetStat, RelayerDashboard,
-    RelayerFailureReason, RelayerInfo, RenewalAttempt, RenewalAuthorization, Role, RoundConfig,
-    RoundStatus, RoundTally, RoundVote, SimulationWarning, SoroswapPool, SourceDemeritState,
-    SourceDidLink, SourceDiversityReport, SourceGeoMetadata, SourceGovernance, SourceHealthStatus,
-    SourceProposal, SourceRelayerDelegation, SourceRotationSchedule, SourceStakeRecord,
-    SourceVerification, StateAnalysis, StateChannel, StateDiff, StateDiffEntry, StateDump,
-    StellarHeader, StorageBatchRequest, StorageBatchResult, StorageBudget,
-    StorageTierDowngradeRequest, StorageTierInfo, StorageTtlEntry, SubscriptionExpiry,
-    SubscriptionPayment, SubscriptionPlan, SubscriptionPlans, TemplateStep, TotalStorageBudget,
-    TwapMethod, TwapResult, VersionedAggregatePrice, WeightedAggregate, WormholeGuardianSet,
-    WormholePricePayload, WormholeVaa, ZkPriceAttestation,
-    // #712 — Historical query completeness watermark
-    CompletenessWatermark,
-    // #713 — Consumer-visible uncertainty and confidence semantics
-    SpreadIndicator, SpreadInterpretation,
-    // #714 — Data retention and correction trace policy
-    DataRetentionPolicy,
+    AggregatePrice, Asset, DataKey, ErrorCode, OracleSources, PriceData, PriceEntry,
+    PriceHistoryEntry, SourceEnrollment,
 };
 
 use soroban_sdk::{
@@ -952,24 +915,30 @@ impl PriceOracleContract {
         result
     }
 
-    /// Sets the maximum allowed price deviation, expressed in basis points (100 bp = 1 %).
-    ///
-    /// Submissions that deviate from the current aggregate by more than this amount are
-    /// flagged. Must be in the range `[0, 100_000]`.
-    ///
-    /// # Arguments
-    ///
-    /// * `env` - The Soroban execution environment.
-    /// * `deviation_basis_points` - Deviation ceiling in basis points (max `100_000`).
-    ///
-    /// # Errors
-    ///
-    /// * [`ErrorCode::NotAuthorized`] — if the caller is not the current admin.
-    /// * [`ErrorCode::InvalidConfiguration`] — if `deviation_basis_points > 100_000`.
-    pub fn set_max_price_deviation(env: Env, deviation_basis_points: u32) {
-        reentrancy::enter(&env);
-        admin::set_max_price_deviation(&env, deviation_basis_points);
-        reentrancy::exit(&env);
+    pub fn submit_source_evidence(
+        env: Env,
+        source: Address,
+        identity_evidence: String,
+        endpoint_ownership_evidence: String,
+        operational_contact: String,
+        reliability_evidence: String,
+    ) {
+        sources::submit_source_evidence(
+            &env,
+            source,
+            identity_evidence,
+            endpoint_ownership_evidence,
+            operational_contact,
+            reliability_evidence,
+        );
+    }
+
+    pub fn activate_source(env: Env, source: Address) {
+        sources::activate_source(&env, source);
+    }
+
+    pub fn remove_source(env: Env, source: Address) {
+        sources::remove_source(&env, source);
     }
 
     /// Returns the current maximum price deviation in basis points.
@@ -1008,21 +977,11 @@ impl PriceOracleContract {
         reentrancy::exit(&env);
     }
 
-    /// Returns the current heartbeat interval in seconds.
-    ///
-    /// # Arguments
-    ///
-    /// * `env` - The Soroban execution environment.
-    ///
-    /// # Returns
-    ///
-    /// Heartbeat interval in seconds. Defaults to `3600` (1 hour).
-    pub fn get_heartbeat_interval(env: Env) -> u64 {
-        enter_reentrancy_guard(&env);
-        let result = admin::get_heartbeat_interval(&env);
-        exit_reentrancy_guard(&env);
-        result
+    pub fn get_source_enrollment(env: Env, source: Address) -> Option<SourceEnrollment> {
+        sources::get_source_enrollment(&env, source)
     }
+
+    // --- Assets ---
 
     /// Sets the query rate limit — the maximum number of queries allowed per ledger.
     ///
