@@ -28,3 +28,23 @@ jobs:
           title: "chore: refresh onboarding map"
           commit-message: "chore: refresh onboarding live map"
           add-paths: docs/onboarding/live.md
+
+  # #626: timed operator handover / on-call readiness drill.
+  # Exercises shift handover, escalation contact reachability, and access to
+  # current runbooks. Records response times per step and fails the run when a
+  # step misses its budget so corrective actions get owned and tracked.
+  readiness-drill:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Run timed readiness drill
+        run: python scripts/readiness_drill.py --report readiness-drill-report.md
+      - name: Upload drill report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: readiness-drill-report
+          path: readiness-drill-report.md

@@ -1,7 +1,8 @@
 name: DR game day
 
-# Weekly disaster-recovery drills (#532). Drills run against throwaway
-# sandboxes only; the workflow holds no production secrets.
+# Weekly disaster-recovery drills (#532) and operator on-call readiness
+# drills (#626). Drills run against throwaway sandboxes only; the workflow
+# holds no production secrets.
 on:
   schedule:
     - cron: "0 6 * * 1"
