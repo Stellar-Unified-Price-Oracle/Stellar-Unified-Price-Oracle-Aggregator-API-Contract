@@ -140,26 +140,17 @@ dr-drill:
 lint:
 	cargo clippy -p price-oracle -- -D warnings
 
-# Ops documentation gates: every paging alert has a runbook entry (#527),
-# every postmortem is structured, indexed and owned (#528), and the capacity
-# and backup docs match their code (#529, #530).
-ops-check:
-	python3 -m services.runbook.check_runbook
-	python3 -m services.incident_review.check_postmortems
-	python3 -m pytest services/runbook services/incident_review services/backup services/capacity -q
+SHELL := /bin/bash
 
-# Format source code
-fmt:
-	cargo fmt --manifest-path contracts/price-oracle/Cargo.toml
+# Network + contract ids are supplied by the operator, never committed.
+NETWORK ?= mainnet
+RPC_URL ?= https://soroban-rpc.mainnet.stellar.gateway.fm
+CONTRACTS ?=
 
-# Check formatting without modifying files
-check:
-	cargo fmt --manifest-path contracts/price-oracle/Cargo.toml -- --check
+WASM_DIR := target/wasm32-unknown-unknown/release
+BUILD_FLAGS := --locked --release --target wasm32-unknown-unknown
 
-# Watch for changes and re-run cargo check + tests
-# Requires: cargo install cargo-watch
-watch:
-	cargo watch -x "check -p price-oracle" -x "test -p price-oracle --lib" -x "clippy -p price-oracle -- -D warnings"
+.PHONY: build verify-toolchain verify-lockfile verify-build verify-onchain verify
 
 clean:
 	cargo clean

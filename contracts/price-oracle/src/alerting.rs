@@ -217,17 +217,177 @@ pub fn register_reference_oracle(env: &Env, asset: Address, reference_oracle: Ad
         .extend_ttl(&key, 300000, LEDGER_BUMP);
 }
 
-/// Returns the deviation check result for an asset.
+// ---------------------------------------------------------------------------
+// Source outage escalation state machine (#616)
+// ---------------------------------------------------------------------------
+
+/// Lifecycle state of a price-source outage incident.
 ///
-/// # Arguments
-/// * `env` - Execution environment.
-/// * `asset` - Asset to check.
+/// Transitions (all driven by `advance_outage_incident`):
 ///
-/// # Returns
-/// Last recorded price if deviation alert was triggered, 0 otherwise.
-pub fn get_last_alert_price(env: &Env, asset: &Address) -> i128 {
+/// ```text
+/// Healthy --alert--> Alerting --ack--> Acknowledged --escalate--> Escalated
+///    ^                  |                  |                          |
+///    |                  | (timeout)        | (timeout)                |
+///    |                  v                  v                          |
+///    |              Escalated <------------+                          |
+///    |                                                                |
+///    +------------------recover---------------------------------------+
+/// ```
+///
+/// `Recovered` is terminal for a given incident; a new outage opens a new
+/// incident record so history is never overwritten.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum OutageState {
+    /// Source is healthy; no open incident.
+    Healthy,
+    /// Source unavailable; alert emitted, awaiting acknowledgement.
+    Alerting,
+    /// Operator acknowledged the alert; awaiting resolution or escalation.
+    Acknowledged,
+    /// Incident escalated (unacknowledged timeout or manual escalation).
+    Escalated,
+    /// Source recovered; incident closed but record retained.
+    Recovered,
+}
+
+/// Persisted incident record for a source outage.
+///
+/// Retained after recovery so the incident history is never lost.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct OutageIncident {
+    /// Monotonic incident id (per asset).
+    pub incident_id: u32,
+    /// Current state of the incident.
+    pub state: OutageState,
+    /// Ledger at which the incident was opened.
+    pub opened_ledger: u32,
+    /// Ledger of the last state transition.
+    pub updated_ledger: u32,
+    /// Ledger at which the incident was acknowledged (0 if never).
+    pub acked_ledger: u32,
+    /// Number of escalations applied to this incident.
+    pub escalations: u32,
+    /// Whether the alert notification has been emitted (dedupe guard).
+    pub alert_notified: bool,
+}
+
+/// Ledgers an alert may remain unacknowledged before auto-escalation.
+pub const OUTAGE_ACK_TIMEOUT_LEDGERS: u32 = 30;
+
+/// Ledgers an acknowledged incident may remain unresolved before escalation.
+pub const OUTAGE_RESOLVE_TIMEOUT_LEDGERS: u32 = 120;
+
+/// Returns the persisted incident for an asset, if any.
+pub fn get_outage_incident(env: &Env, asset: &Address) -> Option<OutageIncident> {
     let key = DataKey::AlertLastPrice(asset.clone());
-    env.storage().persistent().get(&key).unwrap_or(0i128)
+    env.storage().persistent().get(&key)
+}
+
+fn store_outage_incident(env: &Env, asset: &Address, incident: &OutageIncident) {
+    let key = DataKey::AlertLastPrice(asset.clone());
+    env.storage().persistent().set(&key, incident);
+    env.storage()
+        .persistent()
+        .extend_ttl(&key, 300000, LEDGER_BUMP);
+}
+
+/// Opens (or reuses) an outage incident for an unavailable source.
+///
+/// If an incident is already open (Alerting/Acknowledged/Escalated) it is
+/// returned unchanged and no duplicate alert is emitted. A previously
+/// `Recovered` incident is replaced by a fresh incident with a new id.
+pub fn alert_source_outage(env: &Env, asset: Address) -> OutageIncident {
+    let now = env.ledger().sequence();
+    if let Some(existing) = get_outage_incident(env, &asset) {
+        if existing.state != OutageState::Recovered {
+            // Duplicate alert for an open incident: suppress notification.
+            return existing;
+        }
+        let incident = OutageIncident {
+            incident_id: existing.incident_id.saturating_add(1),
+            state: OutageState::Alerting,
+            opened_ledger: now,
+            updated_ledger: now,
+            acked_ledger: 0,
+            escalations: 0,
+            alert_notified: true,
+        };
+        store_outage_incident(env, &asset, &incident);
+        return incident;
+    }
+
+    let incident = OutageIncident {
+        incident_id: 1,
+        state: OutageState::Alerting,
+        opened_ledger: now,
+        updated_ledger: now,
+        acked_ledger: 0,
+        escalations: 0,
+        alert_notified: true,
+    };
+    store_outage_incident(env, &asset, &incident);
+    incident
+}
+
+/// Acknowledges an open outage alert.
+///
+/// Only valid from `Alerting`; acknowledging an already-acknowledged or
+/// escalated incident is a no-op that returns the current record (dedupe).
+pub fn acknowledge_source_outage(env: &Env, asset: Address) -> Option<OutageIncident> {
+    let mut incident = get_outage_incident(env, &asset)?;
+    if incident.state != OutageState::Alerting {
+        return Some(incident);
+    }
+    let now = env.ledger().sequence();
+    incident.state = OutageState::Acknowledged;
+    incident.acked_ledger = now;
+    incident.updated_ledger = now;
+    store_outage_incident(env, &asset, &incident);
+    Some(incident)
+}
+
+/// Advances an open incident, applying timeout-driven escalation.
+///
+/// * `Alerting` past `OUTAGE_ACK_TIMEOUT_LEDGERS` -> `Escalated`.
+/// * `Acknowledged` past `OUTAGE_RESOLVE_TIMEOUT_LEDGERS` -> `Escalated`.
+///
+/// Returns the (possibly updated) incident. Escalation is idempotent: once
+/// `Escalated`, further calls do not increment `escalations` again.
+pub fn advance_outage_incident(env: &Env, asset: Address) -> Option<OutageIncident> {
+    let mut incident = get_outage_incident(env, &asset)?;
+    let now = env.ledger().sequence();
+    let elapsed = now.saturating_sub(incident.updated_ledger);
+
+    let should_escalate = match incident.state {
+        OutageState::Alerting => elapsed >= OUTAGE_ACK_TIMEOUT_LEDGERS,
+        OutageState::Acknowledged => elapsed >= OUTAGE_RESOLVE_TIMEOUT_LEDGERS,
+        _ => false,
+    };
+
+    if should_escalate {
+        incident.state = OutageState::Escalated;
+        incident.escalations = incident.escalations.saturating_add(1);
+        incident.updated_ledger = now;
+        store_outage_incident(env, &asset, &incident);
+    }
+    Some(incident)
+}
+
+/// Marks an open incident as recovered.
+///
+/// The incident record is retained (state `Recovered`) so history is not lost.
+/// Recovering an already-recovered incident is a no-op (dedupe).
+pub fn recover_source_outage(env: &Env, asset: Address) -> Option<OutageIncident> {
+    let mut incident = get_outage_incident(env, &asset)?;
+    if incident.state == OutageState::Recovered {
+        return Some(incident);
+    }
+    let now = env.ledger().sequence();
+    incident.state = OutageState::Recovered;
+    incident.updated_ledger = now;
+    store_outage_incident(env, &asset, &incident);
+    Some(incident)
 }
 
 // ---------------------------------------------------------------------------
