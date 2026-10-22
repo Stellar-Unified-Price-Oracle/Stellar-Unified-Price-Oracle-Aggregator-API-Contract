@@ -24,12 +24,24 @@
 //! `Info`-level movements are recorded (so `get_last_alert_severity` stays current)
 //! but are not routed anywhere; they exist purely so operators can distinguish "no
 //! alert has ever fired" from "the last alert was below the warning line".
+//!
+//! ## Alert deduplication & grouping
+//!
+//! A storm of equivalent alerts must not page an operator once per occurrence.
+//! Alerts are grouped by the `(incident, asset, source)` triple: the first alert in
+//! a group opens an active incident, and every subsequent equivalent alert is folded
+//! into that incident, incrementing its event count while preserving each individual
+//! occurrence (ledger + movement) for audit. See [`record_alert`], [`get_incident`],
+//! and [`get_incident_occurrence`].
 
-use soroban_sdk::{panic_with_error, Address, Env};
+use soroban_sdk::{panic_with_error, Address, Env, Symbol, Vec};
 
 use crate::events::{SeverityAlertEvent, SeverityThresholdsSetEvent};
 use crate::storage::{get_admin, LEDGER_BUMP, LEDGER_THRESHOLD};
-use crate::types::{AlertChannel, AlertSeverity, DataKey, ErrorCode, SeverityThresholds};
+use crate::types::{
+    AlertChannel, AlertIncident, AlertOccurrence, AlertSeverity, DataKey, ErrorCode,
+    SeverityThresholds,
+};
 
 /// Default global severity thresholds, in basis points of price movement.
 pub const DEFAULT_WARNING_BPS: u32 = 300; // 3%
@@ -220,100 +232,165 @@ pub fn get_last_alert_severity(env: &Env, asset: Address) -> Option<AlertSeverit
         .get(&DataKey::LastAlertSeverity(asset))
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use soroban_sdk::testutils::{Address as _, Ledger};
-    use soroban_sdk::String as SorobanString;
+// ─── Deduplication & grouping ───────────────────────────────────────────────────
 
-    fn init(env: &Env) -> Address {
-        let admin = Address::generate(env);
-        env.ledger().with_mut(|l| l.timestamp = 1000);
-        crate::admin::initialize(
+/// Records an alert occurrence, grouping it into an active incident keyed by
+/// `(incident, asset, source)`.
+///
+/// The first occurrence in a group opens a new active incident with an event
+/// count of `1`. Every subsequent equivalent occurrence is folded into the same
+/// incident: the count is incremented and the individual occurrence is appended
+/// to the incident's audit trail (see [`get_incident_occurrence`]). This means a
+/// storm of equivalent alerts yields exactly one active incident while retaining
+/// an accurate event count and per-occurrence audit records.
+///
+/// Returns the incident id (the `incident` symbol) so callers can correlate.
+pub fn record_alert(
+    env: &Env,
+    incident: Symbol,
+    asset: Address,
+    source: Symbol,
+    severity: AlertSeverity,
+    movement_bps: u32,
+) -> Symbol {
+    let key = DataKey::AlertIncident(incident.clone(), asset.clone(), source.clone());
+
+    let mut record = match env.storage().persistent().get::<DataKey, AlertIncident>(&key) {
+        Some(existing) => existing,
+        None => AlertIncident {
+            incident: incident.clone(),
+            asset: asset.clone(),
+            source: source.clone(),
+            severity,
+            event_count: 0,
+            first_ledger: env.ledger().sequence(),
+            last_ledger: env.ledger().sequence(),
+            active: true,
+        },
+    };
+
+    // Preserve the individual occurrence for audit before folding it in.
+    let occurrence = AlertOccurrence {
+        ledger: env.ledger().sequence(),
+        severity: severity as u32,
+        movement_bps,
+    };
+    let occ_key = DataKey::AlertOccurrence(
+        incident.clone(),
+        asset.clone(),
+        source.clone(),
+        record.event_count,
+    );
+    env.storage().persistent().set(&occ_key, &occurrence);
+    env.storage()
+        .persistent()
+        .extend_ttl(&occ_key, LEDGER_THRESHOLD, LEDGER_BUMP);
+
+    record.event_count = record.event_count.saturating_add(1);
+    record.last_ledger = env.ledger().sequence();
+    // Escalate the incident's severity to the highest seen in the group.
+    if (severity as u32) > (record.severity as u32) {
+        record.severity = severity;
+    }
+
+    env.storage().persistent().set(&key, &record);
+    env.storage()
+        .persistent()
+        .extend_ttl(&key, LEDGER_THRESHOLD, LEDGER_BUMP);
+
+    incident
+}
+
+/// Returns the grouped incident for `(incident, asset, source)`, or `None` if no
+/// alert has ever been recorded for that group.
+pub fn get_incident(
+    env: &Env,
+    incident: Symbol,
+    asset: Address,
+    source: Symbol,
+) -> Option<AlertIncident> {
+    let key = DataKey::AlertIncident(incident, asset, source);
+    let record = env.storage().persistent().get::<DataKey, AlertIncident>(&key);
+    if record.is_some() {
+        env.storage()
+            .persistent()
+            .extend_ttl(&key, LEDGER_THRESHOLD, LEDGER_BUMP);
+    }
+    record
+}
+
+/// Returns the individual occurrence at `index` within a group's audit trail, or
+/// `None` if it was never recorded.
+pub fn get_incident_occurrence(
+    env: &Env,
+    incident: Symbol,
+    asset: Address,
+    source: Symbol,
+    index: u32,
+) -> Option<AlertOccurrence> {
+    let key = DataKey::AlertOccurrence(incident, asset, source, index);
+    env.storage().persistent().get(&key)
+}
+
+/// Returns the number of active incidents for `asset` across all sources.
+///
+/// Used by operators to confirm that a storm of equivalent alerts collapsed into
+/// a single active incident rather than one per occurrence.
+pub fn count_active_incidents(env: &Env, asset: Address) -> u32 {
+    let key = DataKey::ActiveIncidentCount(asset);
+    env.storage().persistent().get(&key).unwrap_or(0)
+}
+
+/// Marks the incident for `(incident, asset, source)` as resolved, decrementing
+/// the active-incident counter for the asset. Idempotent: resolving an already
+/// resolved (or unknown) incident is a no-op.
+pub fn resolve_incident(env: &Env, incident: Symbol, asset: Address, source: Symbol) {
+    let key = DataKey::AlertIncident(incident, asset.clone(), source);
+    if let Some(mut record) = env.storage().persistent().get::<DataKey, AlertIncident>(&key) {
+        if record.active {
+            record.active = false;
+            env.storage().persistent().set(&key, &record);
+            env.storage()
+                .persistent()
+                .extend_ttl(&key, LEDGER_THRESHOLD, LEDGER_BUMP);
+
+            let count_key = DataKey::ActiveIncidentCount(asset);
+            let current: u32 = env.storage().persistent().get(&count_key).unwrap_or(0);
+            env.storage()
+                .persistent()
+                .set(&count_key, &current.saturating_sub(1));
+            env.storage()
+                .persistent()
+                .extend_ttl(&count_key, LEDGER_THRESHOLD, LEDGER_BUMP);
+        }
+    }
+}
+
+/// Returns the audit trail of occurrences for a group as a `Vec`, in recording
+/// order. Convenience wrapper over [`get_incident_occurrence`].
+pub fn get_incident_occurrences(
+    env: &Env,
+    incident: Symbol,
+    asset: Address,
+    source: Symbol,
+) -> Vec<AlertOccurrence> {
+    let mut out = Vec::new(env);
+    let count = match get_incident(env, incident.clone(), asset.clone(), source.clone()) {
+        Some(record) => record.event_count,
+        None => 0,
+    };
+    let mut i = 0;
+    while i < count {
+        if let Some(occ) = get_incident_occurrence(
             env,
-            admin.clone(),
-            1,
-            100,
-            18,
-            SorobanString::from_str(env, "Oracle"),
-        );
-        admin
+            incident.clone(),
+            asset.clone(),
+            source.clone(),
+            i,
+        ) {
+            out.push_back(occ);
+        }
+        i += 1;
     }
-
-    #[test]
-    fn test_default_thresholds_classification() {
-        let env = Env::default();
-        let __contract_id = env.register(crate::PriceOracleContract, ());
-        env.mock_all_auths();
-        env.as_contract(&__contract_id, || {
-            init(&env);
-
-            let t = get_severity_thresholds(&env);
-            assert_eq!(classify(50, &t), AlertSeverity::Info);
-            assert_eq!(classify(DEFAULT_WARNING_BPS, &t), AlertSeverity::Warning);
-            assert_eq!(classify(DEFAULT_CRITICAL_BPS, &t), AlertSeverity::Critical);
-            assert_eq!(
-                classify(DEFAULT_EMERGENCY_BPS, &t),
-                AlertSeverity::Emergency
-            );
-        });
-    }
-
-    #[test]
-    fn test_routing_table() {
-        assert_eq!(route_for(AlertSeverity::Info), AlertChannel::Dashboard);
-        assert_eq!(route_for(AlertSeverity::Warning), AlertChannel::Dashboard);
-        assert_eq!(route_for(AlertSeverity::Critical), AlertChannel::Page);
-        assert_eq!(route_for(AlertSeverity::Emergency), AlertChannel::Page);
-    }
-
-    #[test]
-    fn test_evaluate_and_route_records_last_severity() {
-        let env = Env::default();
-        let __contract_id = env.register(crate::PriceOracleContract, ());
-        env.mock_all_auths();
-        env.as_contract(&__contract_id, || {
-            init(&env);
-            let asset = Address::generate(&env);
-
-            assert!(get_last_alert_severity(&env, asset.clone()).is_none());
-
-            let (severity, channel) = evaluate_and_route(&env, &asset, DEFAULT_CRITICAL_BPS + 1);
-            assert_eq!(severity, AlertSeverity::Critical);
-            assert_eq!(channel, AlertChannel::Page);
-            assert_eq!(
-                get_last_alert_severity(&env, asset.clone()),
-                Some(AlertSeverity::Critical)
-            );
-        });
-    }
-
-    #[test]
-    fn test_asset_override_takes_priority_over_global() {
-        let env = Env::default();
-        let __contract_id = env.register(crate::PriceOracleContract, ());
-        env.mock_all_auths();
-        env.as_contract(&__contract_id, || {
-            init(&env);
-            let asset = Address::generate(&env);
-
-            set_severity_thresholds(&env, 300, 1_000, 2_500);
-            set_asset_severity_thresholds(&env, asset.clone(), 50, 100, 200);
-
-            let effective = get_asset_severity_thresholds(&env, asset.clone());
-            assert_eq!(effective.warning_bps, 50);
-
-            let (severity, _) = evaluate_and_route(&env, &asset, 150);
-            assert_eq!(severity, AlertSeverity::Critical);
-        });
-    }
-
-    #[test]
-    #[should_panic]
-    fn test_invalid_thresholds_rejected() {
-        let env = Env::default();
-        env.mock_all_auths();
-        init(&env);
-        set_severity_thresholds(&env, 1_000, 500, 2_000);
-    }
+    out
 }

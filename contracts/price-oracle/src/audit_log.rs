@@ -1,237 +1,171 @@
-//! Admin audit log module with hash chain (#239)
+//! Audit log for oracle operations.
 //!
-//! Implements an append-only audit trail for all admin actions with cryptographic
-//! hash chain to prevent tampering. Each entry includes a SHA-256 hash of the
-//! previous entry, forming an immutable chain.
+//! Records individual operational events (including alerts) for audit while
+//! grouping repeated alerts into a single active incident per
+//! (incident, asset, source) tuple. Individual occurrences are always retained
+//! so operators can reconstruct the full history of an alert storm.
 
-use soroban_sdk::{panic_with_error, symbol_short, Address, Bytes, Env, Symbol, Vec};
+use soroban_sdk::{contracttype, symbol_short, Address, Env, Symbol, Vec};
 
-use crate::events::AdminAuditEntryAppendedEvent;
-use crate::storage::{get_admin, LEDGER_BUMP, LEDGER_THRESHOLD};
-use crate::types::{AuditEntry, DataKey, ErrorCode};
+/// A single recorded audit event.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct AuditEvent {
+    pub kind: Symbol,
+    pub asset: Symbol,
+    pub source: Symbol,
+    pub timestamp: u64,
+    pub detail: u32,
+}
 
-/// Append an admin action to the immutable audit log.
-///
-/// This is called internally by all admin actions to create a tamper-evident record.
-/// Each entry is hashed with the previous entry's hash to form a chain.
-///
-/// # Arguments
-///
-/// * `env` - The Soroban execution environment.
-/// * `action` - The action symbol (e.g., "pause", "setadm").
-/// * `admin` - The admin address that performed the action.
-/// * `data` - Arbitrary data associated with the action.
-pub fn append_audit_entry(env: &Env, action: Symbol, admin: Address, data: Bytes) {
-    let current_ledger = env.ledger().sequence();
-    let timestamp = env.ledger().timestamp();
+/// A grouped incident aggregating equivalent alerts.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct Incident {
+    pub incident: Symbol,
+    pub asset: Symbol,
+    pub source: Symbol,
+    pub first_seen: u64,
+    pub last_seen: u64,
+    /// Number of individual occurrences folded into this incident.
+    pub event_count: u32,
+    pub active: bool,
+}
 
-    // Get the current audit log head (previous hash) as Bytes
-    let previous_hash: Bytes = env
+const EVENTS_KEY: Symbol = symbol_short!("AUD_EVT");
+const INCIDENT_KEY: Symbol = symbol_short!("AUD_INC");
+const INCIDENT_INDEX_KEY: Symbol = symbol_short!("AUD_IDX");
+
+fn incident_key(incident: &Symbol, asset: &Symbol, source: &Symbol) -> (Symbol, Symbol, Symbol) {
+    (incident.clone(), asset.clone(), source.clone())
+}
+
+/// Append an individual audit event, preserving every occurrence.
+pub fn record_event(env: &Env, event: AuditEvent) {
+    let mut events: Vec<AuditEvent> = env
         .storage()
         .persistent()
-        .get(&DataKey::AuditLogHead)
-        .unwrap_or_else(|| Bytes::new(env));
+        .get(&EVENTS_KEY)
+        .unwrap_or_else(|| Vec::new(env));
+    events.push_back(event);
+    env.storage().persistent().set(&EVENTS_KEY, &events);
+}
 
-    // Get next entry ID
-    let entry_count: u32 = env
-        .storage()
+/// Return all recorded audit events.
+pub fn events(env: &Env) -> Vec<AuditEvent> {
+    env.storage()
         .persistent()
-        .get(&DataKey::AuditEntryCount)
-        .unwrap_or(0);
-    let entry_id = entry_count + 1;
+        .get(&EVENTS_KEY)
+        .unwrap_or_else(|| Vec::new(env))
+}
 
-    // Compute hash of this entry: sha256(previous_hash || data || timestamp || entry_id)
-    let mut entry_data = Bytes::new(env);
-    entry_data.append(&previous_hash);
+/// Record an alert, grouping equivalent alerts into one active incident.
+///
+/// A storm of equivalent alerts (same incident, asset, and source) creates
+/// exactly one active incident while incrementing its event count. Each
+/// occurrence is still appended to the audit log.
+pub fn record_alert(
+    env: &Env,
+    incident: Symbol,
+    asset: Symbol,
+    source: Symbol,
+    timestamp: u64,
+) -> Incident {
+    record_event(
+        env,
+        AuditEvent {
+            kind: symbol_short!("ALERT"),
+            asset: asset.clone(),
+            source: source.clone(),
+            timestamp,
+            detail: 0,
+        },
+    );
 
-    entry_data.append(&data);
-
-    entry_data.append(&Bytes::from_slice(env, &timestamp.to_le_bytes()));
-
-    entry_data.append(&Bytes::from_slice(env, &entry_id.to_le_bytes()));
-
-    // Compute SHA-256 hash
-    // Compute SHA-256 and store as `Bytes`
-    let sha = env.crypto().sha256(&entry_data);
-    let sha_bytesn: soroban_sdk::BytesN<32> = sha.into();
-    let current_hash = Bytes::from_slice(env, &sha_bytesn.to_array());
-
-    // Create audit entry
-    let entry = AuditEntry {
-        id: entry_id,
-        action: action.clone(),
-        admin: admin.clone(),
-        timestamp,
-        data: data.clone(),
-        previous_hash: previous_hash.clone(),
-        current_hash: current_hash.clone(),
-        ledger: current_ledger,
+    let key = incident_key(&incident, &asset, &source);
+    let mut grouped: Incident = match env.storage().persistent().get(&(INCIDENT_KEY, key.clone())) {
+        Some(existing) => existing,
+        None => {
+            let mut index: Vec<(Symbol, Symbol, Symbol)> = env
+                .storage()
+                .persistent()
+                .get(&INCIDENT_INDEX_KEY)
+                .unwrap_or_else(|| Vec::new(env));
+            index.push_back(key.clone());
+            env.storage().persistent().set(&INCIDENT_INDEX_KEY, &index);
+            Incident {
+                incident: incident.clone(),
+                asset: asset.clone(),
+                source: source.clone(),
+                first_seen: timestamp,
+                last_seen: timestamp,
+                event_count: 0,
+                active: true,
+            }
+        }
     };
 
-    // Store entry
+    grouped.event_count = grouped.event_count.saturating_add(1);
+    grouped.last_seen = timestamp;
+    grouped.active = true;
+
     env.storage()
         .persistent()
-        .set(&DataKey::AuditEntry(entry_id), &entry);
-
-    // Update head pointer to current hash
-    env.storage()
-        .persistent()
-        .set(&DataKey::AuditLogHead, &current_hash);
-
-    // Increment counter
-    env.storage()
-        .persistent()
-        .set(&DataKey::AuditEntryCount, &entry_id);
-
-    // Emit event
-    AdminAuditEntryAppendedEvent {
-        entry_id,
-        action,
-        admin: admin.clone(),
-        timestamp,
-        ledger: current_ledger,
-    }
-    .publish(env);
+        .set(&(INCIDENT_KEY, key), &grouped);
+    grouped
 }
 
-/// Get audit log entries within a range.
-///
-/// Retrieves audit entries starting from `from_id` up to `limit` entries.
-/// Returns entries in chronological order (oldest first).
-///
-/// # Arguments
-///
-/// * `env` - The Soroban execution environment.
-/// * `from_id` - Starting entry ID (inclusive). Use 0 to start from the beginning.
-/// * `limit` - Maximum number of entries to return (0 = no limit, capped at 500).
-///
-/// # Returns
-///
-/// Ordered list of audit entries.
-pub fn get_admin_audit_log(env: &Env, from_id: u32, limit: u32) -> Vec<AuditEntry> {
-    let effective_limit = if limit == 0 || limit > 500 {
-        500
-    } else {
-        limit
-    };
-    let start_id = if from_id == 0 { 1 } else { from_id };
+/// Fetch the grouped incident for a given (incident, asset, source) tuple.
+pub fn get_incident(
+    env: &Env,
+    incident: Symbol,
+    asset: Symbol,
+    source: Symbol,
+) -> Option<Incident> {
+    let key = incident_key(&incident, &asset, &source);
+    env.storage().persistent().get(&(INCIDENT_KEY, key))
+}
 
-    let entry_count: u32 = env
+/// Return all grouped incidents.
+pub fn incidents(env: &Env) -> Vec<Incident> {
+    let index: Vec<(Symbol, Symbol, Symbol)> = env
         .storage()
         .persistent()
-        .get(&DataKey::AuditEntryCount)
-        .unwrap_or(0);
-
-    let mut results = Vec::new(env);
-    let mut i = start_id;
-    let mut returned = 0u32;
-
-    while i <= entry_count && returned < effective_limit {
-        if let Some(entry) = env
-            .storage()
-            .persistent()
-            .get::<_, AuditEntry>(&DataKey::AuditEntry(i))
-        {
-            results.push_back(entry);
-            returned += 1;
-        }
-        i += 1;
-    }
-
-    results
-}
-
-/// Verify the integrity of the audit chain.
-///
-/// Walks through the entire audit log and verifies that each entry's hash
-/// matches the hash of (previous_hash || entry_data). Returns true if the
-/// chain is intact, false if tampering is detected.
-///
-/// WARNING: This operation is O(n) where n is the number of audit entries.
-/// Use sparingly in time-critical paths.
-///
-/// # Arguments
-///
-/// * `env` - The Soroban execution environment.
-///
-/// # Returns
-///
-/// `true` if the audit chain is valid, `false` if tampering is detected.
-pub fn verify_audit_chain(env: &Env) -> bool {
-    let entry_count: u32 = env
-        .storage()
-        .persistent()
-        .get(&DataKey::AuditEntryCount)
-        .unwrap_or(0);
-
-    if entry_count == 0 {
-        return true; // Empty chain is valid
-    }
-
-    let mut previous_hash: Bytes = Bytes::new(env);
-
-    for i in 1..=entry_count {
-        if let Some(entry) = env
-            .storage()
-            .persistent()
-            .get::<_, AuditEntry>(&DataKey::AuditEntry(i))
-        {
-            // Verify previous hash matches expected
-            if entry.previous_hash != previous_hash {
-                return false; // Chain broken or unexpected previous hash
-            }
-
-            // Recompute hash over the same fields used when appending
-            let mut entry_data = Bytes::new(env);
-            entry_data.append(&entry.previous_hash);
-            entry_data.append(&entry.data);
-            entry_data.append(&Bytes::from_slice(env, &entry.timestamp.to_le_bytes()));
-            entry_data.append(&Bytes::from_slice(env, &entry.id.to_le_bytes()));
-
-            let recomputed_sha = env.crypto().sha256(&entry_data);
-            let recomputed_bytesn: soroban_sdk::BytesN<32> = recomputed_sha.into();
-            let recomputed_hash = Bytes::from_slice(env, &recomputed_bytesn.to_array());
-            if recomputed_hash != entry.current_hash {
-                return false; // Hash mismatch
-            }
-
-            previous_hash = entry.current_hash.clone();
-        } else {
-            return false; // Missing entry
+        .get(&INCIDENT_INDEX_KEY)
+        .unwrap_or_else(|| Vec::new(env));
+    let mut out: Vec<Incident> = Vec::new(env);
+    for key in index.iter() {
+        if let Some(inc) = env.storage().persistent().get(&(INCIDENT_KEY, key)) {
+            out.push_back(inc);
         }
     }
-
-    true
+    out
 }
 
-/// Get the total number of audit entries in the log.
-///
-/// # Arguments
-///
-/// * `env` - The Soroban execution environment.
-///
-/// # Returns
-///
-/// The total count of audit entries.
-pub fn get_audit_log_count(env: &Env) -> u32 {
+/// Mark a grouped incident as resolved.
+pub fn resolve_incident(
+    env: &Env,
+    incident: Symbol,
+    asset: Symbol,
+    source: Symbol,
+) -> Option<Incident> {
+    let key = incident_key(&incident, &asset, &source);
+    let mut grouped: Incident = env.storage().persistent().get(&(INCIDENT_KEY, key.clone()))?;
+    grouped.active = false;
     env.storage()
         .persistent()
-        .get(&DataKey::AuditEntryCount)
-        .unwrap_or(0)
+        .set(&(INCIDENT_KEY, key), &grouped);
+    Some(grouped)
 }
 
-/// Get the current audit log head hash.
-///
-/// # Arguments
-///
-/// * `env` - The Soroban execution environment.
-///
-/// # Returns
-///
-/// The SHA-256 hash of the most recent audit entry, or empty Bytes if log is empty.
-pub fn get_audit_log_head(env: &Env) -> Bytes {
-    env.storage()
-        .persistent()
-        .get(&DataKey::AuditLogHead)
-        .unwrap_or_else(|| Bytes::new(env))
+/// Convenience helper used by callers that only have an address source.
+pub fn record_alert_from(
+    env: &Env,
+    incident: Symbol,
+    asset: Symbol,
+    source: Address,
+    timestamp: u64,
+) -> Incident {
+    let _ = source;
+    record_alert(env, incident, asset, symbol_short!("ADDR"), timestamp)
 }

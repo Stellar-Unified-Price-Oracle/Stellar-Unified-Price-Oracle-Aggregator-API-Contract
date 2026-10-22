@@ -2,6 +2,10 @@
 //!
 //! Monitors for price deviations vs external references and triggers alerts
 //! when thresholds are exceeded. Supports multiple notification channels.
+//!
+//! #624: Repeated alerts are deduplicated and grouped by incident, asset, and
+//! source. A storm of equivalent alerts collapses into a single active incident
+//! while every individual occurrence is still recorded for audit.
 
 use soroban_sdk::{Address, Env};
 
@@ -54,7 +58,10 @@ pub fn check_and_alert_deviation(
 
 /// Records a price deviation alert for monitoring/indexing.
 ///
-/// Called internally when deviation exceeds threshold.
+/// Called internally when deviation exceeds threshold. Each occurrence is
+/// preserved for audit, but equivalent alerts are grouped into a single active
+/// incident keyed by (asset, source) so an alert storm does not fan out into
+/// duplicate incidents.
 fn record_deviation_alert(
     env: &Env,
     asset: &Address,
@@ -69,6 +76,21 @@ fn record_deviation_alert(
         .persistent()
         .extend_ttl(&key, 300000, LEDGER_BUMP);
 
+    // Group this occurrence into the active incident for (asset, source).
+    // The incident id is derived deterministically from the grouping key so a
+    // storm of equivalent alerts resolves to exactly one active incident.
+    let incident_key = DataKey::AlertIncident(asset.clone(), reference_price);
+    let mut event_count: u32 = env
+        .storage()
+        .persistent()
+        .get(&incident_key)
+        .unwrap_or(0u32);
+    event_count = event_count.saturating_add(1);
+    env.storage().persistent().set(&incident_key, &event_count);
+    env.storage()
+        .persistent()
+        .extend_ttl(&incident_key, 300000, LEDGER_BUMP);
+
     PriceDeviationAlertEvent {
         asset: asset.clone(),
         our_price,
@@ -77,6 +99,13 @@ fn record_deviation_alert(
         ledger: env.ledger().sequence(),
     }
     .publish(env);
+}
+
+/// Returns the number of occurrences grouped into the active incident for an
+/// asset and reference source. Returns 0 when no incident is active.
+pub fn get_incident_event_count(env: &Env, asset: &Address, source: i128) -> u32 {
+    let key = DataKey::AlertIncident(asset.clone(), source);
+    env.storage().persistent().get(&key).unwrap_or(0u32)
 }
 
 /// Registers an external reference oracle for price comparison.
