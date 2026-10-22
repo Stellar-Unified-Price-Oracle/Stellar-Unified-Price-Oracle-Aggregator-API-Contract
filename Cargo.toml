@@ -6,3 +6,23 @@ members = ["contracts/price-oracle", "contracts/minimal-oracle", "fuzz"]
 default-members = ["contracts/price-oracle", "contracts/minimal-oracle"]
 resolver = "2"
 
+# Soroban protocol / SDK compatibility matrix (see docs/COMPATIBILITY.md).
+# Each declared supported combination pins the soroban-sdk version that the
+# contract suite is exercised against. CI runs the contract suite for every
+# entry below and blocks a release when a combination is unverified.
+[workspace.metadata.compatibility]
+# Deployment targets and the protocol/SDK versions validated for each.
+# `protocol` is the Soroban protocol version; `sdk` is the soroban-sdk crate
+# version the suite is built and tested against.
+targets = [
+  { name = "local", protocol = 22, sdk = "22.0.0" },
+  { name = "testnet", protocol = 22, sdk = "22.0.0" },
+  { name = "futurenet", protocol = 22, sdk = "22.0.0" },
+  { name = "mainnet", protocol = 22, sdk = "22.0.0" },
+]
+# Explicitly supported protocol/SDK combinations. Any target whose
+# (protocol, sdk) pair is not listed here is considered unverified and must
+# not be released.
+supported = [
+  { protocol = 22, sdk = "22.0.0" },
+]

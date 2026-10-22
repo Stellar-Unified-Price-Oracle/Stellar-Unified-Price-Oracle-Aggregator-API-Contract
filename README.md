@@ -71,6 +71,24 @@ fails the check and blocks release.
 | `set_interpolation_enabled(bool)` | Enable/disable linear interpolation for history gaps (admin) |
 | `get_interpolation_enabled() -> bool` | Check if interpolation is enabled |
 
+### Asset Lifecycle Management
+
+When an asset has a data quality issue, is being replaced, or needs temporary maintenance, the admin can temporarily **disable** or permanently **delist** it:
+
+| Function | Description |
+|----------|-------------|
+| `disable_asset(asset) -> void` | Temporarily disable an asset (admin only; blocks new submissions and aggregations) |
+| `enable_asset(asset) -> void` | Re-enable a disabled asset (admin only; resumes normal operation) |
+| `is_asset_disabled(asset) -> bool` | Check if an asset is currently disabled |
+| `get_asset_disabled_at(asset) -> u32` | Get ledger sequence when an asset was disabled |
+| `unregister_asset(asset) -> void` | Permanently remove an asset from the registry (admin only; price history preserved) |
+
+**Disabled vs Delisted:**
+- **Disabled**: Temporary offline state. New submissions blocked. Queries return `ErrorCode::AssetDisabled` (190). Historical prices remain queryable for audit. Can be re-enabled.
+- **Delisted**: Permanent removal via `unregister_asset()`. Asset removed from registry. Queries return `ErrorCode::AssetNotRegistered`. Historical prices remain queryable indefinitely.
+
+For full semantics, see [Asset Lifecycle Design](docs/ASSET_LIFECYCLE_DESIGN.md).
+
 ### SEP-40 Oracle Consumer Interface
 
 | Function | Description |
@@ -84,20 +102,9 @@ fails the check and blocks release.
 | `prices(asset, records) → Option<Vec<PriceData>>` | Get up to 50 latest historical price records |
 | `lastprice(asset) → Option<PriceData>` | Get latest aggregated price |
 
-### Contract Events
+## Overview
 
-| Event | Trigger | Topics | Data |
-|-------|---------|--------|------|
-| `SourceEnrollmentStartedEvent` | `add_source()` | source, admin | — |
-| `SourceEvidenceSubmittedEvent` | `submit_source_evidence()` | source | — |
-| `SourceAddedEvent` | `activate_source()` | source, admin | name |
-| `SourceRemovedEvent` | `remove_source()` | source, admin | — |
-| `AssetRegisteredEvent` | `register_asset()` | asset, admin | — |
-| `AssetUnregisteredEvent` | `unregister_asset()` | asset, admin | — |
-| `PriceSubmittedEvent` | `submit_price()` | asset, source | price, timestamp |
-| `PriceUpdatedEvent` | aggregate price changes | asset | new_price, old_price, timestamp |
-| `AdminChangedEvent` | `set_admin()` | old_admin, new_admin | — |
-| `ContractUpgradedEvent` | `upgrade()` | new_wasm_hash | — |
+This service aggregates price feeds and publishes them on-chain for consumption by Soroban contracts. It is designed to move from feature-complete development into a dependable production service, with explicit, reviewable, and verifiable mainnet readiness decisions.
 
 ## Contract Identity & Verification Registry
 
@@ -144,35 +151,16 @@ keep the registry honest.
 
 ## oracle-cli
 
-`scripts/oracle-cli.sh` is a shell script plugin that wraps `stellar contract invoke` with
-oracle-specific ergonomics.
+Every asset enabled at launch must satisfy the policy below. A new asset **cannot** enter the production manifest unless all required review fields are present and signed off.
 
-### Prerequisites
+### 1. Eligibility
 
-- `stellar` CLI installed and configured
-- `ORACLE_CONTRACT_ID` environment variable set to your deployed contract address
+An asset is eligible for the production manifest only if it:
 
-### Commands
-
-| Command | Description |
-|---------|-------------|
-| `oracle-cli init` | Initialize a newly deployed contract |
-| `oracle-cli submit-price` | Submit a price from a registered source |
-| `oracle-cli get-price` | Get the latest aggregated price for an asset |
-| `oracle-cli add-source` | Register a new oracle source (admin) |
-| `oracle-cli register-asset` | Register a new asset (admin) |
-| `oracle-cli health-check` | Display contract configuration and live status |
-
-### Quick start
-
-```bash
-export ORACLE_CONTRACT_ID=CAAAA...
-export ORACLE_NETWORK=testnet        # default: testnet
-
-# Initialize
-./scripts/oracle-cli.sh init \
-  --admin GAAA... --admin-key my-admin \
-  --description "My Oracle" --decimals 18
+- Is a supported Stellar/Soroban asset (native, issued, or contract-wrapped) with a verifiable on-chain identifier.
+- Has at least one reliable, independent price source available to the oracle.
+- Has sufficient liquidity and market depth to produce a non-manipulable reference price.
+- Is not subject to sanctions, legal restrictions, or issuer controls that would make pricing unreliable.
 
 # Add a source
 ./scripts/oracle-cli.sh add-source \
@@ -225,35 +213,78 @@ families are 1–50.
 make build
 ```
 
-### Test
+**JavaScript / TypeScript**
 
-```bash
-make test
+```ts
+const DECIMALS = 7;
+const SCALE = 10n ** BigInt(DECIMALS);
+const I128_MAX = (1n << 127n) - 1n;
+const I128_MIN = -(1n << 127n);
+
+// Round-half-up on a rational (numerator / denominator).
+function roundHalfUp(numerator: bigint, denominator: bigint): bigint {
+  const q = numerator / denominator;
+  const r = numerator % denominator;
+  if (r === 0n) return q;
+  const absR = r < 0n ? -r : r;
+  const bump = absR * 2n >= denominator ? 1n : 0n;
+  return numerator < 0n ? q - bump : q + bump;
+}
+
+function toInteger(human: number): bigint {
+  // Convert via string to avoid float precision loss.
+  const [whole, frac = ""] = human.toString().split(".");
+  const fracPadded = (frac + "0".repeat(DECIMALS)).slice(0, DECIMALS);
+  const numerator = BigInt(whole + fracPadded);
+  const scaled = roundHalfUp(numerator, 1n);
+  if (scaled > I128_MAX || scaled < I128_MIN) {
+    throw new Error("price out of i128 range");
+  }
+  return scaled;
+}
+
+function toHuman(integer: bigint): string {
+  const neg = integer < 0n;
+  const abs = neg ? -integer : integer;
+  const whole = abs / SCALE;
+  const frac = (abs % SCALE).toString().padStart(DECIMALS, "0");
+  return `${neg ? "-" : ""}${whole}.${frac}`;
+}
+
+// Examples (decimals = 7)
+console.assert(toInteger(0.0000001) === 1n);
+console.assert(toInteger(1.2345678) === 12345678n);
+console.assert(toHuman(12345678n) === "1.2345678");
 ```
 
-All **79 tests pass** with zero warnings.
+**Python**
 
-### End-to-End Testnet Test
+```python
+from decimal import Decimal, ROUND_HALF_UP
 
-Deploys the contract to Stellar testnet and runs a full lifecycle test:
+DECIMALS = 7
+SCALE = 10 ** DECIMALS
+I128_MAX = (1 << 127) - 1
+I128_MIN = -(1 << 127)
 
-```bash
-./scripts/e2e-testnet.sh
-```
 
-See [docs/e2e-testnet.md](docs/e2e-testnet.md) for prerequisites, configuration, and expected output.
+def to_integer(human: Decimal) -> int:
+    scaled = (human * SCALE).quantize(Decimal(1), rounding=ROUND_HALF_UP)
+    value = int(scaled)
+    if value > I128_MAX or value < I128_MIN:
+        raise ValueError("price out of i128 range")
+    return value
 
-Automated testnet lifecycle CI (with adversarial phases) runs via `scripts/testnet-lifecycle.sh`; see `.github/workflows/testnet-lifecycle.yml`.
 
-Related reports: [gas cost dashboard](docs/gas-dashboard.md), [chaos invariants](docs/chaos-invariants.md), and mutation testing (`scripts/mutation-gate.sh`, config in `.cargo/mutants.toml`).
+def to_human(integer: int) -> Decimal:
+    return Decimal(integer) / SCALE
 
-### Deploy
 
-```bash
-soroban contract deploy \
-  --wasm target/wasm32v1-none/release/price_oracle.wasm \
-  --source <identity> \
-  --network testnet
+# Examples (decimals = 7)
+assert to_integer(Decimal("0.0000001")) == 1
+assert to_integer(Decimal("1.2345678")) == 12345678
+assert to_integer(Decimal("0.00000005")) == 1  # round-half-up
+assert to_human(12345678) == Decimal("1.2345678")
 ```
 
 After deploying, record the contract ID and WASM hash in
@@ -262,16 +293,53 @@ the on-chain hash matches the recorded release.
 
 ## Project Structure
 
+Before initializing a production deployment, review the four initialization
+parameters below against the policy for that deployment target. The policy is
+encoded in `scripts/check-init-params.sh` and enforced in CI, so an
+out-of-policy configuration is rejected before it can reach mainnet.
+
+### Parameters under review
+
+| Parameter | Meaning | Mainnet policy | Testnet / local policy |
+|-----------|---------|----------------|------------------------|
+| `min_sources` | Minimum distinct sources required before an aggregate price is published | `>= 3` (median needs an odd quorum to resist a single outlier) | `>= 1` |
+| `decimals` | Price scaling exponent exposed via SEP-40 `decimals()` | `<= 18` (must match consumer expectations; no silent rescale) | `<= 18` |
+| `max_history` | Maximum historical records retained per asset | `>= 1` and `<= 10_000` (bounds storage growth) | `>= 1` and `<= 10_000` |
+| `description` | Human-readable contract description emitted in `ContractInitializedEvent` | non-empty, `<= 256` bytes | non-empty, `<= 256` bytes |
+
+### Boundary conditions
+
+- `min_sources = 0` is always rejected — aggregation would be undefined.
+- `min_sources` greater than the number of registered sources means no price
+  is published until enough sources are added; this is a valid but degraded
+  state and is surfaced by `oracle-cli health-check`.
+- `decimals = 0` is allowed (integer prices); values above 18 are rejected.
+- `max_history = 0` disables history retention and is rejected for production.
+- An empty or whitespace-only `description` is rejected.
+
+### Failure and recovery
+
+If `initialize` is called with out-of-policy values the contract still stores
+them (the contract does not hard-code network policy), so the review is the
+gate. To recover, the admin uses `set_min_sources_required`,
+`set_max_history_length`, `set_decimals`, and `set_description` to bring the
+contract back within policy, then re-runs the validation command below.
+
+### Reproducible validation
+
+```bash
+# Validate a candidate initialization config against the deployment policy.
+# Exits non-zero (rejecting the config) when any parameter is out of policy.
+./scripts/check-init-params.sh --network mainnet --config deploy/mainnet-init.env
 ```
-contracts/price-oracle/
-├── Cargo.toml
-├── .cargo/config.toml
-└── src/
-    ├── lib.rs       # Contract entrypoint and endpoint implementations
-    ├── types.rs     # Data types, storage keys, error codes
-    ├── storage.rs   # Storage helpers and median computation
-    ├── events.rs    # Contract event definitions
-    └── test.rs      # Test suite (65 tests)
+
+The config file is a simple `KEY=VALUE` env file:
+
+```env
+MIN_SOURCES=3
+DECIMALS=18
+MAX_HISTORY=1000
+DESCRIPTION="Stellar Unified Price Oracle (mainnet)"
 ```
 
 ### Assumptions

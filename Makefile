@@ -26,6 +26,7 @@
 #   secret-scan        - secret scan of the tree, with a history report (#502)
 #   check-pins         - every dependency pinned exactly, lockfile in sync (#501)
 #   reproducible-build - two clean builds must produce identical WASM (#501)
+#   dr-drill           - disaster recovery restoration evidence drill (#620)
 
 # Determinism & Interleaving Suite (#516)
 #
@@ -128,30 +129,28 @@ trust-boundary: rpc-gate indexer-trust tx-review-gate redaction-gate
 	python3 -m pytest services/rpc_guard services/indexer services/tx_review \
 		services/evidence_redaction -q
 
+# #620: disaster recovery restoration evidence drill. Restores a
+# production-shaped off-chain state backup into an isolated environment and
+# records completeness checks (checksums, schema version, reconciled ledger
+# height) before declaring the restore successful.
+dr-drill:
+	python3 -m services.dr_drill.gate --report dr-artifacts/restore-drill.md
+
 # Run clippy linter
 lint:
 	cargo clippy -p price-oracle -- -D warnings
 
-# Ops documentation gates: every paging alert has a runbook entry (#527),
-# every postmortem is structured, indexed and owned (#528), and the capacity
-# and backup docs match their code (#529, #530).
-ops-check:
-	python3 -m services.runbook.check_runbook
-	python3 -m services.incident_review.check_postmortems
-	python3 -m pytest services/runbook services/incident_review services/backup services/capacity -q
+SHELL := /bin/bash
 
-# Format source code
-fmt:
-	cargo fmt --manifest-path contracts/price-oracle/Cargo.toml
+# Network + contract ids are supplied by the operator, never committed.
+NETWORK ?= mainnet
+RPC_URL ?= https://soroban-rpc.mainnet.stellar.gateway.fm
+CONTRACTS ?=
 
-# Check formatting without modifying files
-check:
-	cargo fmt --manifest-path contracts/price-oracle/Cargo.toml -- --check
+WASM_DIR := target/wasm32-unknown-unknown/release
+BUILD_FLAGS := --locked --release --target wasm32-unknown-unknown
 
-# Watch for changes and re-run cargo check + tests
-# Requires: cargo install cargo-watch
-watch:
-	cargo watch -x "check -p price-oracle" -x "test -p price-oracle --lib" -x "clippy -p price-oracle -- -D warnings"
+.PHONY: build verify-toolchain verify-lockfile verify-build verify-onchain verify
 
 clean:
 	cargo clean

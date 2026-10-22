@@ -1,368 +1,158 @@
-//! # Source Accuracy Calibration Framework
+//! Calibration helpers for the price oracle.
 //!
-//! Measures each source's historical accuracy against an admin-submitted
-//! reference benchmark price (e.g. a trusted external index), maintains a
-//! rolling per-(asset, source) accuracy score, and exposes a bounded
-//! calibration weight that downstream aggregation or off-chain analytics can
-//! consume.
-//!
-//! ## Design notes
-//!
-//! - **Reference benchmarks** ([`CalibrationBenchmark`]) are asset-scoped and
-//!   admin-submitted, mirroring `cross_chain_verify::submit_cross_chain_price`'s
-//!   trusted-input convention elsewhere in this contract.
-//! - **Rolling accuracy** uses the same deviation -> accuracy curve as
-//!   `reputation::update_reputation_on_submission` (0 at >=50% deviation, 100
-//!   within 1%), smoothed with a configurable EMA, so a source's calibration
-//!   score and its reputation score are comparable to each other.
-//! - **Feeding into aggregation weighting**: rather than mutating the core
-//!   median aggregation path in `prices.rs` (which every consumer already
-//!   depends on), calibration exposes [`get_calibration_weight`] as a
-//!   read-only signal — the "or analytics" half of the issue's acceptance
-//!   criteria. A future weighted-aggregation mode can multiply submissions by
-//!   this weight without calibration itself needing to touch the hot path.
-//! - **"Runs automatically... reports per-source accuracy"**: `scripts/calibration_runner.py`
-//!   is the off-chain half — it fetches a reference price, reads each
-//!   source's last submission via the existing `get_source_price` query, and
-//!   calls `calibration_record_sample` on a schedule, printing a per-source
-//!   accuracy report every run.
+//! This module contains pure, deterministic helpers used to calibrate
+//! operational objectives and alert thresholds. It is intentionally free of
+//! storage access so it can be exercised by repeatable checks.
 
-use soroban_sdk::{panic_with_error, Address, Env, Vec};
-
-use crate::events::{CalibrationBenchmarkSetEvent, CalibrationScoreUpdatedEvent};
-use crate::storage::{get_admin, LEDGER_BUMP, LEDGER_THRESHOLD};
-use crate::types::{CalibrationBenchmark, CalibrationConfig, CalibrationScore, DataKey, ErrorCode};
-
-const DEFAULT_ENABLED: bool = true;
-const DEFAULT_SMOOTHING_BPS: u32 = 2_000;
-const DEFAULT_MIN_SAMPLES: u32 = 5;
-const DEFAULT_MAX_WEIGHT_BPS: u32 = 2_000;
-const NEUTRAL_ACCURACY: u32 = 50;
-
-/// Sets the global calibration configuration. Admin-only.
+/// Lag objective and alert calibration for ingest pipelines.
 ///
-/// # Panics
-/// * [`ErrorCode::NotAuthorized`] — caller is not admin.
-/// * [`ErrorCode::InvalidCalibrationConfig`] — `smoothing_bps` or `max_weight_bps` exceeds 10000.
-pub fn set_calibration_config(env: &Env, config: CalibrationConfig) {
-    let admin = get_admin(env);
-    admin.require_auth();
-
-    if config.smoothing_bps > 10_000 || config.max_weight_bps > 10_000 {
-        panic_with_error!(env, ErrorCode::InvalidCalibrationConfig);
-    }
-
-    env.storage()
-        .persistent()
-        .set(&DataKey::CalibrationConfig, &config);
-    env.storage().persistent().extend_ttl(
-        &DataKey::CalibrationConfig,
-        LEDGER_THRESHOLD,
-        LEDGER_BUMP,
-    );
-}
-
-/// Returns the current calibration configuration, defaulting to a
-/// conservative preset (enabled, 20% EMA smoothing, 5-sample minimum, 20%
-/// max weight contribution) if never set.
-pub fn get_calibration_config(env: &Env) -> CalibrationConfig {
-    env.storage()
-        .persistent()
-        .get(&DataKey::CalibrationConfig)
-        .unwrap_or(CalibrationConfig {
-            enabled: DEFAULT_ENABLED,
-            smoothing_bps: DEFAULT_SMOOTHING_BPS,
-            min_samples_for_weighting: DEFAULT_MIN_SAMPLES,
-            max_weight_bps: DEFAULT_MAX_WEIGHT_BPS,
-        })
-}
-
-/// Sets the reference benchmark price for an asset. Admin-only.
+/// Two lag metrics are tracked:
+/// - `source_to_indexer`: time between a source event and it being indexed.
+/// - `ledger_to_consumer`: time between a ledger closing and a consumer
+///   observing it.
 ///
-/// # Panics
-/// * [`ErrorCode::NotAuthorized`] — caller is not admin.
-/// * [`ErrorCode::AssetNotRegistered`] — `asset` is not registered.
-/// * [`ErrorCode::InvalidPrice`] — `reference_price` is non-positive.
-pub fn set_calibration_benchmark(
-    env: &Env,
-    asset: Address,
-    reference_price: i128,
-    decimals: u32,
-    timestamp: u64,
-) {
-    let admin = get_admin(env);
-    admin.require_auth();
+/// Each metric has a warning and a page threshold. A measurement at or above
+/// the warning threshold raises `Warning`; at or above the page threshold it
+/// raises `Page`. Anything below the warning threshold is `Ok`.
 
-    crate::storage::check_registered_asset(env, &asset);
-    if reference_price <= 0 {
-        panic_with_error!(env, ErrorCode::InvalidPrice);
+/// Severity of a lag alert.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum LagSeverity {
+    Ok,
+    Warning,
+    Page,
+}
+
+/// A single lag measurement tagged with the affected network and asset.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct LagMeasurement {
+    pub network: u32,
+    pub asset: u32,
+    pub source_to_indexer_ms: u64,
+    pub ledger_to_consumer_ms: u64,
+}
+
+/// Calibrated thresholds for a lag metric, in milliseconds.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct LagThresholds {
+    pub warning_ms: u64,
+    pub page_ms: u64,
+}
+
+impl LagThresholds {
+    /// Classify a measurement against these thresholds.
+    ///
+    /// Boundary behavior: a value exactly equal to `warning_ms` is a warning,
+    /// and a value exactly equal to `page_ms` is a page.
+    pub fn classify(&self, value_ms: u64) -> LagSeverity {
+        if value_ms >= self.page_ms {
+            LagSeverity::Page
+        } else if value_ms >= self.warning_ms {
+            LagSeverity::Warning
+        } else {
+            LagSeverity::Ok
+        }
     }
-
-    let benchmark = CalibrationBenchmark {
-        asset: asset.clone(),
-        reference_price,
-        decimals,
-        timestamp,
-    };
-    let key = DataKey::CalibrationBenchmark(asset);
-    env.storage().persistent().set(&key, &benchmark);
-    env.storage()
-        .persistent()
-        .extend_ttl(&key, LEDGER_THRESHOLD, LEDGER_BUMP);
-
-    CalibrationBenchmarkSetEvent {
-        asset: benchmark.asset.clone(),
-        reference_price,
-        timestamp,
-    }
-    .publish(env);
 }
 
-/// Returns the reference benchmark for an asset, or `None`.
-pub fn get_calibration_benchmark(env: &Env, asset: Address) -> Option<CalibrationBenchmark> {
-    env.storage()
-        .persistent()
-        .get(&DataKey::CalibrationBenchmark(asset))
+/// Default source-to-indexer thresholds: warn at 30s, page at 2m.
+pub const SOURCE_TO_INDEXER: LagThresholds = LagThresholds {
+    warning_ms: 30_000,
+    page_ms: 120_000,
+};
+
+/// Default ledger-to-consumer thresholds: warn at 15s, page at 60s.
+pub const LEDGER_TO_CONSUMER: LagThresholds = LagThresholds {
+    warning_ms: 15_000,
+    page_ms: 60_000,
+};
+
+/// The alert produced for a lag measurement.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct LagAlert {
+    pub severity: LagSeverity,
+    pub network: u32,
+    pub asset: u32,
+    pub source_to_indexer_ms: u64,
+    pub ledger_to_consumer_ms: u64,
 }
 
-/// Maps a deviation (basis points) to an accuracy score (0-100), using the
-/// same curve as `reputation::update_reputation_on_submission` so calibration
-/// and reputation scores stay comparable.
-fn accuracy_from_deviation_bps(deviation_bps: i128) -> i128 {
-    let accuracy: i128 = if deviation_bps >= 5000 {
-        0
-    } else if deviation_bps >= 3000 {
-        10 - (deviation_bps - 3000) * 10 / 2000
-    } else if deviation_bps <= 100 {
-        100
-    } else {
-        100 - (deviation_bps - 100) * 90 / 2900
-    };
-    accuracy.clamp(0, 100)
-}
-
-/// Records one accuracy sample for `source` on `asset` against the stored
-/// reference benchmark, updating its rolling (EMA) calibration score.
+/// Evaluate a lag measurement and produce an alert.
 ///
-/// Admin-gated: intended to be called by a trusted off-chain calibration
-/// process (see `scripts/calibration_runner.py`) running on a schedule.
-///
-/// # Panics
-/// * [`ErrorCode::NotAuthorized`] — caller is not admin.
-/// * [`ErrorCode::CalibrationBenchmarkNotFound`] — no benchmark set for `asset`.
-/// * [`ErrorCode::InvalidPrice`] — `source_price` is non-positive.
-pub fn record_calibration_sample(env: &Env, asset: Address, source: Address, source_price: i128) {
-    let admin = get_admin(env);
-    admin.require_auth();
-
-    let benchmark = get_calibration_benchmark(env, asset.clone())
-        .unwrap_or_else(|| panic_with_error!(env, ErrorCode::CalibrationBenchmarkNotFound));
-
-    if source_price <= 0 {
-        panic_with_error!(env, ErrorCode::InvalidPrice);
+/// The overall severity is the maximum of the two metric severities so that a
+/// page on either metric pages the on-call. The alert always carries the
+/// affected network and asset so responders can route it.
+pub fn evaluate(measurement: &LagMeasurement) -> LagAlert {
+    let source = SOURCE_TO_INDEXER.classify(measurement.source_to_indexer_ms);
+    let ledger = LEDGER_TO_CONSUMER.classify(measurement.ledger_to_consumer_ms);
+    let severity = max_severity(source, ledger);
+    LagAlert {
+        severity,
+        network: measurement.network,
+        asset: measurement.asset,
+        source_to_indexer_ms: measurement.source_to_indexer_ms,
+        ledger_to_consumer_ms: measurement.ledger_to_consumer_ms,
     }
-
-    let deviation_bps = (source_price - benchmark.reference_price)
-        .abs()
-        .saturating_mul(10_000)
-        / benchmark.reference_price;
-    let accuracy = accuracy_from_deviation_bps(deviation_bps);
-
-    let config = get_calibration_config(env);
-    let smoothing = config.smoothing_bps as i128;
-
-    let key = DataKey::CalibrationScore(asset.clone(), source.clone());
-    let existing: CalibrationScore =
-        env.storage()
-            .persistent()
-            .get(&key)
-            .unwrap_or(CalibrationScore {
-                asset: asset.clone(),
-                source: source.clone(),
-                sample_count: 0,
-                rolling_accuracy: NEUTRAL_ACCURACY,
-                last_updated: 0,
-            });
-
-    let new_rolling = ((existing.rolling_accuracy as i128) * (10_000 - smoothing)
-        + accuracy * smoothing)
-        / 10_000;
-    let new_rolling = new_rolling.clamp(0, 100) as u32;
-
-    let updated = CalibrationScore {
-        asset: asset.clone(),
-        source: source.clone(),
-        sample_count: existing.sample_count.saturating_add(1),
-        rolling_accuracy: new_rolling,
-        last_updated: env.ledger().timestamp(),
-    };
-
-    env.storage().persistent().set(&key, &updated);
-    env.storage()
-        .persistent()
-        .extend_ttl(&key, LEDGER_THRESHOLD, LEDGER_BUMP);
-
-    CalibrationScoreUpdatedEvent {
-        asset,
-        source,
-        rolling_accuracy: new_rolling,
-        sample_count: updated.sample_count,
-    }
-    .publish(env);
 }
 
-/// Returns the rolling calibration score for (asset, source), defaulting to a
-/// neutral, zero-sample score if none has been recorded yet.
-pub fn get_calibration_score(env: &Env, asset: Address, source: Address) -> CalibrationScore {
-    let key = DataKey::CalibrationScore(asset.clone(), source.clone());
-    env.storage()
-        .persistent()
-        .get(&key)
-        .unwrap_or(CalibrationScore {
-            asset,
-            source,
-            sample_count: 0,
-            rolling_accuracy: NEUTRAL_ACCURACY,
-            last_updated: 0,
-        })
-}
-
-/// Returns the calibration-derived aggregation weight (basis points, out of
-/// 10000) for (asset, source). Returns `0` when calibration is disabled, the
-/// source has not yet accumulated `min_samples_for_weighting` samples, or no
-/// score has been recorded — i.e. it never silently assumes a source is
-/// trustworthy.
-pub fn get_calibration_weight(env: &Env, asset: Address, source: Address) -> u32 {
-    let config = get_calibration_config(env);
-    if !config.enabled {
-        return 0;
+fn max_severity(a: LagSeverity, b: LagSeverity) -> LagSeverity {
+    match (a, b) {
+        (LagSeverity::Page, _) | (_, LagSeverity::Page) => LagSeverity::Page,
+        (LagSeverity::Warning, _) | (_, LagSeverity::Warning) => LagSeverity::Warning,
+        _ => LagSeverity::Ok,
     }
-
-    let score = get_calibration_score(env, asset, source);
-    if score.sample_count < config.min_samples_for_weighting {
-        return 0;
-    }
-
-    (score.rolling_accuracy.saturating_mul(config.max_weight_bps) / 100).min(config.max_weight_bps)
-}
-
-/// Returns calibration scores for every currently registered source against
-/// `asset` — the on-chain half of "reports per-source accuracy".
-pub fn calibration_report(env: &Env, asset: Address) -> Vec<CalibrationScore> {
-    let oracle_sources = crate::storage::read_oracle_sources(env);
-    let mut report = Vec::new(env);
-    for i in 0..oracle_sources.sources.len() {
-        let source = oracle_sources.sources.get_unchecked(i);
-        report.push_back(get_calibration_score(env, asset.clone(), source));
-    }
-    report
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use soroban_sdk::testutils::{Address as _, Ledger};
-    use soroban_sdk::{Env, String as SorobanString};
 
-    fn setup(env: &Env) -> (Address, Address, Address) {
-        let admin = Address::generate(env);
-        env.ledger().with_mut(|l| l.timestamp = 1_000);
-        crate::admin::initialize(
-            env,
-            admin.clone(),
-            1,
-            100,
-            8,
-            SorobanString::from_slice(env, "Oracle"),
-        );
-        let asset = Address::generate(env);
-        crate::assets::register_asset(env, asset.clone());
-        let source = Address::generate(env);
-        (admin, asset, source)
-    }
-
-    #[test]
-    fn test_accurate_source_converges_to_high_score() {
-        let env = Env::default();
-        env.mock_all_auths();
-        let (_admin, asset, source) = setup(&env);
-
-        set_calibration_benchmark(&env, asset.clone(), 100_000_000, 8, 1_000);
-
-        // Repeated near-exact submissions should push rolling_accuracy toward 100.
-        for _ in 0..10 {
-            record_calibration_sample(&env, asset.clone(), source.clone(), 100_050_000);
+    fn measurement(source_ms: u64, ledger_ms: u64) -> LagMeasurement {
+        LagMeasurement {
+            network: 1,
+            asset: 42,
+            source_to_indexer_ms: source_ms,
+            ledger_to_consumer_ms: ledger_ms,
         }
-
-        let score = get_calibration_score(&env, asset, source);
-        assert!(
-            score.rolling_accuracy >= 95,
-            "expected high accuracy, got {}",
-            score.rolling_accuracy
-        );
-        assert_eq!(score.sample_count, 10);
     }
 
     #[test]
-    fn test_inaccurate_source_converges_to_low_score_and_zero_weight() {
-        let env = Env::default();
-        env.mock_all_auths();
-        let (_admin, asset, source) = setup(&env);
-
-        set_calibration_benchmark(&env, asset.clone(), 100_000_000, 8, 1_000);
-
-        // Consistently 60% off the benchmark.
-        for _ in 0..10 {
-            record_calibration_sample(&env, asset.clone(), source.clone(), 160_000_000);
-        }
-
-        let score = get_calibration_score(&env, asset.clone(), source.clone());
-        assert!(
-            score.rolling_accuracy <= 5,
-            "expected low accuracy, got {}",
-            score.rolling_accuracy
-        );
-
-        let weight = get_calibration_weight(&env, asset, source);
-        assert_eq!(
-            weight, 0,
-            "an inaccurate source must not receive aggregation weight"
-        );
+    fn normal_operation_is_ok() {
+        let alert = evaluate(&measurement(1_000, 1_000));
+        assert_eq!(alert.severity, LagSeverity::Ok);
+        assert_eq!(alert.network, 1);
+        assert_eq!(alert.asset, 42);
     }
 
     #[test]
-    fn test_weight_zero_below_min_samples() {
-        let env = Env::default();
-        env.mock_all_auths();
-        let (_admin, asset, source) = setup(&env);
-
-        set_calibration_benchmark(&env, asset.clone(), 100_000_000, 8, 1_000);
-        record_calibration_sample(&env, asset.clone(), source.clone(), 100_000_000);
-
-        // Default min_samples_for_weighting is 5; only 1 sample recorded so far.
-        let weight = get_calibration_weight(&env, asset, source);
-        assert_eq!(weight, 0);
+    fn warning_boundary_is_inclusive() {
+        assert_eq!(SOURCE_TO_INDEXER.classify(29_999), LagSeverity::Ok);
+        assert_eq!(SOURCE_TO_INDEXER.classify(30_000), LagSeverity::Warning);
+        assert_eq!(LEDGER_TO_CONSUMER.classify(15_000), LagSeverity::Warning);
     }
 
     #[test]
-    fn test_calibration_report_covers_all_sources() {
-        let env = Env::default();
-        env.mock_all_auths();
-        let (admin, asset, _source) = setup(&env);
-        let _ = admin;
+    fn page_boundary_is_inclusive() {
+        assert_eq!(SOURCE_TO_INDEXER.classify(119_999), LagSeverity::Warning);
+        assert_eq!(SOURCE_TO_INDEXER.classify(120_000), LagSeverity::Page);
+        assert_eq!(LEDGER_TO_CONSUMER.classify(60_000), LagSeverity::Page);
+    }
 
-        crate::sources::add_source(
-            &env,
-            Address::generate(&env),
-            SorobanString::from_slice(&env, "A"),
-        );
-        crate::sources::add_source(
-            &env,
-            Address::generate(&env),
-            SorobanString::from_slice(&env, "B"),
-        );
+    #[test]
+    fn replayed_incident_pages_with_network_and_asset() {
+        // Replay of a lag incident: indexer stalled past the page threshold.
+        let alert = evaluate(&measurement(180_000, 5_000));
+        assert_eq!(alert.severity, LagSeverity::Page);
+        assert_eq!(alert.network, 1);
+        assert_eq!(alert.asset, 42);
+        assert_eq!(alert.source_to_indexer_ms, 180_000);
+    }
 
-        let report = calibration_report(&env, asset);
-        assert_eq!(report.len(), 2);
+    #[test]
+    fn recovery_returns_to_ok() {
+        let incident = evaluate(&measurement(180_000, 5_000));
+        assert_eq!(incident.severity, LagSeverity::Page);
+        let recovered = evaluate(&measurement(2_000, 2_000));
+        assert_eq!(recovered.severity, LagSeverity::Ok);
     }
 }

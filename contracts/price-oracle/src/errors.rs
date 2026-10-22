@@ -49,6 +49,380 @@ pub enum ErrorCode {
     InvalidPrice = 7,
     /// No aggregate price data exists for the requested asset.
     NoData = 8,
-    InvalidConfiguration = 9,
-    SourceEvidenceMissing = 10,
+    /// The submitted timestamp lies too far in the future relative to the current ledger time.
+    InvalidTimestamp = 9,
+    /// A configuration parameter is out of its valid range.
+    InvalidConfiguration = 10,
+    /// The description string exceeds the maximum allowed length of 256 characters.
+    DescriptionTooLong = 11,
+    /// The contract is currently paused; no price submissions or reads are allowed.
+    ContractPaused = 12,
+    /// A timelock operation cannot yet be executed because its delay period has not elapsed.
+    TimelockNotReady = 13,
+    /// No pending operation exists with the given ID.
+    OperationNotFound = 14,
+    /// The submitted price is below the asset's configured minimum price floor.
+    PriceBelowMinimum = 15,
+
+    // ── 16–19: Rate-limit, subscription & migration ──────────────────────────
+    /// Rate limit exceeded for an operation.
+    RateLimitExceeded = 16,
+    /// The requested subscription plan duration does not exist.
+    InvalidDuration = 17,
+    /// The consumer's subscription has expired.
+    SubscriptionExpired = 18,
+    /// A migration is already in progress.
+    MigrationInProgress = 19,
+
+    // ── 20–30: Source management ─────────────────────────────────────────────
+    /// No migration is currently in progress.
+    NoMigrationInProgress = 20,
+    /// The source name is empty.
+    SourceNameEmpty = 21,
+    /// The source name exceeds the maximum allowed length.
+    SourceNameTooLong = 22,
+    /// The maximum number of sources has been reached.
+    MaxSourcesReached = 23,
+    /// The `op_type` discriminant passed to `propose_operation` is not valid.
+    InvalidOperationType = 24,
+    /// A reentrancy attempt was detected.
+    Reentrant = 25,
+    /// Source is not pending removal (cancel / finalize called on non-pending source).
+    SourceNotPendingRemoval = 26,
+    /// The removal cooldown has not elapsed yet.
+    CooldownNotElapsed = 27,
+    /// Maximum number of registered assets reached.
+    MaxAssetsReached = 28,
+    /// A reason string is too long.
+    ReasonTooLong = 29,
+    /// A query exceeded its maximum response size.
+    RecordsLimitExceeded = 30,
+
+    // ── 31–39: Commit-reveal (#187) ──────────────────────────────────────────
+    /// The revealed hash does not match the committed hash.
+    CommitHashMismatch = 31,
+    /// The commit has expired (reveal window has closed for this round).
+    CommitExpired = 32,
+    /// No commit was found for this (source, asset, round).
+    CommitNotFound = 33,
+    /// The reveal window is closed — too early or too late to reveal.
+    RevealWindowClosed = 34,
+    /// A commit already exists for this (source, asset, round); cannot double-commit.
+    AlreadyCommitted = 35,
+    /// The commit round ledger is invalid (e.g., in the future).
+    InvalidCommitRound = 36,
+    /// Commit-reveal scheme is required (BFT fault tolerance > 0) but was bypassed.
+    CommitRevealRequired = 37,
+
+    // ── 40–49: Finality gadget (#188) ────────────────────────────────────────
+    /// The price has already been finalized and cannot be changed.
+    AlreadyFinalized = 40,
+    /// The price was retracted due to a detected reorg.
+    PriceRetracted = 41,
+    /// The price is still in the finality pending window.
+    FinalityPending = 42,
+    /// The requested price does not meet the caller's minimum finality requirement.
+    InsufficientFinality = 43,
+    /// A reorg was detected via ledger hash chain inconsistency.
+    ReorgDetected = 44,
+
+    // ── 50–61: Relayer & misc ────────────────────────────────────────────────
+    /// The caller is not a registered and approved relayer.
+    RelayerNotAuthorized = 50,
+    /// `add_relayer` was called for an address that is already an approved relayer.
+    RelayerAlreadyExists = 51,
+    /// Source reputation is too high to be eligible for slashing.
+    ReputationTooHighToSlash = 52,
+    /// Maximum number of alert subscriptions has been reached.
+    MaxSubscriptionsReached = 53,
+    /// The oracle source has been suspended due to progressive disqualification.
+    SourceSuspended = 62,
+    /// Demerit configuration thresholds are invalid.
+    InvalidDemeritThreshold = 63,
+    /// Invalid source governance config.
+    InvalidGovernanceConfig = 64,
+    /// The specified source proposal does not exist.
+    ProposalNotFound = 57,
+    /// Approver has already approved the proposal.
+    AlreadyApproved = 58,
+    /// The source proposal was already executed.
+    ProposalAlreadyExecuted = 59,
+    /// The source has not deposited the required bond.
+    InsufficientBond = 60,
+    /// The staking/fee token contract has not been configured.
+    StakeTokenNotConfigured = 61,
+
+    // ── 62–74: Asset/price bounds & circuit breaker ───────────────────────────
+    /// The submitted price falls outside the asset's configured price bounds.
+    PriceOutOfBounds = 65,
+    /// The asset is currently paused and cannot accept new submissions.
+    AssetPaused = 66,
+    /// The circuit breaker tripped for the asset and rejected the update.
+    CircuitBreakerTripped = 67,
+
+    // ── 75–99: Advanced features ──────────────────────────────────────────────
+    /// Daily admin operation limit exceeded.
+    OperationLimitExceeded = 75,
+    /// An arithmetic overflow occurred in a calculation.
+    ArithmeticOverflow = 76,
+    /// AMM pool already exists for this asset pair.
+    PoolAlreadyExists = 77,
+    /// AMM pool not found for this asset pair.
+    PoolNotFound = 78,
+    /// AMM swap would exceed maximum allowed slippage.
+    SlippageExceeded = 79,
+    /// AMM price manipulation detected.
+    AmmPriceManipulation = 80,
+    /// Price challenge submission is outside the valid submission window.
+    OutOfSubmissionWindow = 81,
+    /// State channel not found for this source.
+    ChannelNotFound = 82,
+    /// State channel is already open for this source.
+    ChannelAlreadyOpen = 83,
+    /// Exotic asset cycle depth limit exceeded.
+    ExoticCycleLimitExceeded = 84,
+    /// Exotic cycle detected in asset dependency graph.
+    ExoticCycleDetected = 85,
+    /// Exotic asset pricing configuration not found.
+    ExoticAssetNotConfigured = 86,
+    /// Fee market submission is below the minimum priority fee.
+    FeeMarketBelowMinimum = 87,
+    /// Multi-sig: approval not found.
+    ApprovalNotFound = 88,
+    /// Multi-sig: not the queue head.
+    MsNotQueueHead = 89,
+    /// Multi-sig: quorum not reached.
+    MsQuorumNotReached = 90,
+    /// Optimistic oracle: bond is too small.
+    BondTooSmall = 91,
+    /// Optimistic oracle: proposal already disputed.
+    ProposalAlreadyDisputed = 92,
+    /// Optimistic oracle: proposal already resolved.
+    ProposalAlreadyResolved = 93,
+    /// Optimistic oracle: proposal has expired.
+    ProposalExpired = 94,
+    /// Optimistic oracle: proposal not disputed (cannot resolve).
+    ProposalNotDisputed = 95,
+    /// ZK proof is invalid.
+    ZkProofInvalid = 96,
+    /// ZK verifying key not set.
+    ZkVkNotSet = 97,
+    /// ZK invalid public signals.
+    ZkInvalidPublicSignals = 98,
+
+    // ── 99–101: Signed price submission (#216) ────────────────────────────────
+    /// A pre-signed price proof's `expiration_ledger` has already passed.
+    SignatureExpired = 99,
+    /// The provided nonce does not exceed the source's last accepted nonce.
+    InvalidNonce = 100,
+    /// `source` has not registered an Ed25519 key for signed submissions.
+    SigningKeyNotRegistered = 101,
+    // ── 116–118: Freeze & pagination (renumbered off the 99–101 range, which
+    // collided with the Signed price submission block above and would not
+    // compile — see the discriminant registry note at the top of this file) ──
+    /// The asset's price is currently frozen (#223).
+    PriceFrozen = 116,
+    /// The asset's price is not currently frozen (#223).
+    PriceNotFrozen = 117,
+    /// The requested pagination limit is `0` or exceeds the configured maximum (#229).
+    InvalidPageSize = 118,
+    /// A notification `channel` or `target` string exceeds the maximum allowed length (#243).
+    NotificationConfigInvalid = 102,
+
+    // ── 103–109: History export ───────────────────────────────────────────────
+    /// The requested export limit is `0` or exceeds the configured maximum.
+    ExportLimitExceeded = 103,
+    /// No export snapshot was found for the given asset / range.
+    ExportNotFound = 104,
+
+    // ── 110–112: Timelock priority queues ────────────────────────────────────
+    /// The supplied priority discriminant is not a valid `OperationPriority` value.
+    InvalidPriority = 110,
+    /// The priority-specific timelock delay has not elapsed for this operation.
+    PriorityTimelockNotReady = 111,
+
+    // ── 112–115: Issues #295–#298 ─────────────────────────────────────────────
+    /// The submitted external proof failed format validation (#296).
+    InvalidProof = 112,
+    /// The proof type does not satisfy the asset's configured proof requirement (#296).
+    ProofTypeMismatch = 113,
+    /// The per-asset callback limit has been reached (#297).
+    TooManyCallbacks = 114,
+    /// No callback registration found for the given (consumer, asset) pair (#297).
+    CallbackNotFound = 115,
+
+    // ── 126–128: Canonical cross-chain asset registry (renumbered off the
+    // 116–118 collision with the Freeze & pagination block) ──────────────────
+    /// A foreign asset mapping already exists for this (chain, foreign_address) pair.
+    ForeignAssetAlreadyMapped = 126,
+    /// No foreign asset mapping exists for this (chain, foreign_address) pair.
+    ForeignAssetNotMapped = 127,
+    /// The foreign asset mapping exists but has been disabled by the admin.
+    ForeignAssetMappingDisabled = 128,
+
+    // ── 119–121: Axelar GMP integration ────────────────────────────────────────
+    /// The Axelar Gateway contract address has not been configured.
+    AxelarGatewayNotConfigured = 119,
+    /// This Axelar `command_id` has already been executed (replay).
+    AxelarCommandAlreadyExecuted = 120,
+    /// No trusted bridge source is registered for this (source_chain, source_address).
+    AxelarSourceNotTrusted = 121,
+
+    // ── 122–125: LayerZero integration ─────────────────────────────────────────
+    /// The LayerZero Endpoint contract address has not been configured.
+    LzEndpointNotConfigured = 122,
+    /// The delivered nonce does not match the expected next nonce for this pathway.
+    LzNonceOutOfOrder = 123,
+    /// No trusted bridge source is registered for this (src_eid, sender) pathway.
+    LzRemoteNotTrusted = 124,
+    /// No canonical registry chain name is configured for this LayerZero src_eid.
+    LzChainNameNotConfigured = 125,
+
+    // ── 129–143: Operations, recovery, wormhole, severity & misc (#262, #245,
+    // #296, #294, #265, #304-adjacent, cross-chain relay) ────────────────────
+    /// An operation with the same id already exists.
+    OperationAlreadyExists = 129,
+    /// The operation is not in a state that allows the requested transition.
+    InvalidOperationState = 130,
+    /// A dependency operation has not been executed yet.
+    DependencyNotMet = 131,
+    /// No configuration snapshot exists for the requested version.
+    ConfigVersionNotFound = 132,
+    /// The caller is not a registered recovery guardian.
+    NotGuardian = 133,
+    /// A recovery is already pending for a different candidate admin.
+    RecoveryAlreadyPending = 134,
+    /// This guardian has already approved the pending recovery.
+    RecoveryAlreadyApproved = 135,
+    /// No recovery is currently pending.
+    RecoveryNotPending = 136,
+    /// The recovery cancellation-window delay has not elapsed.
+    RecoveryDelayNotElapsed = 137,
+    /// The consumer does not have an active subscription.
+    NoActiveSubscription = 138,
+    /// The configured guardian set is invalid.
+    InvalidGuardianConfig = 139,
+    /// The configured severity thresholds are invalid.
+    InvalidSeverityThresholds = 140,
+    /// The batch is empty.
+    BatchEmpty = 141,
+    /// The batch exceeds the maximum allowed size.
+    BatchTooLarge = 142,
+    /// The batch is not ordered by priority fee.
+    BatchNotFeePrioritized = 143,
+    /// No guardian set has been configured.
+    GuardianSetNotConfigured = 144,
+    /// The guardian quorum was not met.
+    GuardianQuorumNotMet = 145,
+    /// The guardian signature set is invalid.
+    InvalidGuardianSignatureSet = 146,
+    /// The VAA payload is invalid.
+    InvalidVaaPayload = 147,
+    /// The VAA has already been processed.
+    VaaAlreadyProcessed = 148,
+    /// The Wormhole chain id is not mapped to an oracle chain.
+    UnmappedWormholeChain = 149,
+    /// The relayer's performance bond is insufficient.
+    RelayerBondInsufficient = 150,
+    /// The relayer failure threshold has not been reached.
+    RelayerFailureThresholdMiss = 151,
+    /// The external submission proof failed validation.
+    InvalidExternalProof = 152,
+    /// The source's stake could not be slashed.
+    SlashFailed = 153,
+
+    // ── 154–155: Source diversity — effective independence (#399) ─────────────
+    /// The active source set is below the configured effective-independence threshold.
+    LowSourceDiversity = 154,
+    /// The supplied diversity thresholds are invalid (e.g. max HHI > 10000).
+    InvalidDiversityThresholds = 155,
+
+    // ── 156–158: #484 bound tiers, #485 deferral ────────────────────────────
+    /// The soft/hard bound ordering supplied for an asset is invalid (#484).
+    InvalidBoundOrdering = 185,
+    /// The supplied deferral policy is outside its documented bounds (#485).
+    InvalidDeferralPolicy = 186,
+    /// `correct_price` was called with an empty or oversized reason (#486).
+    InvalidCorrectionReason = 187,
+    /// The per-asset correction count cap has been reached (#486).
+    CorrectionLimitReached = 188,
+    /// The value supplied lies outside the asset's hard bounds (#484, #486).
+    AggregateRejectedByBounds = 189,
+    /// The aggregate being corrected is older than the correction window (#486).
+    CorrectionWindowExpired = 190,
+    /// The requested revision index does not exist in the chain (#486).
+    RevisionNotFound = 191,
+
+    // ── 159–179: #246 storage tiers, #289 auto-renewal, #397 consensus
+    // rounds, #478 derived feeds. These variants existed before the merge of
+    // PR #571 replaced `errors.rs` and dropped them, which left the modules
+    // that reference them unable to compile. They are restored with their
+    // original discriminants, because `auto_renewal_tests` pins those numbers
+    // in its `should_panic` expectations. ───────────────────────────────────
+    /// A renewal authorization was replayed after it had already been consumed.
+    RenewalAuthorizationReplay = 159,
+    /// No single-use renewal authorization exists for the requested period.
+    RenewalAuthorizationMissing = 160,
+    /// The consumer has no standing auto-renewal authorization.
+    AutoRenewalNotEnabled = 161,
+    /// The subscription was cancelled or superseded, so it cannot renew.
+    AutoRenewalCancelled = 162,
+
+    // ── 163–165: restored discriminants referenced by wired modules but
+    // absent from the enum. Numbers are taken from the registry note above
+    // and are never reused. ─────────────────────────────────────────────────
+    /// A required configuration value has not been set.
+    ConfigMissing = 192,
+    /// Outstanding failure reports prevent the relayer bond from being locked.
+    RelayerBondLocked = 193,
+    /// A pagination cursor does not identify an item in the current registry.
+    InvalidPageCursor = 194,
+    /// The TWAP window holds fewer distinct observations than the floor.
+    TwapInsufficientObservations = 165,
+
+    // ── 172–174: Configurable history storage tier (#246) ─────────────────────
+    /// A persistent -> temporary tier downgrade was attempted without the required
+    /// multi-party approval and timelock having completed.
+    StorageTierDowngradeNotReady = 172,
+    /// The requested storage tier value is not a known discriminant.
+    UnknownStorageTier = 173,
+    /// A history-tier migration could not be completed.
+    StorageTierMigrationFailed = 174,
+
+    // ── 175–179: Subscription auto-renewal (#289) ─────────────────────────────
+    /// A renewal authorization was replayed after it had already been consumed.
+    RenewalAuthorizationReplay = 175,
+    /// No single-use renewal authorization exists for the requested period.
+    RenewalAuthorizationMissing = 176,
+    /// The consumer has no standing auto-renewal authorization.
+    AutoRenewalNotEnabled = 177,
+    /// The subscription was cancelled or superseded, so it cannot renew.
+    AutoRenewalCancelled = 178,
+    /// The consumer's pre-approved allowance would be exceeded by this renewal.
+    AutoRenewalAllowanceExceeded = 179,
+
+    // ── 180–183: Multi-round price confirmation (#397) ────────────────────────
+    /// The requested round is not the asset's current round.
+    RoundNotFound = 180,
+    /// The round's deadline has passed; it can no longer accept observations.
+    RoundExpired = 181,
+    /// The same observation was already used to satisfy an earlier round's quorum.
+    RoundEvidenceReplay = 182,
+    /// The participant equivocated inside a round and was penalized.
+    RoundEquivocation = 183,
+
+    // ── 184–187: Derived price feeds (#478) ────────────────────────────────────
+    /// A derived feed was requested with a zero denominator.
+    DerivedFeedZeroDenominator = 184,
+    /// One (or more) of the requested pair/triplet is unknown or has no price.
+    UnknownDerivedPair = 185,
+    /// The requested derivation would form a cycle in the derivation graph.
+    DerivedFeedCycle = 186,
+    /// The derivation graph depth bound would be exceeded.
+    DerivedFeedDepthExceeded = 187,
+
+    // ── 190–194: Asset lifecycle management ────────────────────────────────────
+    /// The asset is currently disabled and cannot accept new submissions or aggregations.
+    /// Historical prices remain queryable.
+    AssetDisabled = 190,
 }

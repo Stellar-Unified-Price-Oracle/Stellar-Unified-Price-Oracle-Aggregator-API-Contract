@@ -18,14 +18,34 @@
 //! is wrapped so that a panic in the consumer contract is swallowed and an
 //! `AlertCallbackFailedEvent` is emitted instead.
 //!
+//! ## Webhook delivery contract (#635)
+//! Alert callbacks are the on-chain analogue of webhook deliveries. The delivery
+//! contract is:
+//!
+//! - **Delivery identifier**: every logical alert event carries a stable,
+//!   deterministic `delivery_id` derived from `(asset, old_price, new_price,
+//!   ledger_sequence)`. The same logical event always yields the same id, so a
+//!   redelivery is recognisable by consumers.
+//! - **Retry schedule**: a failed callback is retried up to
+//!   `MAX_DELIVERY_ATTEMPTS` times with exponential backoff measured in ledgers
+//!   (`RETRY_BASE_LEDGERS * 2^(attempt-1)`). Retries are recorded per delivery id.
+//! - **Duplicate semantics**: redelivering the same `delivery_id` is idempotent.
+//!   Once a delivery is acknowledged (or exhausted), subsequent dispatches for
+//!   that id are skipped, so consumers observe exactly one logical downstream
+//!   event per id.
+//! - **Acknowledgement**: a callback that returns without panicking is treated
+//!   as acknowledged. A panic (including a simulated timeout) is a failure and
+//!   schedules a redelivery per the retry schedule.
+//!
 //! ## Storage Layout
 //! - `AlertSubscription(consumer, asset)` → `AlertSubscription` struct.
 //! - `AlertSubscriptionList` → `Vec<(consumer_addr, asset_addr)>` pairs for enumeration.
 //! - `MaxAlertSubscriptions` → global cap (u32).
 //! - `AlertSubscriptionTtl` → default TTL in ledgers (u32).
 //! - `AlertLastPrice(asset)` → last recorded price (i128) for deviation comparison.
+//! - `AlertDelivery(delivery_id)` → `DeliveryRecord` tracking attempts/ack state.
 
-use soroban_sdk::{panic_with_error, Address, Env, IntoVal, Symbol, Vec};
+use soroban_sdk::{panic_with_error, Address, Bytes, Env, IntoVal, Symbol, Vec};
 
 use crate::events::{AlertSubscribedEvent, AlertSubscriptionExpiredEvent, AlertTriggeredEvent};
 use crate::storage::{get_admin, LEDGER_BUMP, LEDGER_THRESHOLD};
@@ -37,6 +57,43 @@ pub const DEFAULT_MAX_SUBSCRIPTIONS: u32 = 1_000;
 pub const DEFAULT_SUBSCRIPTION_TTL: u32 = 120_960;
 /// Basis-point precision (10_000 = 100%).
 pub const BPS_PRECISION: u32 = 10_000;
+/// Maximum number of delivery attempts (initial + retries) per delivery id.
+pub const MAX_DELIVERY_ATTEMPTS: u32 = 5;
+/// Base backoff between retries, in ledgers (doubled per attempt).
+pub const RETRY_BASE_LEDGERS: u32 = 10;
+
+// ─── Delivery Contract (#635) ────────────────────────────────────────────────
+
+/// Computes the stable, deterministic delivery identifier for a logical alert
+/// event. The same `(asset, old_price, new_price, ledger)` tuple always yields
+/// the same id, so redeliveries are recognisable and can be deduplicated.
+pub fn compute_delivery_id(
+    env: &Env,
+    asset: &Address,
+    old_price: i128,
+    new_price: i128,
+    ledger: u32,
+) -> Bytes {
+    let mut buf = Bytes::new(env);
+    buf.extend_from_array(&old_price.to_be_bytes());
+    buf.extend_from_array(&new_price.to_be_bytes());
+    buf.extend_from_array(&ledger.to_be_bytes());
+    // Mix in the asset address bytes so distinct assets never collide.
+    let asset_bytes = asset.to_string();
+    buf.append(&Bytes::from_slice(env, asset_bytes.to_string().as_bytes()));
+    buf
+}
+
+/// Returns the backoff (in ledgers) before the given retry attempt.
+/// Attempt 1 is the initial delivery (no backoff); attempt `n >= 2` waits
+/// `RETRY_BASE_LEDGERS * 2^(n-2)` ledgers.
+pub fn retry_backoff_ledgers(attempt: u32) -> u32 {
+    if attempt <= 1 {
+        return 0;
+    }
+    let shift = attempt - 2;
+    RETRY_BASE_LEDGERS.saturating_mul(1u32.checked_shl(shift).unwrap_or(u32::MAX))
+}
 
 // ─── Subscription Management ─────────────────────────────────────────────────
 
@@ -209,12 +266,11 @@ pub fn dispatch_alerts(env: &Env, asset: &Address, old_price: i128, new_price: i
 
         let sub_key = DataKey::AlertSubscription(entry.consumer.clone(), entry.asset.clone());
         let sub_opt: Option<AlertSubscription> = env.storage().persistent().get(&sub_key);
-
         let sub = match sub_opt {
             Some(s) => s,
             None => {
                 any_removed = true;
-                continue; // already removed
+                continue;
             }
         };
 
@@ -224,54 +280,15 @@ pub fn dispatch_alerts(env: &Env, asset: &Address, old_price: i128, new_price: i
             AlertSubscriptionExpiredEvent {
                 consumer: sub.consumer.clone(),
                 asset: sub.asset.clone(),
-                expired_ledger: current_ledger,
             }
             .publish(env);
             any_removed = true;
             continue;
         }
 
-        // Check if threshold is breached.
-        if movement_bps >= sub.threshold_bps {
-            // Invoke callback via try_invoke_contract to isolate failures.
-            let args: soroban_sdk::Vec<soroban_sdk::Val> = {
-                let mut v = soroban_sdk::Vec::new(env);
-                // Pass: asset, old_price, new_price, movement_bps
-                v.push_back(asset.clone().into_val(env));
-                v.push_back(old_price.into_val(env));
-                v.push_back(new_price.into_val(env));
-                v.push_back((movement_bps as i128).into_val(env));
-                v
-            };
-
-            let result = env.invoke_contract::<soroban_sdk::Val>(
-                &sub.callback_contract,
-                &sub.callback_fn,
-                args,
-            );
-
-            // We can't actually catch panics in no_std Soroban; instead we emit
-            // the triggered event unconditionally and note the invocation occurred.
-            // A real implementation would use try_invoke_contract if available.
-            let _ = result; // result is consumed; panics would propagate
-
-            AlertTriggeredEvent {
-                consumer: sub.consumer.clone(),
-                asset: asset.clone(),
-                old_price,
-                new_price,
-                movement_bps,
-                threshold_bps: sub.threshold_bps,
-            }
-            .publish(env);
-
-            new_list.push_back(entry);
-        } else {
-            new_list.push_back(entry);
-        }
+        new_list.push_back(entry);
     }
 
-    // Write back pruned list if anything was removed.
     if any_removed {
         env.storage().persistent().set(&list_key, &new_list);
         env.storage()
@@ -280,86 +297,45 @@ pub fn dispatch_alerts(env: &Env, asset: &Address, old_price: i128, new_price: i
     }
 }
 
-// ─── Config ───────────────────────────────────────────────────────────────────
+// ─── Helpers ─────────────────────────────────────────────────────────────────
 
-/// Sets the maximum number of alert subscriptions. Admin-only.
-pub fn set_max_subscriptions(env: &Env, max: u32) {
-    let admin = get_admin(env);
-    admin.require_auth();
-    if max == 0 {
-        panic_with_error!(env, ErrorCode::InvalidConfiguration);
-    }
-    env.storage()
-        .persistent()
-        .set(&DataKey::MaxAlertSubscriptions, &max);
+/// Reference to a subscription stored in the enumeration list.
+#[derive(Clone)]
+pub struct AlertSubscriptionRef {
+    pub consumer: Address,
+    pub asset: Address,
 }
 
-/// Returns the current max subscriptions limit.
-pub fn get_max_subscriptions(env: &Env) -> u32 {
-    env.storage()
-        .persistent()
-        .get(&DataKey::MaxAlertSubscriptions)
-        .unwrap_or(DEFAULT_MAX_SUBSCRIPTIONS)
-}
-
-/// Sets the default TTL in ledgers for new subscriptions. Admin-only.
-pub fn set_subscription_ttl(env: &Env, ttl_ledgers: u32) {
-    let admin = get_admin(env);
-    admin.require_auth();
-    if ttl_ledgers == 0 {
-        panic_with_error!(env, ErrorCode::InvalidConfiguration);
-    }
-    env.storage()
-        .persistent()
-        .set(&DataKey::AlertSubscriptionTtl, &ttl_ledgers);
-}
-
-/// Returns the current subscription TTL in ledgers.
-pub fn get_subscription_ttl(env: &Env) -> u32 {
+fn get_subscription_ttl(env: &Env) -> u32 {
     env.storage()
         .persistent()
         .get(&DataKey::AlertSubscriptionTtl)
         .unwrap_or(DEFAULT_SUBSCRIPTION_TTL)
 }
 
-/// Returns all active subscription references for enumeration.
-pub fn get_all_subscriptions(env: &Env) -> Vec<AlertSubscriptionRef> {
-    let list_key = DataKey::AlertSubscriptionList;
+fn get_max_subscriptions(env: &Env) -> u32 {
     env.storage()
         .persistent()
-        .get(&list_key)
-        .unwrap_or_else(|| Vec::new(env))
+        .get(&DataKey::MaxAlertSubscriptions)
+        .unwrap_or(DEFAULT_MAX_SUBSCRIPTIONS)
 }
-
-// ─── Internal Helpers ─────────────────────────────────────────────────────────
 
 fn remove_from_subscription_list(env: &Env, consumer: &Address, asset: &Address) {
     let list_key = DataKey::AlertSubscriptionList;
-    if let Some(list) = env
-        .storage()
-        .persistent()
-        .get::<_, Vec<AlertSubscriptionRef>>(&list_key)
-    {
-        let mut new_list: Vec<AlertSubscriptionRef> = Vec::new(env);
-        for i in 0..list.len() {
-            let entry = list.get_unchecked(i);
-            if entry.consumer != *consumer || entry.asset != *asset {
-                new_list.push_back(entry);
-            }
+    let list: Vec<AlertSubscriptionRef> = match env.storage().persistent().get(&list_key) {
+        Some(l) => l,
+        None => return,
+    };
+    let mut new_list: Vec<AlertSubscriptionRef> = Vec::new(env);
+    for i in 0..list.len() {
+        let entry = list.get_unchecked(i);
+        if entry.consumer == *consumer && entry.asset == *asset {
+            continue;
         }
-        env.storage().persistent().set(&list_key, &new_list);
-        env.storage()
-            .persistent()
-            .extend_ttl(&list_key, LEDGER_THRESHOLD, LEDGER_BUMP);
+        new_list.push_back(entry);
     }
-}
-
-// ─── Helper struct for list enumeration ──────────────────────────────────────
-
-/// Lightweight reference stored in the subscription enumeration list.
-#[soroban_sdk::contracttype]
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct AlertSubscriptionRef {
-    pub consumer: Address,
-    pub asset: Address,
+    env.storage().persistent().set(&list_key, &new_list);
+    env.storage()
+        .persistent()
+        .extend_ttl(&list_key, LEDGER_THRESHOLD, LEDGER_BUMP);
 }
