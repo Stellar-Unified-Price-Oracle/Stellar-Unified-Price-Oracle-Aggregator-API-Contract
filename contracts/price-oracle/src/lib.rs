@@ -2236,6 +2236,83 @@ impl PriceOracleContract {
         reentrancy::exit(&env);
     }
 
+    // --- Asset Lifecycle: Disable/Enable ---
+
+    /// Temporarily disables an asset, blocking new submissions and aggregations.
+    ///
+    /// Disabled assets cannot serve current aggregated prices (queries return `AssetDisabled`).
+    /// Historical prices remain queryable for audit and reconciliation.
+    ///
+    /// The admin must authorize this call.
+    ///
+    /// # Arguments
+    ///
+    /// * `env` - The Soroban execution environment.
+    /// * `asset` - Contract address of the asset to disable.
+    ///
+    /// # Errors
+    ///
+    /// * [`ErrorCode::NotAuthorized`] — if the caller is not the current admin.
+    /// * [`ErrorCode::AssetNotRegistered`] — if the asset is not currently registered.
+    pub fn disable_asset(env: Env, asset: Address) {
+        enter_reentrancy_guard(&env);
+        admin::disable_asset(&env, asset);
+        exit_reentrancy_guard(&env);
+    }
+
+    /// Re-enables a disabled asset, allowing submissions and aggregations to resume.
+    ///
+    /// The admin must authorize this call.
+    ///
+    /// # Arguments
+    ///
+    /// * `env` - The Soroban execution environment.
+    /// * `asset` - Contract address of the asset to enable.
+    ///
+    /// # Errors
+    ///
+    /// * [`ErrorCode::NotAuthorized`] — if the caller is not the current admin.
+    /// * [`ErrorCode::AssetNotRegistered`] — if the asset is not currently registered.
+    pub fn enable_asset(env: Env, asset: Address) {
+        enter_reentrancy_guard(&env);
+        admin::enable_asset(&env, asset);
+        exit_reentrancy_guard(&env);
+    }
+
+    /// Queries whether an asset is disabled.
+    ///
+    /// # Arguments
+    ///
+    /// * `env` - The Soroban execution environment.
+    /// * `asset` - Contract address of the asset to check.
+    ///
+    /// # Returns
+    ///
+    /// `true` if the asset is disabled; `false` if active or not registered.
+    pub fn is_asset_disabled(env: Env, asset: Address) -> bool {
+        enter_reentrancy_guard(&env);
+        let result = admin::is_asset_disabled(&env, &asset);
+        exit_reentrancy_guard(&env);
+        result
+    }
+
+    /// Queries when an asset was disabled (ledger sequence number).
+    ///
+    /// # Arguments
+    ///
+    /// * `env` - The Soroban execution environment.
+    /// * `asset` - Contract address of the asset to check.
+    ///
+    /// # Returns
+    ///
+    /// Ledger sequence number when disabled, or 0 if not disabled.
+    pub fn get_asset_disabled_at(env: Env, asset: Address) -> u32 {
+        enter_reentrancy_guard(&env);
+        let result = admin::get_asset_disabled_at(&env, &asset);
+        exit_reentrancy_guard(&env);
+        result
+    }
+
     /// Returns whether the given asset contract address is currently registered.
     ///
     /// # Arguments
@@ -7339,3 +7416,6 @@ mod history_retention_benchmark_tests;
 
 #[cfg(test)]
 mod ledger_burst_capacity_tests;
+
+#[cfg(test)]
+mod asset_lifecycle_tests;

@@ -61,6 +61,24 @@ fails the check and blocks release.
 | `set_interpolation_enabled(bool)` | Enable/disable linear interpolation for history gaps (admin) |
 | `get_interpolation_enabled() -> bool` | Check if interpolation is enabled |
 
+### Asset Lifecycle Management
+
+When an asset has a data quality issue, is being replaced, or needs temporary maintenance, the admin can temporarily **disable** or permanently **delist** it:
+
+| Function | Description |
+|----------|-------------|
+| `disable_asset(asset) -> void` | Temporarily disable an asset (admin only; blocks new submissions and aggregations) |
+| `enable_asset(asset) -> void` | Re-enable a disabled asset (admin only; resumes normal operation) |
+| `is_asset_disabled(asset) -> bool` | Check if an asset is currently disabled |
+| `get_asset_disabled_at(asset) -> u32` | Get ledger sequence when an asset was disabled |
+| `unregister_asset(asset) -> void` | Permanently remove an asset from the registry (admin only; price history preserved) |
+
+**Disabled vs Delisted:**
+- **Disabled**: Temporary offline state. New submissions blocked. Queries return `ErrorCode::AssetDisabled` (190). Historical prices remain queryable for audit. Can be re-enabled.
+- **Delisted**: Permanent removal via `unregister_asset()`. Asset removed from registry. Queries return `ErrorCode::AssetNotRegistered`. Historical prices remain queryable indefinitely.
+
+For full semantics, see [Asset Lifecycle Design](docs/ASSET_LIFECYCLE_DESIGN.md).
+
 ### SEP-40 Oracle Consumer Interface
 
 | Function | Description |

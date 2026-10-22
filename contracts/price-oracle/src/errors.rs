@@ -420,4 +420,9 @@ pub enum ErrorCode {
     DerivedFeedCycle = 186,
     /// The derivation graph depth bound would be exceeded.
     DerivedFeedDepthExceeded = 187,
+
+    // ── 190–194: Asset lifecycle management ────────────────────────────────────
+    /// The asset is currently disabled and cannot accept new submissions or aggregations.
+    /// Historical prices remain queryable.
+    AssetDisabled = 190,
 }
