@@ -79,20 +79,22 @@ Two real behaviours were discovered by running traces and are now modelled
 faithfully. They are recorded here because a model that *assumed* nicer
 behaviour would have produced false failures — or worse, false confidence.
 
-1. **The aggregate is cached, not recomputed.** The contract stores the
-   aggregate computed at the last accepted submission and serves it from cache.
-   Removing a source or raising the quorum does **not** recompute it. The model
-   keeps the last published value until a new aggregate can be computed.
+1. **The aggregate is cached, and recomputed on removal.** The contract stores
+   the aggregate computed at the last accepted submission and serves it from
+   cache. Since #483, removing a source re-derives the aggregate from the
+   surviving contributors (when they still reach the quorum), and the model
+   does the same. Raising the quorum does **not** recompute it. (A removal that
+   affects more than `INLINE_RECOMPUTE_ASSETS` assets defers the rest to
+   `recompute_asset_price`; the model uses a single asset, so it never defers.)
 
 2. **A below-quorum submission does not clear the aggregate.** When a submission
    arrives that cannot reach the quorum, the previously published value stays in
    place rather than being withdrawn. The model refreshes the cached aggregate
    only when a new one can actually be computed.
 
-Both are faithful to the contract. Whether the cache should be invalidated on
-removal is a *design* question outside the scope of this issue; the model
-documents the behaviour as it is so that a future change to it shows up as a
-deliberate diff.
+Both are faithful to the contract. The model documents the behaviour as it is
+so that a future change to it shows up as a deliberate diff, as the #483
+removal recompute did.
 
 ## Trace generation
 

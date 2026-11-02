@@ -121,7 +121,11 @@ const REWARD_PER_ACCEPTED_SUBMISSION: i128 = 100;
 /// Maximum reward a single source may earn within one window.
 const REWARD_CAP_PER_SOURCE_WINDOW: i128 = 500;
 /// Cost an attacker pays to register one fresh source identity.
-const IDENTITY_REGISTRATION_COST: i128 = 250;
+///
+/// Must exceed `REWARD_CAP_PER_SOURCE_WINDOW`: that inequality is the whole
+/// Sybil mitigation (a fresh identity can never earn back its own cost within
+/// a window). It was 250, below the 500 cap, which made rotation profitable.
+const IDENTITY_REGISTRATION_COST: i128 = 750;
 
 /// Net profit of a farming run: gross reward minus identity costs.
 fn net_profit(gross_reward: i128, identities: i128) -> i128 {
@@ -703,7 +707,12 @@ attack!("fail-open", fail_open_evicted_min_sources_fails_closed, {
     assert!(client
         .try_submit_price(&src, &asset, &1_000i128, &ts)
         .is_err());
-    assert!(client.get_price(&asset, &0u64).is_none());
+    // Failing closed means no price is served: either `None` or an error
+    // (the read path raises `ConfigMissing`) is acceptable, a value is not.
+    assert!(!matches!(
+        client.try_get_price(&asset, &0u64),
+        Ok(Ok(Some(_)))
+    ));
 });
 
 /// Evicting a source's registry entry must also fail closed.

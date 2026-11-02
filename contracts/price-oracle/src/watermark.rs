@@ -188,7 +188,7 @@ fn read_history_timestamp(env: &Env, asset: &Address, ledger: u32) -> u64 {
         return entry.timestamp;
     }
     // Also check sharded bucket path.
-    let bucket_idx = ledger / crate::history::LEDGERS_PER_WEEK;
+    let bucket_idx = crate::history::ledger_to_bucket(ledger);
     let bucket_key = DataKey::HistoryBucket(asset.clone(), bucket_idx);
     if let Some(bucket) = env
         .storage()

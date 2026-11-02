@@ -99,6 +99,7 @@ disallow_governor_op
 dispute_proposal
 distribute_subscription_fees
 emergency_pause
+enable_all_feature_flags
 enable_asset
 enable_auto_renewal
 enable_scorecards
@@ -439,6 +440,7 @@ prune_history
 reauthorize_governor
 rebalance_basket
 recompute_asset_price
+record_breaker_source_recovery
 record_drift_sample
 record_relayer_failure
 recovery_approve

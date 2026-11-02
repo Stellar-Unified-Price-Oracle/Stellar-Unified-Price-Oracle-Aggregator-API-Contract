@@ -27,7 +27,7 @@ byte-for-byte the pre-#246 storage behaviour.
 | Tier | `durable` | Storage | Retention guarantee | Cost profile |
 |---|---|---|---|---|
 | `Temporary` (0, default) | `false` | temporary, one entry per `(asset, ledger)` | **≥ 10 000 ledgers** (`TEMPORARY_RETENTION_LEDGERS`). Both writes *and* reads re-bump the entry's TTL to this window, so a consumer that polls at least once inside the window always sees the stored value. | cheap, entry may lapse |
-| `Persistent` (1) | `true` | persistent week shard, `HistoryBucket(asset, ledger / 120 960)` | retained until the entry is pruned/archived — no protocol-level bound. Reported as `PERSISTENT_RETENTION_LEDGERS` (6 312 000) purely as a planning figure. | archival, more expensive |
+| `Persistent` (1) | `true` | persistent shard bucket, `HistoryBucket(asset, ledger / 256)` (256 ledgers per bucket keeps one bucket under the 64 KiB entry cap) | retained until the entry is pruned/archived — no protocol-level bound. Reported as `PERSISTENT_RETENTION_LEDGERS` (6 312 000) purely as a planning figure. | archival, more expensive |
 
 The `durable` flag is the contract with the consumer: when it is `false`, an
 absent historical read is **expected behaviour**, not a contract fault.
@@ -53,7 +53,7 @@ Reads are routed by the asset's configured tier and consult **only that tier**.
 
 - Asset on `Temporary` → read `PriceHistory(asset, ledger)`; a value sitting in
   the persistent shard for the same ledger is **invisible**.
-- Asset on `Persistent` → search the week bucket; a value sitting in temporary
+- Asset on `Persistent` → search the shard bucket; a value sitting in temporary
   storage for the same ledger is **invisible**.
 
 There is deliberately no "try the other tier" fallback. A fallback would make
@@ -73,11 +73,11 @@ the asset's configured tier with that tier's TTL treatment:
 
 - `Temporary` → one temporary entry at `PriceHistory(asset, ledger)`, TTL
   extended to the documented window. Exactly the pre-#246 behaviour.
-- `Persistent` → appended (or replaced in place) inside the asset's week bucket,
+- `Persistent` → appended (or replaced in place) inside the asset's shard bucket,
   with the bucket's TTL extended.
 
 `remove_history_entry(asset, ledger)` removes an entry from the configured tier
-only, shrinking the week bucket and deleting the bucket key when it empties. It
+only, shrinking the shard bucket and deleting the bucket key when it empties. It
 is a silent no-op when the entry is absent, so it is safe to call
 unconditionally from the aggregation/compaction path.
 
@@ -142,7 +142,7 @@ admin -> migrate_history_to_tier(asset, to_tier) -> u32
 ```
 
 Walks the ledgers in `PriceHistoryLedgers(asset)`, locates each entry with a
-**cross-tier** lookup (temporary entry *or* persistent week-shard entry), and
+**cross-tier** lookup (temporary entry *or* persistent shard-bucket entry), and
 copies it into `to_tier` with that tier's TTL treatment. Returns the number of
 entries copied; emits `StorageTierMigratedEvent`. The source tier is left intact
 — migration copies, it never moves. Migrating to the tier the asset already has

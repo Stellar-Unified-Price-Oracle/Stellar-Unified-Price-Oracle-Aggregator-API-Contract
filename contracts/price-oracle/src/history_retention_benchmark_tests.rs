@@ -241,12 +241,17 @@ fn retention_bench_reads_and_pruning_at_limit() {
         b.write_round();
     }
     let asset = b.assets.get_unchecked(0);
+    // Each measurement follows one warm-up read. The first read of an entry
+    // also extends its TTL, so without a warm-up the two measurements differ
+    // by how many entries happened to need extending, not by history size.
+    let _ = b.reads(&asset);
     let before = b.reads(&asset);
 
     for _ in 0..EXTRA_WRITES {
         b.write_round();
     }
     b.assert_retains_most_recent(&asset);
+    let _ = b.reads(&asset);
     let after = b.reads(&asset);
 
     for ((name, c0, m0), (_, c1, m1)) in before.iter().zip(after.iter()) {

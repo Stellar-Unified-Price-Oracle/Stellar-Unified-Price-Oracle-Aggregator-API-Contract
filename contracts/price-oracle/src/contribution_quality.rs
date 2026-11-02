@@ -150,6 +150,17 @@ pub fn update_contribution_quality(
         .persistent()
         .get::<DataKey, ContribQualityRecord>(&key);
 
+    // Score each submission once. Every accepted submission re-aggregates the
+    // asset, so without this a source's single submission was re-scored by
+    // every other source's submission in the same round, inflating
+    // `rounds_counted` and rewriting this entry each time.
+    if existing
+        .as_ref()
+        .is_some_and(|r| r.last_updated_ledger >= submission_ledger)
+    {
+        return;
+    }
+
     let consistency =
         compute_consistency_score(accuracy, existing.as_ref().map(|r| r.avg_accuracy_score));
 

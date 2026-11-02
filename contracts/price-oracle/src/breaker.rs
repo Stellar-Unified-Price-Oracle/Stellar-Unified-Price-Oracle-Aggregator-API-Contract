@@ -331,7 +331,7 @@ pub fn evaluate_rearm(env: &Env, asset: &Address, deviation_bps: u32) -> bool {
     }
 
     if can_rearm {
-        crate::assets::set_circuit_breaker(env, asset, false);
+        crate::assets::rearm_circuit_breaker(env, asset);
         env.storage()
             .persistent()
             .set(&DataKey::BreakerSettleStreak(asset.clone()), &0u32);
@@ -357,7 +357,7 @@ pub fn evaluate_rearm(env: &Env, asset: &Address, deviation_bps: u32) -> bool {
 /// entirely: the operator is never gated by the automatic path.
 pub fn clear_breaker(env: &Env, asset: &Address) {
     get_admin(env).require_auth();
-    crate::assets::set_circuit_breaker(env, asset, false);
+    crate::assets::rearm_circuit_breaker(env, asset);
     env.storage()
         .persistent()
         .set(&DataKey::BreakerSettleStreak(asset.clone()), &0u32);

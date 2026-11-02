@@ -532,7 +532,7 @@ fn maybe_aggregate_after_submission(env: &Env, asset: &Address, current_ledger: 
 pub fn recompute_asset(env: &Env, asset: &Address) -> (i128, u32) {
     let current_ledger = env.ledger().sequence();
     let decimals = get_decimals(env);
-    aggregate_asset(env, asset, current_ledger, decimals);
+    aggregate_asset_mode(env, asset, current_ledger, decimals, true);
     match env
         .storage()
         .persistent()
@@ -545,6 +545,21 @@ pub fn recompute_asset(env: &Env, asset: &Address) -> (i128, u32) {
 
 /// Internal helper: re-aggregate all sources for a single asset and write history.
 fn aggregate_asset(env: &Env, asset: &Address, current_ledger: u32, decimals: u32) {
+    aggregate_asset_mode(env, asset, current_ledger, decimals, false);
+}
+
+/// `recompute` is set when no new submission arrived (a source-set change
+/// re-derives the aggregate). Per-source round metrics (latency samples and
+/// contribution scores) are skipped then: the submissions were already scored
+/// when first counted, and re-scoring them would double-count them, as well
+/// as rewrite two ledger entries per source per asset.
+fn aggregate_asset_mode(
+    env: &Env,
+    asset: &Address,
+    current_ledger: u32,
+    decimals: u32,
+    recompute: bool,
+) {
     let max_events = get_max_events_per_call(env);
     let mut event_count: u32 = 0;
 
@@ -652,6 +667,12 @@ fn aggregate_asset(env: &Env, asset: &Address, current_ledger: u32, decimals: u3
     let comparison = crate::source_comparison::is_enabled(env, asset);
     let mut admitted_sources: Vec<Address> = Vec::new(env);
     let mut admitted_prices: Vec<i128> = Vec::new(env);
+    // #489: the freshness window depends only on the asset, so resolve it
+    // once rather than once per source.
+    let (fresh_window, _) = crate::freshness_quorum::window_for(env, asset);
+    // #298: (source, price, submission ledger) of every submission read
+    // below, reused by contribution scoring instead of reading it again.
+    let mut scored: Vec<(Address, i128, u32)> = Vec::new(env);
 
     for i in 0..selected_count {
         let src = selected_sources.get_unchecked(i);
@@ -693,6 +714,9 @@ fn aggregate_asset(env: &Env, asset: &Address, current_ledger: u32, decimals: u3
         let sub_key = DataKey::Submission(asset.clone(), src.clone());
         let sub: Option<PriceEntry> = env.storage().persistent().get(&sub_key);
         if let Some(entry_data) = sub {
+            if !recompute {
+                scored.push_back((src.clone(), entry_data.price, entry_data.last_updated));
+            }
             // Skip prices flagged for correlation violations.
             if crate::correlation::is_correlation_flagged(env, &src, asset) {
                 continue;
@@ -719,8 +743,7 @@ fn aggregate_asset(env: &Env, asset: &Address, current_ledger: u32, decimals: u3
             }
             // #489: a submission outside the asset's freshness window does not
             // count toward quorum, and is reported as stale.
-            let (window, _) = crate::freshness_quorum::window_for(env, asset);
-            if !crate::freshness_quorum::is_fresh(env, &entry_data, window) {
+            if !crate::freshness_quorum::is_fresh(env, &entry_data, fresh_window) {
                 stale_sources += 1;
                 continue;
             }
@@ -913,6 +936,16 @@ fn aggregate_asset(env: &Env, asset: &Address, current_ledger: u32, decimals: u3
                     version: 0,
                 });
 
+            // S5: a published aggregate never becomes less final. Only a
+            // recompute after a source left can rebuild from older
+            // submissions; it keeps the published timestamp rather than
+            // moving it backwards.
+            let latest_timestamp = if recompute {
+                latest_timestamp.max(prev_aggregate.timestamp)
+            } else {
+                latest_timestamp
+            };
+
             // Increment version only when the price actually changes (#252).
             let new_version = if median_price != prev_aggregate.price {
                 prev_aggregate.version.saturating_add(1)
@@ -981,14 +1014,16 @@ fn aggregate_asset(env: &Env, asset: &Address, current_ledger: u32, decimals: u3
             for i in 0..contributing_sources {
                 let src = valid_sources.get_unchecked(i);
                 let sub_ledger = valid_sub_ledgers.get_unchecked(i);
-                crate::latency::record_counted(
-                    env,
-                    &src,
-                    asset,
-                    sub_ledger,
-                    current_ledger,
-                    deferral,
-                );
+                if !recompute {
+                    crate::latency::record_counted(
+                        env,
+                        &src,
+                        asset,
+                        sub_ledger,
+                        current_ledger,
+                        deferral,
+                    );
+                }
                 contributors.push_back(crate::types::ProvenanceEntry {
                     source: src,
                     price: valid_prices.get_unchecked(i),
@@ -1138,27 +1173,19 @@ fn aggregate_asset(env: &Env, asset: &Address, current_ledger: u32, decimals: u3
                 .publish(env);
             }
 
-            // ── #298: Update contribution quality scores for all contributing sources ──
-            let oracle_sources_for_quality = read_oracle_sources(env);
-            let nsrc = oracle_sources_for_quality.sources.len();
-            for qi in 0..nsrc {
-                let src = oracle_sources_for_quality.sources.get_unchecked(qi);
-                let sub_key = DataKey::Submission(asset.clone(), src.clone());
-                if let Some(entry) = env
-                    .storage()
-                    .persistent()
-                    .get::<DataKey, crate::types::PriceEntry>(&sub_key)
-                {
-                    crate::contribution_quality::update_contribution_quality(
-                        env,
-                        &src,
-                        asset,
-                        entry.price,
-                        median_price,
-                        entry.last_updated,
-                        current_ledger,
-                    );
-                }
+            // ── #298: Update contribution quality scores ──────────────────────
+            // Scores every source whose submission was read above (empty on a
+            // recompute), from the values already in hand.
+            for (src, price, last_updated) in scored.iter() {
+                crate::contribution_quality::update_contribution_quality(
+                    env,
+                    &src,
+                    asset,
+                    price,
+                    median_price,
+                    last_updated,
+                    current_ledger,
+                );
             }
 
             // ── #297: Invoke registered price callbacks (fault-isolated) ─────────────

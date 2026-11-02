@@ -343,6 +343,7 @@ pub fn unpause_asset(env: &Env, asset: Address) {
     admin.require_auth();
     crate::storage::check_registered_asset(env, &asset);
     set_asset_paused(env, &asset, false);
+    env.storage().persistent().remove(&trip_pause_key(&asset));
     env.storage()
         .persistent()
         .set(&DataKey::AssetCircuitBreakerTripped(asset.clone()), &false);
@@ -352,6 +353,22 @@ pub fn unpause_asset(env: &Env, asset: Address) {
     }
     .publish(env);
     emit_admin_action(env, symbol_short!("unp_asts"), admin, Bytes::new(env));
+}
+
+fn trip_pause_key(asset: &Address) -> (soroban_sdk::Symbol, Address) {
+    (symbol_short!("BRK_PAUS"), asset.clone())
+}
+
+/// Re-arms an asset's circuit breaker: clears the tripped flag and lifts the
+/// pause the trip applied, if any. A pause an operator set before the trip
+/// is left in place.
+pub fn rearm_circuit_breaker(env: &Env, asset: &Address) {
+    set_circuit_breaker(env, asset, false);
+    let key = trip_pause_key(asset);
+    if env.storage().persistent().has(&key) {
+        env.storage().persistent().remove(&key);
+        set_asset_paused(env, asset, false);
+    }
 }
 
 /// Sets or clears an asset's circuit-breaker flag without touching its pause
@@ -372,6 +389,13 @@ pub fn trip_circuit_breaker(
     change_bps: i128,
     max_change_bps: u32,
 ) {
+    // Remember when the trip is what paused the asset, so re-arming lifts
+    // that pause without undoing an operator's own manual pause.
+    if !is_asset_paused(env, &asset) {
+        env.storage()
+            .persistent()
+            .set(&trip_pause_key(&asset), &true);
+    }
     set_asset_paused(env, &asset, true);
     env.storage()
         .persistent()

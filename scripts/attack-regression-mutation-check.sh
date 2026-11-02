@@ -25,14 +25,24 @@ RESTORE_LIST=()
 
 cleanup() {
   local f
+  # Restore from the snapshot taken before mutating, not from git: a
+  # `git checkout` would also discard the developer's uncommitted edits.
   for f in "${RESTORE_LIST[@]:-}"; do
-    [[ -n "${f}" ]] && git checkout -- "${f}" 2>/dev/null || true
+    if [[ -n "${f}" && -f "${f}.mutbak" ]]; then
+      mv -f "${f}.mutbak" "${f}"
+    fi
   done
 }
 trap cleanup EXIT
 
 # snapshot <path> — remember a file so cleanup can restore it.
-snapshot() { RESTORE_LIST+=("$1"); cp "$1" "$1.mutbak"; }
+snapshot() {
+  # Keep the first snapshot: a file mutated twice must restore its original.
+  if [[ ! -f "$1.mutbak" ]]; then
+    RESTORE_LIST+=("$1")
+    cp "$1" "$1.mutbak"
+  fi
+}
 
 # revert <path> <exact-old> <exact-new> <description>
 # Replaces an exact multi-line snippet. Fails loudly if the snippet is not

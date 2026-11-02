@@ -79,9 +79,13 @@ const REGRESSION_TOLERANCE_PCT: u64 = 10;
 /// Committed per-operation budgets (CPU instructions, memory bytes).
 ///
 /// These are the production baseline captured on mainnet-equivalent settings.
-const BUDGET_INITIALIZE: (u64, u64) = (2_000_000, 400_000);
-const BUDGET_SOURCE_UPDATE: (u64, u64) = (1_500_000, 300_000);
-const BUDGET_PRICE_SUBMISSION: (u64, u64) = (1_500_000, 300_000);
+///
+/// Measured on 2026-11-02 with the refresh procedure above. The previous
+/// values were round placeholders committed without a measurement (cargo was
+/// unavailable when #611 landed).
+const BUDGET_INITIALIZE: (u64, u64) = (630_000, 225_000);
+const BUDGET_SOURCE_UPDATE: (u64, u64) = (465_000, 143_000);
+const BUDGET_PRICE_SUBMISSION: (u64, u64) = (2_600_000, 792_000);
 
 fn assert_within_budget(op: &str, measured: (u64, u64), budget: (u64, u64)) {
     let (cpu, mem) = measured;

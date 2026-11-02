@@ -7132,10 +7132,26 @@ impl PriceOracleContract {
     /// `true` when it re-armed. Emits a re-arm *attempt* event on every
     /// evaluation, so held and re-armed are distinguishable from the stream.
     ///
-    /// Panics with `BreakerEscalationRequired` once the breaker has been open
-    /// past its escalation bound.
+    /// Re-arm needs a settled price streak *and* recorded source recovery
+    /// (see [`Self::record_breaker_source_recovery`]). Once the breaker has been
+    /// open past its escalation bound, automatic re-arm stops: the call returns
+    /// `false`, records the escalation and emits `BreakerEscalatedEvent`, and
+    /// only an operator `clear_breaker` can close it.
     pub fn evaluate_breaker_rearm(env: Env, asset: Address, deviation_bps: u32) -> bool {
         breaker::evaluate_rearm(&env, &asset, deviation_bps)
+    }
+
+    /// Records that the feed for `asset` has recovered since the breaker
+    /// tripped. Admin only.
+    ///
+    /// This is the source-recovery half of the re-arm evidence (#623); it does
+    /// not re-arm the breaker by itself. Submissions are refused while the
+    /// breaker is open, so the evidence has to come from an operator who has
+    /// verified the feed off-chain.
+    pub fn record_breaker_source_recovery(env: Env, asset: Address) {
+        crate::storage::get_admin(&env).require_auth();
+        crate::storage::check_registered_asset(&env, &asset);
+        breaker::record_source_recovery(&env, &asset);
     }
 
     /// Executes a fully approved, matured downgrade request. Admin only.

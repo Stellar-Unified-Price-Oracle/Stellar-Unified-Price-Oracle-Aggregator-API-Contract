@@ -9,6 +9,9 @@
 #   check   - check formatting without modifying files
 #   clean   - remove build artifacts
 #   gas-gate  - adversarial gas-budget regression gates (#419)
+#   attack-gate - #511 attack-regression corpus within its time budget
+#   fuzz-gate   - #514 fuzz corpus size check + replay
+#   kani-gate   - #512 bounded proofs (needs the Kani verifier)
 #   load-test - adversarial load test v2 (#413)
 #   source-count-bench - worst-case configured source-count benchmark (#693)
 #   endpoint-budgets   - per-endpoint compute and storage budget gate (#692)
@@ -37,7 +40,8 @@
         mutation-gate mutation-per-module hermetic sast secret-scan \
         check-pins reproducible-build security rpc-gate indexer-trust \
         tx-review-gate redaction-gate trust-boundary source-count-bench \
-        endpoint-budgets retention-bench burst-capacity malware-scan
+        endpoint-budgets retention-bench burst-capacity malware-scan \
+        attack-gate fuzz-gate kani-gate
 
 all: build test
 
@@ -102,6 +106,19 @@ check-pins:
 # Supply-chain malware scan (PolinRider-style injected payloads). Reads only.
 malware-scan:
 	./scripts/supply-chain-scan.sh
+
+# Security gates named in AGENTS.md, each with its own time budget.
+# #511 attack-regression corpus (ATTACK_BUDGET_SECONDS, default 300).
+attack-gate:
+	./scripts/attack-regression-gate.sh
+
+# #514 fuzz corpus size check + replay.
+fuzz-gate:
+	./scripts/fuzz-corpus-gate.sh
+
+# #512 bounded proofs; needs the Kani verifier (KANI_BUDGET_SECONDS, default 1800).
+kani-gate:
+	./scripts/kani-proofs.sh
 
 # Byte-reproducibility: two clean builds, compared digests.
 reproducible-build:

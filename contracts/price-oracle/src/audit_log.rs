@@ -1018,47 +1018,50 @@ mod tests {
         let env = Env::default();
         env.mock_all_auths();
 
-        let admin = Address::generate(&env);
-        let source = Address::generate(&env);
-        env.storage().persistent().set(&DataKey::Admin, &admin);
+        let contract_id = env.register(crate::PriceOracleContract, ());
+        env.as_contract(&contract_id, || {
+            let admin = Address::generate(&env);
+            let source = Address::generate(&env);
+            env.storage().persistent().set(&DataKey::Admin, &admin);
 
-        let reason = Bytes::from_slice(&env, b"payout undercounted");
-        let appeal_id = submit_reward_appeal(&env, source.clone(), 7, 1_000, reason.clone());
-        assert_eq!(appeal_id, 1);
+            let reason = Bytes::from_slice(&env, b"payout undercounted");
+            let appeal_id = submit_reward_appeal(&env, source.clone(), 7, 1_000, reason.clone());
+            assert_eq!(appeal_id, 1);
 
-        // Snapshot the original appeal record before resolution.
-        let original: AuditEntry = env
-            .storage()
-            .persistent()
-            .get(&DataKey::AuditEntry(appeal_id))
-            .unwrap();
+            // Snapshot the original appeal record before resolution.
+            let original: AuditEntry = env
+                .storage()
+                .persistent()
+                .get(&DataKey::AuditEntry(appeal_id))
+                .unwrap();
 
-        let note = Bytes::from_slice(&env, b"approved after review");
-        let correction_id = resolve_reward_appeal(&env, appeal_id, 1_500, note);
-        assert_eq!(correction_id, 2);
+            let note = Bytes::from_slice(&env, b"approved after review");
+            let correction_id = resolve_reward_appeal(&env, appeal_id, 1_500, note);
+            assert_eq!(correction_id, 2);
 
-        // Original appeal record is untouched.
-        let after: AuditEntry = env
-            .storage()
-            .persistent()
-            .get(&DataKey::AuditEntry(appeal_id))
-            .unwrap();
-        assert_eq!(after.id, original.id);
-        assert_eq!(after.action, original.action);
-        assert_eq!(after.data, original.data);
-        assert_eq!(after.current_hash, original.current_hash);
+            // Original appeal record is untouched.
+            let after: AuditEntry = env
+                .storage()
+                .persistent()
+                .get(&DataKey::AuditEntry(appeal_id))
+                .unwrap();
+            assert_eq!(after.id, original.id);
+            assert_eq!(after.action, original.action);
+            assert_eq!(after.data, original.data);
+            assert_eq!(after.current_hash, original.current_hash);
 
-        // Correction is a distinct appended entry referencing the appeal.
-        let correction: AuditEntry = env
-            .storage()
-            .persistent()
-            .get(&DataKey::AuditEntry(correction_id))
-            .unwrap();
-        assert_eq!(correction.action, symbol_short!("correct"));
-        assert_eq!(correction.previous_hash, original.current_hash);
+            // Correction is a distinct appended entry referencing the appeal.
+            let correction: AuditEntry = env
+                .storage()
+                .persistent()
+                .get(&DataKey::AuditEntry(correction_id))
+                .unwrap();
+            assert_eq!(correction.action, symbol_short!("correct"));
+            assert_eq!(correction.previous_hash, original.current_hash);
 
-        // Chain remains valid with both records present.
-        assert!(verify_audit_chain(&env));
-        assert_eq!(get_audit_log_count(&env), 2);
+            // Chain remains valid with both records present.
+            assert!(verify_audit_chain(&env));
+            assert_eq!(get_audit_log_count(&env), 2);
+        });
     }
 }

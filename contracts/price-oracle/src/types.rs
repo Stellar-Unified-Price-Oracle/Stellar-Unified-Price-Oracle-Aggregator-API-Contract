@@ -662,9 +662,9 @@ pub enum DataKey {
     LzEidChainName(u32),
 
     // -------------------------------------------------------------------------
-    // #251: History sharding (weekly time buckets)
+    // #251: History sharding (256-ledger buckets)
     // -------------------------------------------------------------------------
-    /// A sharded history bucket for an asset (weekly time bucket).
+    /// A sharded history bucket for an asset (256 ledgers per bucket).
     HistoryBucket(Address, u32),
     /// Current bucket index for an asset (u32).
     HistoryBucketIndex(Address),

@@ -42,7 +42,12 @@ fn setup<'a>(e: &'a Env) -> (PriceOracleContractClient<'a>, Address, Address) {
         &18u32,
         &soroban_sdk::String::from_str(e, "test"),
     );
-    e.ledger().with_mut(|l| l.timestamp = 1000);
+    // Start past ledger 0: the breaker uses ledger 0 as "no streak yet", and
+    // no real network ever runs at ledger 0.
+    e.ledger().with_mut(|l| {
+        l.timestamp = 1000;
+        l.sequence_number = 100;
+    });
     let asset = register_test_asset(e, &client);
     (client, asset, contract_id)
 }
@@ -189,8 +194,11 @@ fn rearm_requires_the_whole_settle_window() {
         assert!(client.get_breaker_status(&asset).is_open);
     }
 
-    // The fifth completes the window.
+    // The fifth completes the price window, but re-arm also needs the
+    // source-recovery evidence (#623).
     advance(&e, 1);
+    assert!(!client.evaluate_breaker_rearm(&asset, &100));
+    client.record_breaker_source_recovery(&asset);
     assert!(client.evaluate_breaker_rearm(&asset, &100));
     assert!(
         !client.get_breaker_status(&asset).is_open,
@@ -257,13 +265,17 @@ fn manual_override_works_after_escalation() {
     client.set_breaker_policy(&asset, &policy(2_000, 1_000, 5, 10));
     trip(&e, &contract, &asset, 2_500);
 
-    // Past the bound the automatic path escalates and refuses.
+    // Past the bound the automatic path escalates and refuses, even with
+    // every re-arm condition met.
     advance(&e, 20);
-    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        client.evaluate_breaker_rearm(&asset, &0)
-    }));
-    assert!(result.is_err(), "the open duration must be bounded");
-    assert!(client.get_breaker_status(&asset).is_open);
+    client.record_breaker_source_recovery(&asset);
+    assert!(
+        !client.evaluate_breaker_rearm(&asset, &0),
+        "the open duration must be bounded"
+    );
+    let status = client.get_breaker_status(&asset);
+    assert!(status.is_open);
+    assert!(status.escalated);
 
     // The operator is not blocked by the escalation.
     client.clear_breaker(&asset);
@@ -283,13 +295,13 @@ fn open_duration_is_bounded_with_escalation() {
     assert!(!client.evaluate_breaker_rearm(&asset, &1_500));
     assert!(!client.get_breaker_status(&asset).escalated);
 
-    // Past it, the contract escalates rather than re-arming.
+    // Past it, the contract escalates rather than re-arming. The escalation
+    // is recorded (not panicked away) so operators see it (#623).
     advance(&e, 20);
-    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        client.evaluate_breaker_rearm(&asset, &0)
-    }));
-    assert!(result.is_err());
+    client.record_breaker_source_recovery(&asset);
+    assert!(!client.evaluate_breaker_rearm(&asset, &0));
     let status = client.get_breaker_status(&asset);
+    assert!(status.is_open);
     assert!(status.escalated, "the bound must escalate");
     assert!(status.open_ledgers > 10);
 }
@@ -313,6 +325,8 @@ fn rearmed_breaker_accepts_submissions_again() {
     }));
     assert!(result.is_err(), "an open breaker must refuse submissions");
 
+    advance(&e, 1);
+    client.record_breaker_source_recovery(&asset);
     for _ in 0..3 {
         advance(&e, 1);
         client.evaluate_breaker_rearm(&asset, &0);

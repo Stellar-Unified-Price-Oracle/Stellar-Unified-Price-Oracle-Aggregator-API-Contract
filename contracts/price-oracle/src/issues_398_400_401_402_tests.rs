@@ -42,6 +42,9 @@ struct Ctx<'a> {
     asset: Address,
     seq: u32,
     ts: u64,
+    /// Events of the last mutating call, saved before a read-only query
+    /// replaces them (the test env keeps only the latest call's events).
+    saved: core::cell::RefCell<std::vec::Vec<soroban_sdk::xdr::ContractEvent>>,
 }
 
 impl<'a> Ctx<'a> {
@@ -56,6 +59,7 @@ impl<'a> Ctx<'a> {
             asset,
             seq: 1,
             ts: 100_000,
+            saved: core::cell::RefCell::new(std::vec::Vec::new()),
         }
     }
 
@@ -87,16 +91,23 @@ impl<'a> Ctx<'a> {
     }
 
     fn price(&self) -> i128 {
+        *self.saved.borrow_mut() = self.current_events();
         self.client.get_price(&self.asset, &0u64).unwrap().price
     }
 
-    fn emitted(&self, xdr: soroban_sdk::xdr::ContractEvent) -> bool {
+    fn current_events(&self) -> std::vec::Vec<soroban_sdk::xdr::ContractEvent> {
         self.e
             .events()
             .all()
             .filter_by_contract(&self.client.address)
             .events()
-            .contains(&xdr)
+            .to_vec()
+    }
+
+    /// True when `xdr` was emitted by the latest call, or by the mutating
+    /// call just before a `price()` query.
+    fn emitted(&self, xdr: soroban_sdk::xdr::ContractEvent) -> bool {
+        self.current_events().contains(&xdr) || self.saved.borrow().contains(&xdr)
     }
 }
 
@@ -446,7 +457,9 @@ fn excluded_source_is_flagged_and_influence_quantified() {
     let e = Env::default();
     let mut c = Ctx::new(&e);
     let s = c.sources(4);
-    c.round(&s, &[P, P + 1_000, P + 2_000, P]);
+    // The fourth source is out of DQ bounds from the start. An in-bounds
+    // warm-up price would linger and be counted in the first measured round.
+    c.round(&s, &[P, P + 1_000, P + 2_000, 5 * P]);
     c.client.set_source_comparison(&c.asset, &true);
     c.client.set_dq_config(
         &c.asset,
@@ -525,15 +538,16 @@ fn offboarding_is_atomic_and_leaves_zero_influence() {
     let e = Env::default();
     let mut c = Ctx::new(&e);
     let mut s = c.sources(3);
+    // Probation length is fixed at onboarding, so configure it first.
+    c.client.set_lifecycle_config(&LifecycleConfig {
+        probation_secs: 0,
+        slash_deviation_bps: 2_000,
+    });
     let m = Address::generate(&e);
     c.client
         .onboard_source(&m, &String::from_str(&e, "M"), &identity(&e, 9));
     s.push_back(m.clone());
     bonded(&c, &s);
-    c.client.set_lifecycle_config(&LifecycleConfig {
-        probation_secs: 0,
-        slash_deviation_bps: 2_000,
-    });
     c.client.graduate_source(&m);
     c.round(&s, &[P, P + 10, P + 20, 5 * P]);
 
@@ -544,7 +558,8 @@ fn offboarding_is_atomic_and_leaves_zero_influence() {
             evidence_asset: c.asset.clone(),
             submitted_price: 5 * P,
             aggregate_price: P + 15,
-            deviation_bps: 39_998,
+            // (5P - (P + 15)) * 10_000 / (P + 15) = 39_999.2, floored.
+            deviation_bps: 39_999,
             threshold_bps: 2_000,
             bond_forfeited: 100,
         }

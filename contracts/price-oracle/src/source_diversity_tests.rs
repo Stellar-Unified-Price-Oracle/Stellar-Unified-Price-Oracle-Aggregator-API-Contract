@@ -102,6 +102,11 @@ fn test_diversity_independent_set_scores_high() {
         "chainlink",
     ];
     let owners = ["op-a", "op-b", "op-c", "op-d", "op-e", "op-f"];
+    // Region, provider and jurisdiction are scored too (any axis HHI above
+    // the threshold flags low diversity), so they must differ as well.
+    let regions = ["us", "eu", "asia", "us-east", "eu-central", "apac"];
+    let providers = ["p-a", "p-b", "p-c", "p-d", "p-e", "p-f"];
+    let jurisdictions = ["US", "DE", "HK", "CA", "CH", "SG"];
     for i in 0..6 {
         let name = std::format!("Indep{}", i);
         let src = register_test_source(&e, &client, &name);
@@ -109,9 +114,9 @@ fn test_diversity_independent_set_scores_high() {
             &e,
             &client,
             &src,
-            "R",
-            "P",
-            "J",
+            regions[i as usize],
+            providers[i as usize],
+            jurisdictions[i as usize],
             infras[i as usize],
             upstreams[i as usize],
             owners[i as usize],
