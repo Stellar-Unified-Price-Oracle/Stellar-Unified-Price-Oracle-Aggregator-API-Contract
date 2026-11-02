@@ -7822,3 +7822,16 @@ mod ledger_burst_capacity_tests;
 
 #[cfg(test)]
 mod asset_lifecycle_tests;
+
+// #515-#518 verification suites (their `mod` lines were lost in a merge).
+#[cfg(test)]
+mod event_schema_snapshot;
+#[cfg(test)]
+mod interleaving_determinism_tests;
+#[cfg(test)]
+mod sep40_conformance_tests;
+#[cfg(test)]
+mod version_matrix_tests;
+
+#[cfg(test)]
+mod key_rotation_rehearsal_tests;

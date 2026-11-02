@@ -26,3 +26,7 @@ exclude_re = [
     "impl Debug",
     "impl (core::)?fmt::Display",
 ]
+
+# Tests embed the built WASM with include_bytes!, so the copied tree needs
+# target/ (build it first with `make build`).
+copy_target = true

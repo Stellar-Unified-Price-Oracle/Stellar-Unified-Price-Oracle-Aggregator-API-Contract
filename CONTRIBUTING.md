@@ -211,6 +211,4 @@ must independently verify the security-judgment evidence.
 
 ## License
 
-By contributing, you agree that your contributions will be
-
-/* … truncated 33 chars — edit only what you need near the top … */
+By contributing, you agree that your contributions will be licensed under the MIT License.

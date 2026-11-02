@@ -17,6 +17,8 @@
 #   MUTANTS_ARGS       extra cargo-mutants args, e.g. "--in-diff pr.diff" or
 #                      "--shard 0/4" to bound CI duration
 #   THRESHOLDS_CONF    per-module thresholds (default scripts/mutation-thresholds.conf)
+#   PER_MODULE         limit `per-module` to one guarded file, e.g. "storage.rs"
+#                      (CI runs one matrix job per module; unset = all modules)
 #   WAIVERS_FILE       equivalent-mutant waivers (default scripts/mutation-waivers.txt)
 #
 # `self-test` exercises the scoring and threshold logic against fixtures and
@@ -82,6 +84,16 @@ kill_rate() {
 #
 # Named for the question it answers so call sites read as assertions rather
 # than as double negatives.
+# mutants_ok <exit code> -> success when cargo-mutants actually tested mutants.
+#
+# cargo-mutants exits 0 (all caught), 2 (some missed) or 3 (timeouts) after a
+# real run; the gate scores those. Anything else (1 usage error, 4 baseline
+# tests failed, ...) means nothing was tested. Scoring that as an empty run
+# would report 100% and pass, so it fails instead.
+mutants_ok() {
+  case "$1" in 0|2|3) return 0 ;; *) return 1 ;; esac
+}
+
 score_passes() {
   awk -v s="$1" -v t="$2" 'BEGIN { exit !(s + 0 >= t + 0) }'
 }
@@ -126,7 +138,9 @@ per_module_files() {
     first=1
     for f in $lhs; do
       if (( first )); then first=0; continue; fi
-      echo "$f"
+      if [[ -z "${PER_MODULE:-}" || "$f" == "$PER_MODULE" ]]; then
+        echo "$f"
+      fi
     done
   done < "$THRESHOLDS_CONF"
 }
@@ -143,13 +157,17 @@ waiver_count() {
 # that only touches the changed module is far cheaper than mutating the whole
 # tree, and `--in-diff` still applies within it.
 generate_per_module() {
-  local file out
+  local file out rc
   while read -r file; do
     [[ -n "$file" ]] || continue
     out="mutants-per-module/${file%.rs}"
+    # cargo-mutants does not create missing parent directories.
+    mkdir -p "$out"
     echo "::group::mutating $file"
     # shellcheck disable=SC2086
-    cargo mutants --no-shuffle -o "$out" --file "$SRC/$file" ${MUTANTS_ARGS:-} || true
+    rc=0
+    cargo mutants --no-shuffle -o "$out" --file "$SRC/$file" ${MUTANTS_ARGS:-} || rc=$?
+    echo "$rc" > "$out/exit-code"
     echo "::endgroup::"
   done < <(per_module_files)
 }
@@ -161,11 +179,18 @@ report_per_module() {
   echo "| module | file | score | threshold | result |"
   echo "|---|---|---|---|---|"
 
-  local file threshold score caught missed timeout unviable json failed=0
+  local file threshold score caught missed timeout unviable json rc failed=0
   while read -r file; do
     [[ -n "$file" ]] || continue
     threshold="$(threshold_for "$file")"
     json="mutants-per-module/${file%.rs}/mutants.out/outcomes.json"
+    rc="$(cat "mutants-per-module/${file%.rs}/exit-code" 2>/dev/null || echo missing)"
+    if ! mutants_ok "$rc"; then
+      echo "| ${file%.rs} | $file | - | $threshold | cargo-mutants failed (exit $rc) |"
+      echo "::error::cargo-mutants failed for $file (exit $rc); see mutants.out/log/baseline.log"
+      failed=1
+      continue
+    fi
     if [[ ! -f "$json" ]]; then
       echo "| ${file%.rs} | $file | - | $threshold | no results |"
       echo "::error::no mutation results for $file"
@@ -322,8 +347,14 @@ run_class() {
   local class="$1"; shift
   local out="mutants-${class}"
   # cargo-mutants exits 2 when mutants are missed; the gate decides below.
+  local rc=0
   # shellcheck disable=SC2086
-  cargo mutants --no-shuffle -o "$out" "$@" ${MUTANTS_ARGS:-} || true
+  cargo mutants --no-shuffle -o "$out" "$@" ${MUTANTS_ARGS:-} || rc=$?
+  if ! mutants_ok "$rc"; then
+    echo "::error::cargo-mutants failed for $class (exit $rc); see $out/mutants.out/log/baseline.log"
+    status=1
+    return
+  fi
 
   local json="$out/mutants.out/outcomes.json"
   if [[ ! -f "$json" ]]; then
@@ -374,7 +405,12 @@ done
 case "$CLASS" in
   critical)   run_class critical "${critical_args[@]}" ;;
   general)    run_class general "${general_args[@]}" ;;
-  per-module) generate_per_module; report_per_module ;;
+  per-module)
+    if [[ -n "${PER_MODULE:-}" && -z "$(per_module_files)" ]]; then
+      echo "::error::PER_MODULE=$PER_MODULE is not listed in $THRESHOLDS_CONF"
+      exit 1
+    fi
+    generate_per_module; report_per_module ;;
   self-test)  self_test ;;
   all)
     run_class critical "${critical_args[@]}"

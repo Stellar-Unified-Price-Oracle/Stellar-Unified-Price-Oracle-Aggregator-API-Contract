@@ -47,7 +47,59 @@ all: build test
 
 # Compile the contract to wasm32v1-none release
 build:
-	cargo build --target wasm32-unknown-unknown --release
+	cargo build -p price-oracle --target wasm32v1-none --release --locked
+
+# Format source code
+fmt:
+	cargo fmt --manifest-path contracts/price-oracle/Cargo.toml
+
+# Check formatting without modifying files
+check:
+	cargo fmt --manifest-path contracts/price-oracle/Cargo.toml -- --check
+
+# Watch for changes and re-run cargo check + tests
+# Requires: cargo install cargo-watch
+watch:
+	cargo watch -x "check -p price-oracle" -x "test -p price-oracle --lib" -x "clippy -p price-oracle -- -D warnings"
+
+# SEP-40 conformance suite (#515): every normative requirement of the published
+# spec, with the deviations and ambiguities recorded in docs/sep40-conformance.md.
+sep40-conformance:
+	cargo test -p price-oracle --lib sep40_conformance -- --nocapture
+
+# Determinism and interleaving suite (#516): permutations of the bounded
+# operation set, mid-ledger reads, re-entrant callbacks.
+# See docs/interleaving-determinism.md.
+interleaving:
+	cargo test -p price-oracle --lib interleaving -- --nocapture
+
+# N-2..N upgrade/downgrade round-trip matrix (#517).
+# See docs/version-matrix.md.
+version-matrix:
+	cargo test -p price-oracle --lib version_matrix -- --nocapture
+
+# Golden event-schema snapshots (#518). Check only: fails on any unversioned
+# change to an event's topics, payload, field order or field types.
+event-snapshots:
+	cargo test -p price-oracle --lib event_schema -- --nocapture
+
+# Deliberate regeneration of the golden event-schema snapshots. CI never runs
+# this: a snapshot is only ever regenerated as a reviewed step, and the diff is
+# part of the pull request.
+event-snapshots-regen:
+	UPDATE_EVENT_SCHEMA_SNAPSHOT=1 cargo test -p price-oracle --lib event_schema -- --nocapture
+	@echo "Review the regenerated contracts/price-oracle/testdata/event_schema.golden before committing."
+
+# All four verification suites in one go.
+conformance: sep40-conformance interleaving version-matrix event-snapshots
+
+# Ops documentation gates: every paging alert has a runbook entry (#527),
+# every postmortem is structured, indexed and owned (#528), and the capacity
+# and backup docs match their code (#529, #530).
+ops-check:
+	python3 -m services.runbook.check_runbook
+	python3 -m services.incident_review.check_postmortems
+	python3 -m pytest services/runbook services/incident_review services/backup services/capacity -q
 
 test:
 	cargo test -p price-oracle --lib
@@ -168,11 +220,48 @@ NETWORK ?= mainnet
 RPC_URL ?= https://soroban-rpc.mainnet.stellar.gateway.fm
 CONTRACTS ?=
 
-WASM_DIR := target/wasm32-unknown-unknown/release
-BUILD_FLAGS := --locked --release --target wasm32-unknown-unknown
+WASM_DIR := target/wasm32v1-none/release
+BUILD_FLAGS := -p price-oracle --locked --release --target wasm32v1-none
 
-.PHONY: build verify-toolchain verify-lockfile verify-build verify-onchain verify
+.PHONY: build fmt check watch sep40-conformance interleaving version-matrix \
+        event-snapshots event-snapshots-regen conformance ops-check \
+        verify-toolchain verify-lockfile verify-build verify-onchain verify
+
+# Production contract verification checklist (#612).
+# Step 1: record the exact toolchain used for the release build.
+verify-toolchain:
+	@echo "== toolchain =="
+	@rustc --version
+	@cargo --version
+	@soroban version 2>/dev/null || stellar version 2>/dev/null || echo "soroban/stellar cli not found"
+	@echo "Compare the above against the versions recorded in the release notes."
+
+# Step 2: the lockfile must be committed and unchanged for reproducibility.
+verify-lockfile:
+	@echo "== lockfile =="
+	@test -f Cargo.lock || (echo "Cargo.lock missing" && exit 1)
+	@git diff --exit-code -- Cargo.lock || (echo "Cargo.lock has uncommitted changes" && exit 1)
+	@sha256sum Cargo.lock
+
+# Step 3: deterministic build and hash of every produced WASM artifact.
+verify-build: verify-lockfile
+	cargo build $(BUILD_FLAGS)
+	@echo "== wasm sha256 =="
+	@for f in $(WASM_DIR)/*.wasm; do sha256sum "$$f"; done
+
+# Step 4: fetch the deployed WASM hash for each contract id from the network.
+# CONTRACTS is a space-separated list of contract ids supplied by the operator.
+verify-onchain:
+	@test -n "$(CONTRACTS)" || (echo "set CONTRACTS=\"<id> [<id>...]\"" && exit 1)
+	@echo "== on-chain wasm hash (network=$(NETWORK)) =="
+	@for id in $(CONTRACTS); do \
+		echo "contract $$id"; \
+		stellar contract fetch --id "$$id" --network "$(NETWORK)" --rpc-url "$(RPC_URL)" --out /tmp/$$id.wasm; \
+		sha256sum /tmp/$$id.wasm; \
+	done
+
+# Convenience: run the reproducible portion of the checklist.
+verify: verify-toolchain verify-build
 
 clean:
 	cargo clean
-	rm -f $(BENCH_CURRENT)

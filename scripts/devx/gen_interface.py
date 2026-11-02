@@ -33,8 +33,27 @@ def clean(t):
     return t.replace("crate::types::", "").replace("soroban_sdk::", "")
 
 
+def strip_test_impls(src):
+    """Drop `#[cfg(test)] #[contractimpl] impl ... { ... }` blocks.
+
+    Test-only hooks are compiled out of the deployed contract, so they are not
+    part of its interface.
+    """
+    out, i = [], 0
+    pat = re.compile(r"#\[cfg\(test\)\]\s*#\[contractimpl\]\s*impl[^{]*\{")
+    while (m := pat.search(src, i)):
+        out.append(src[i:m.start()])
+        depth, j = 1, m.end()
+        while depth and j < len(src):
+            depth += {"{": 1, "}": -1}.get(src[j], 0)
+            j += 1
+        i = j
+    out.append(src[i:])
+    return "".join(out)
+
+
 def extract(src):
-    impl = src.split("#[contractimpl]", 1)[1]
+    impl = strip_test_impls(src).split("#[contractimpl]", 1)[1]
     fns = {}
     for m in re.finditer(r"\n    pub fn (\w+)\s*\((.*?)\)\s*(->\s*([^{]+?))?\s*\{", impl, re.S):
         params = [clean(p) for p in split_params(m[2]) if not re.match(r"_?env\s*:", p)]
