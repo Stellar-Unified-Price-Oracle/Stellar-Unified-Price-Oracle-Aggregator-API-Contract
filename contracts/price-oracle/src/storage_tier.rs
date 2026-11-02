@@ -84,6 +84,9 @@ fn ledger_to_bucket(ledger: u32) -> u32 {
 
 /// Returns the tier an asset's price history is written to. Default: temporary.
 pub fn get_asset_storage_tier(env: &Env, asset: &Address) -> HistoryStorageTier {
+    if !crate::feature_flags::on(env, crate::feature_flags::STORAGE_TIER) {
+        return HistoryStorageTier::Temporary;
+    }
     let key = DataKey::AssetStorageTier(asset.clone());
     match env
         .storage()
@@ -139,6 +142,7 @@ fn read_last_change_ledger(env: &Env, asset: &Address) -> u32 {
 }
 
 fn write_tier(env: &Env, asset: &Address, tier: HistoryStorageTier) {
+    crate::feature_flags::mark(env, crate::feature_flags::STORAGE_TIER);
     let key = DataKey::AssetStorageTier(asset.clone());
     env.storage().persistent().set(&key, &tier);
     env.storage()

@@ -138,7 +138,9 @@ pub fn attach(
 }
 
 pub fn get_report(env: &Env, proposal_id: u64) -> Option<SimulationReport> {
-    env.storage().persistent().get(&ImpactKey::Report(proposal_id))
+    env.storage()
+        .persistent()
+        .get(&ImpactKey::Report(proposal_id))
 }
 
 /// Gate for execution: every proposal needs an attached report; critical

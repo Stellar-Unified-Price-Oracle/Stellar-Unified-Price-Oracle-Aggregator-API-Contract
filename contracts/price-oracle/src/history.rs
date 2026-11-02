@@ -262,6 +262,9 @@ pub const DEFAULT_COMPACTION_THRESHOLD_BPS: u32 = 0;
 /// Reads the configured compaction threshold in basis points.
 /// Returns 0 when not set (compaction disabled).
 pub fn get_compaction_threshold_bps(env: &Env) -> u32 {
+    if !crate::feature_flags::on(env, crate::feature_flags::COMPACTION_THRESHOLD) {
+        return DEFAULT_COMPACTION_THRESHOLD_BPS;
+    }
     env.storage()
         .persistent()
         .get(&DataKey::CfgCompactionThresholdBps)
@@ -271,6 +274,7 @@ pub fn get_compaction_threshold_bps(env: &Env) -> u32 {
 /// Sets the compaction threshold in basis points. 0 disables compaction.
 /// Requires admin authentication (checked by the caller in lib.rs).
 pub fn set_compaction_threshold_bps(env: &Env, threshold_bps: u32) {
+    crate::feature_flags::mark(env, crate::feature_flags::COMPACTION_THRESHOLD);
     env.storage()
         .persistent()
         .set(&DataKey::CfgCompactionThresholdBps, &threshold_bps);

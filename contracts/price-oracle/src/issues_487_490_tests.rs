@@ -909,7 +909,7 @@ fn freshness_windows_are_bounds_checked_and_clearable() {
     assert!(c
         .try_set_asset_freshness_window(&asset, &(MAX_FRESHNESS_WINDOW_SECS + 1))
         .is_err());
-    assert_eq!(ErrorCode::InvalidFreshnessWindow as u32, 188);
+    assert_eq!(ErrorCode::InvalidFreshnessWindow as u32, 203);
 
     c.set_default_freshness_window(&120);
     assert_eq!(c.get_default_freshness_window(), 120);
@@ -1295,7 +1295,7 @@ fn scorecard_configuration_is_bounds_checked() {
             ..DEFAULT_CONFIG
         })
         .is_err());
-    assert_eq!(ErrorCode::InvalidScorecardConfig as u32, 189);
+    assert_eq!(ErrorCode::InvalidScorecardConfig as u32, 204);
 
     c.set_scorecard_config(&ScorecardConfig {
         short_window: 4,

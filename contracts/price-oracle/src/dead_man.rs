@@ -241,6 +241,7 @@ fn enter_degraded(env: &Env, elapsed: u64, last: u64) {
     // Serving stops too: submissions are already gated on the pause flag, and
     // the read path is gated on `DeadManDegraded` so a stored value is never
     // handed out while nobody is attesting to its freshness.
+    crate::feature_flags::mark(env, crate::feature_flags::PAUSE);
     env.storage()
         .persistent()
         .set(&DataKey::CfgPauseFlag, &true);

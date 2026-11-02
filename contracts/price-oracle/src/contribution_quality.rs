@@ -92,6 +92,7 @@ pub fn set_scoring_window(env: &Env, window: u32) {
         panic_with_error!(env, ErrorCode::InvalidConfiguration);
     }
 
+    crate::feature_flags::mark(env, crate::feature_flags::CONTRIB_SCORING_WINDOW);
     env.storage()
         .persistent()
         .set(&DataKey::ContribScoringWindow, &window);
@@ -104,6 +105,9 @@ pub fn set_scoring_window(env: &Env, window: u32) {
 
 /// Return the currently configured scoring window.
 pub fn get_scoring_window(env: &Env) -> u32 {
+    if !crate::feature_flags::on(env, crate::feature_flags::CONTRIB_SCORING_WINDOW) {
+        return DEFAULT_SCORING_WINDOW;
+    }
     env.storage()
         .persistent()
         .get::<DataKey, u32>(&DataKey::ContribScoringWindow)

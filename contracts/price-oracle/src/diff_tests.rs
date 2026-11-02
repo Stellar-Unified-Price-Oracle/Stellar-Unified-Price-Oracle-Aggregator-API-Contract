@@ -1,5 +1,4 @@
 //! # Differential Fuzzing Tests — `diff_tests.rs`  (#189)
-use soroban_sdk::Vec;
 //!
 //! This module implements **differential property-based testing** between:
 //!
@@ -34,6 +33,7 @@ use soroban_sdk::Vec;
 //! ```sh
 //! PROPTEST_CASES=100000 cargo test -p price-oracle --lib diff_tests
 //! ```
+use soroban_sdk::Vec;
 
 #![cfg(test)]
 

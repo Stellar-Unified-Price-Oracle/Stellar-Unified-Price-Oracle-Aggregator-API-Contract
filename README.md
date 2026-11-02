@@ -164,7 +164,7 @@ unchanged. Gaps are skipped.
 | `get_asset_disabled_at(asset) -> u32` | Ledger at which an asset was disabled |
 | `unregister_asset(asset)` | Permanently delist an asset (admin; history preserved) |
 
-Disabled assets return `ErrorCode::AssetDisabled` (190) and can be re-enabled.
+Disabled assets return `ErrorCode::AssetDisabled` (198) and can be re-enabled.
 Delisted assets return `ErrorCode::AssetNotRegistered`. History stays readable
 in both cases. See [docs/ASSET_LIFECYCLE_DESIGN.md](docs/ASSET_LIFECYCLE_DESIGN.md).
 

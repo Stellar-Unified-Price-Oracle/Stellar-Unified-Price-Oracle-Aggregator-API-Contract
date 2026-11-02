@@ -77,6 +77,9 @@ fn write(env: &Env, key: &DataKey, value: &Option<PolicyOverride>) {
 
 /// Returns the class an asset belongs to, if one was assigned.
 pub fn get_asset_class(env: &Env, asset: &Address) -> Option<u32> {
+    if !crate::feature_flags::on(env, crate::feature_flags::ASSET_POLICY) {
+        return None;
+    }
     env.storage()
         .persistent()
         .get(&DataKey::AssetClassId(asset.clone()))
@@ -84,7 +87,7 @@ pub fn get_asset_class(env: &Env, asset: &Address) -> Option<u32> {
 
 /// Resolves the effective policy for `asset`.
 pub fn effective_policy(env: &Env, asset: &Address) -> EffectivePolicy {
-    let asset_p = read(env, &DataKey::AssetPolicy(asset.clone()));
+    let asset_p = get_asset_policy(env, asset);
     let class_p = get_asset_class(env, asset).and_then(|c| read(env, &DataKey::ClassPolicy(c)));
 
     let mut out = EffectivePolicy {
@@ -128,6 +131,7 @@ pub fn set_asset_policy(env: &Env, asset: Address, policy: Option<PolicyOverride
     if let Some(p) = &policy {
         validate(env, p);
     }
+    crate::feature_flags::mark(env, crate::feature_flags::ASSET_POLICY);
     let key = DataKey::AssetPolicy(asset.clone());
     let old = read(env, &key);
     write(env, &key, &policy);
@@ -171,6 +175,7 @@ pub fn set_asset_class(env: &Env, asset: Address, class: Option<u32>) {
     admin.require_auth();
     check_registered_asset(env, &asset);
     let old_class = get_asset_class(env, &asset);
+    crate::feature_flags::mark(env, crate::feature_flags::ASSET_POLICY);
     let key = DataKey::AssetClassId(asset.clone());
     match class {
         Some(c) => env.storage().persistent().set(&key, &c),
@@ -190,6 +195,9 @@ pub fn set_asset_class(env: &Env, asset: Address, class: Option<u32>) {
 
 /// Returns the raw override stored for an asset, if any.
 pub fn get_asset_policy(env: &Env, asset: &Address) -> Option<PolicyOverride> {
+    if !crate::feature_flags::on(env, crate::feature_flags::ASSET_POLICY) {
+        return None;
+    }
     read(env, &DataKey::AssetPolicy(asset.clone()))
 }
 

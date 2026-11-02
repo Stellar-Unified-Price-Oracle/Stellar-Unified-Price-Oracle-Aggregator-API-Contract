@@ -68,6 +68,9 @@ pub fn check_registered_asset(env: &Env, asset: &Address) {
 }
 
 pub fn check_source_asset(env: &Env, source: &Address, asset: &Address) {
+    if !crate::feature_flags::on(env, crate::feature_flags::SOURCE_ASSETS) {
+        return;
+    }
     let key = DataKey::SourceAssets(source.clone());
     let assets: Option<Vec<Address>> = env.storage().persistent().get(&key);
     if let Some(assets) = assets {
@@ -417,16 +420,23 @@ pub fn read_oracle_sources(env: &Env) -> OracleSources {
 }
 
 pub fn is_source_inactive(env: &Env, source: &Address) -> bool {
+    if !crate::feature_flags::on(env, crate::feature_flags::SOURCE_INACTIVE) {
+        return false;
+    }
     let key = DataKey::SrcInactive(source.clone());
     env.storage().persistent().get(&key).unwrap_or(false)
 }
 
 pub fn mark_source_inactive(env: &Env, source: &Address) {
+    crate::feature_flags::mark(env, crate::feature_flags::SOURCE_INACTIVE);
     let key = DataKey::SrcInactive(source.clone());
     env.storage().persistent().set(&key, &true);
 }
 
 pub fn mark_source_active(env: &Env, source: &Address) {
+    if !crate::feature_flags::on(env, crate::feature_flags::SOURCE_INACTIVE) {
+        return;
+    }
     let key = DataKey::SrcInactive(source.clone());
     env.storage().persistent().remove(&key);
 }

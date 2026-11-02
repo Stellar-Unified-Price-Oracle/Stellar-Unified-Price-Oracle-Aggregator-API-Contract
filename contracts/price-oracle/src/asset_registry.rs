@@ -45,7 +45,10 @@ use soroban_sdk::{panic_with_error, Address, BytesN, Env, String, Vec};
 use crate::events::{
     ForeignAssetMappedEvent, ForeignAssetMappingRemovedEvent, ForeignAssetMappingUpdatedEvent,
 };
-use crate::storage::{check_registered_asset, get_admin, LEDGER_BUMP, LEDGER_THRESHOLD};
+use crate::storage::{
+    check_registered_asset, get_admin, read_oracle_sources, read_registered_assets, LEDGER_BUMP,
+    LEDGER_THRESHOLD,
+};
 use crate::types::{DataKey, ErrorCode, ForeignAssetMapping};
 
 /// Maximum number of decimals a foreign asset may declare. Mirrors the
@@ -149,17 +152,8 @@ fn remove_from_index(env: &Env, key: DataKey, entry: &(String, BytesN<32>)) {
 /// # Returns
 /// A [`SourceRemovalPreview`] describing the operational consequences.
 pub fn preview_source_removal(env: &Env, source: Address) -> SourceRemovalPreview {
-    let sources: Vec<Address> = env
-        .storage()
-        .persistent()
-        .get(&DataKey::SourceList)
-        .unwrap_or(Vec::new(env));
-
-    let quorum_before: u32 = env
-        .storage()
-        .persistent()
-        .get(&DataKey::Quorum)
-        .unwrap_or(0);
+    let sources: Vec<Address> = read_oracle_sources(env).sources;
+    let quorum_before: u32 = crate::admin::get_min_sources_required(env);
 
     let sources_before = sources.len();
     let mut sources_after = 0u32;
@@ -181,20 +175,23 @@ pub fn preview_source_removal(env: &Env, source: Address) -> SourceRemovalPrevie
 
     // Collect the assets the source currently serves and check whether any
     // of them would be left without a remaining source.
-    let assets: Vec<Address> = env
-        .storage()
-        .persistent()
-        .get(&DataKey::AssetList)
-        .unwrap_or(Vec::new(env));
+    let assets: Vec<Address> = read_registered_assets(env);
 
     let mut affected_assets: Vec<Address> = Vec::new(env);
     let mut loses_service = false;
     for asset in assets.iter() {
-        let asset_sources: Vec<Address> = env
-            .storage()
-            .persistent()
-            .get(&DataKey::AssetSources(asset.clone()))
-            .unwrap_or(Vec::new(env));
+        // A source with no asset allow-list serves every asset (same rule as
+        // `check_source_asset`).
+        let mut asset_sources: Vec<Address> = Vec::new(env);
+        for s in sources.iter() {
+            let allowed: Option<Vec<Address>> = env
+                .storage()
+                .persistent()
+                .get(&DataKey::SourceAssets(s.clone()));
+            if allowed.is_none_or(|list| list.contains(&asset)) {
+                asset_sources.push_back(s);
+            }
+        }
 
         let mut serves = false;
         let mut remaining = 0u32;
@@ -261,10 +258,7 @@ pub fn certify_source(
     source.require_auth();
     crate::input_validation::validate_string(env, "certify_source", "chain", &chain);
 
-    let asset_ok = env
-        .storage()
-        .persistent()
-        .has(&DataKey::AssetConfig(stellar_asset.clone()));
+    let asset_ok = read_registered_assets(env).contains(&stellar_asset);
 
     let foreign_asset_ok = env
         .storage()
@@ -348,6 +342,143 @@ pub fn register_foreign_asset_mapping(
         foreign_address,
         decimals,
     }
- 
+    .publish(env);
+}
 
-/* … truncated 3652 chars — edit only what you need near the top … */
+/// Updates an existing mapping's `decimals` and `enabled` flag. Admin-only.
+///
+/// # Errors
+///
+/// * [`ErrorCode::NotAuthorized`] — caller is not the admin.
+/// * [`ErrorCode::ForeignAssetNotMapped`] — no mapping exists for `(chain, foreign_address)`.
+pub fn update_foreign_asset_mapping(
+    env: &Env,
+    chain: String,
+    foreign_address: BytesN<32>,
+    decimals: u32,
+    enabled: bool,
+) {
+    let admin = get_admin(env);
+    admin.require_auth();
+    crate::input_validation::validate_string(env, "update_foreign_asset_mapping", "chain", &chain);
+
+    let key = mapping_key(&chain, &foreign_address);
+    let mut mapping: ForeignAssetMapping = env
+        .storage()
+        .persistent()
+        .get(&key)
+        .unwrap_or_else(|| panic_with_error!(env, ErrorCode::ForeignAssetNotMapped));
+
+    mapping.decimals = decimals;
+    mapping.enabled = enabled;
+    env.storage().persistent().set(&key, &mapping);
+    env.storage()
+        .persistent()
+        .extend_ttl(&key, LEDGER_THRESHOLD, LEDGER_BUMP);
+
+    ForeignAssetMappingUpdatedEvent {
+        stellar_asset: mapping.stellar_asset,
+        chain,
+        foreign_address,
+        decimals,
+        enabled,
+    }
+    .publish(env);
+}
+
+/// Permanently removes a foreign asset mapping. Admin-only.
+///
+/// # Errors
+///
+/// * [`ErrorCode::NotAuthorized`] — caller is not the admin.
+/// * [`ErrorCode::ForeignAssetNotMapped`] — no mapping exists for `(chain, foreign_address)`.
+pub fn remove_foreign_asset_mapping(env: &Env, chain: String, foreign_address: BytesN<32>) {
+    let admin = get_admin(env);
+    admin.require_auth();
+    crate::input_validation::validate_string(env, "remove_foreign_asset_mapping", "chain", &chain);
+
+    let key = mapping_key(&chain, &foreign_address);
+    let mapping: ForeignAssetMapping = env
+        .storage()
+        .persistent()
+        .get(&key)
+        .unwrap_or_else(|| panic_with_error!(env, ErrorCode::ForeignAssetNotMapped));
+
+    env.storage().persistent().remove(&key);
+
+    let entry = (chain.clone(), foreign_address.clone());
+    remove_from_index(env, DataKey::ForeignAssetRegistryList, &entry);
+    remove_from_index(
+        env,
+        DataKey::AssetForeignMappings(mapping.stellar_asset.clone()),
+        &entry,
+    );
+
+    ForeignAssetMappingRemovedEvent {
+        stellar_asset: mapping.stellar_asset,
+        chain,
+        foreign_address,
+    }
+    .publish(env);
+}
+
+/// Returns the mapping for `(chain, foreign_address)`, if any — regardless of
+/// its `enabled` state.
+pub fn get_foreign_asset_mapping(
+    env: &Env,
+    chain: String,
+    foreign_address: BytesN<32>,
+) -> Option<ForeignAssetMapping> {
+    // A lookup key is still untrusted input: a canonical chain name means an
+    // attacker cannot probe for near-miss keys, and an oversized name is
+    // rejected instead of being hashed into a storage key.
+    crate::input_validation::validate_string(env, "get_foreign_asset_mapping", "chain", &chain);
+    env.storage()
+        .persistent()
+        .get(&mapping_key(&chain, &foreign_address))
+}
+
+/// Returns every foreign-chain mapping currently registered for `asset`.
+pub fn get_foreign_mappings_for_asset(env: &Env, asset: Address) -> Vec<ForeignAssetMapping> {
+    let keys: Vec<(String, BytesN<32>)> = env
+        .storage()
+        .persistent()
+        .get(&DataKey::AssetForeignMappings(asset))
+        .unwrap_or(Vec::new(env));
+
+    let mut result = Vec::new(env);
+    for (chain, foreign_address) in keys.iter() {
+        if let Some(mapping) = get_foreign_asset_mapping(env, chain, foreign_address) {
+            result.push_back(mapping);
+        }
+    }
+    result
+}
+
+/// Resolves an *enabled* mapping for `(chain, foreign_address)`, panicking if
+/// the asset has no mapping or the mapping has been disabled.
+///
+/// Used internally by bridge integrations ([`crate::axelar_gmp`],
+/// [`crate::layerzero`]) to turn a wire-format foreign asset id into the
+/// Stellar asset it should update.
+///
+/// # Errors
+///
+/// * [`ErrorCode::ForeignAssetNotMapped`] — no mapping exists.
+/// * [`ErrorCode::ForeignAssetMappingDisabled`] — the mapping exists but is disabled.
+pub(crate) fn resolve_enabled_mapping(
+    env: &Env,
+    chain: &String,
+    foreign_address: &BytesN<32>,
+) -> ForeignAssetMapping {
+    let mapping: ForeignAssetMapping = env
+        .storage()
+        .persistent()
+        .get(&mapping_key(chain, foreign_address))
+        .unwrap_or_else(|| panic_with_error!(env, ErrorCode::ForeignAssetNotMapped));
+
+    if !mapping.enabled {
+        panic_with_error!(env, ErrorCode::ForeignAssetMappingDisabled);
+    }
+    mapping
+}

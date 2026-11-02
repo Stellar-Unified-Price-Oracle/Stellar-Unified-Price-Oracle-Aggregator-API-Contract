@@ -83,6 +83,7 @@ pub fn set_policy(env: &Env, asset: Address, policy: DeferralPolicy) {
     check_registered_asset(env, &asset);
     validate(env, &policy);
     let key = DataKey::AssetDeferral(asset.clone());
+    crate::feature_flags::mark(env, crate::feature_flags::ASSET_DEFERRAL);
     env.storage().persistent().set(&key, &policy);
     env.storage()
         .persistent()
@@ -92,6 +93,9 @@ pub fn set_policy(env: &Env, asset: Address, policy: DeferralPolicy) {
 
 /// Returns the deferral policy for `asset`, if it opted in.
 pub fn get_policy(env: &Env, asset: &Address) -> Option<DeferralPolicy> {
+    if !crate::feature_flags::on(env, crate::feature_flags::ASSET_DEFERRAL) {
+        return None;
+    }
     let key = DataKey::AssetDeferral(asset.clone());
     let v: Option<DeferralPolicy> = env.storage().persistent().get(&key);
     if v.is_some() {

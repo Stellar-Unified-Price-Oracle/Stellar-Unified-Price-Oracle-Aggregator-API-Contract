@@ -173,6 +173,9 @@ pub fn on_key_rotated(env: &Env, old: &Address, new: &Address) {
 
 /// Cheap global guard read once per aggregation round.
 pub fn any_probation(env: &Env) -> bool {
+    if !crate::feature_flags::on(env, crate::feature_flags::SOURCE_LIFECYCLE) {
+        return false;
+    }
     env.storage().persistent().has(&LcKey::AnyProbation)
 }
 
@@ -214,6 +217,7 @@ pub fn onboard(env: &Env, source: Address, name: String, identity: BytesN<32>) {
     env.storage()
         .persistent()
         .set(&LcKey::IdentityOwner(identity.clone()), &source);
+    crate::feature_flags::mark(env, crate::feature_flags::SOURCE_LIFECYCLE);
     env.storage().persistent().set(&LcKey::AnyProbation, &true);
     SourceOnboardedEvent {
         source,

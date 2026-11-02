@@ -134,7 +134,8 @@ pub fn publish_report(env: &Env, period: u64, events: &Vec<EventRecord>) -> Tran
         return prev;
     }
     store.set(&key, &r);
-    env.events().publish((symbol_short!("tr_report"), period), r.clone());
+    env.events()
+        .publish((symbol_short!("tr_report"), period), r.clone());
     r
 }
 

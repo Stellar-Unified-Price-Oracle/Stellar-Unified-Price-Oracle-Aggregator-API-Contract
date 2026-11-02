@@ -89,6 +89,21 @@ pub const STRING_PARAMS: &[(&str, &str, u32, bool)] = &[
     ("add_source", "name", 64, false),
     ("add_source_with_assets", "name", 64, false),
     ("propose_source", "name", 64, false),
+    ("enroll_source", "name", 64, false),
+    ("onboard_source", "name", 64, false),
+    // Evidence may be empty here so the domain check can report the precise
+    // `SourceEvidenceMissing` error instead of a generic text error.
+    ("submit_source_evidence", "identity_evidence", 256, true),
+    (
+        "submit_source_evidence",
+        "endpoint_ownership_evidence",
+        256,
+        true,
+    ),
+    ("submit_source_evidence", "operational_contact", 256, true),
+    ("submit_source_evidence", "reliability_evidence", 256, true),
+    ("declare_depeg", "reason", 256, false),
+    ("set_asset_risk_tier", "reason", 256, false),
     ("set_notification_preference", "channel", 256, false),
     ("set_notification_preference", "target", 256, false),
     ("set_source_verification", "verification_method", 64, false),
@@ -233,6 +248,13 @@ pub const LIST_PARAMS: &[(&str, &str, u32)] = &[
     // width, so the proof count is the caller-controlled dimension.
     ("submit_price_merkle", "proofs", 64),
     ("simulate_aggregation", "hypothetical_prices", 128),
+    ("dead_man_configure", "operators", 32),
+    // One weight per constituent, so the basket constituent bound applies.
+    (
+        "rebalance_basket",
+        "weights",
+        crate::types::MAX_BASKET_CONSTITUENTS,
+    ),
     // Address-only lists: bounded by the max-source ceiling (128).
     ("add_source_with_assets", "assets", 128),
     ("set_source_governance", "approvers", 32),

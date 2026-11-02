@@ -266,7 +266,10 @@ fn test_governance_audit_malformed_event_fails() {
     client.test_corrupt_governance_event(&0u32);
 
     let report = client.audit_governance_events();
-    assert!(!report.complete, "audit must fail when an event is malformed");
+    assert!(
+        !report.complete,
+        "audit must fail when an event is malformed"
+    );
     assert!(report.malformed_events >= 1u32);
 }
 
@@ -284,7 +287,10 @@ fn test_governance_audit_unlinked_event_fails() {
     client.test_unlink_governance_event(&0u32);
 
     let report = client.audit_governance_events();
-    assert!(!report.complete, "audit must fail when an event is unlinked");
+    assert!(
+        !report.complete,
+        "audit must fail when an event is unlinked"
+    );
     assert!(report.unlinked_events >= 1u32);
 }
 

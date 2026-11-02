@@ -63,6 +63,7 @@ pub fn set_correlation_pair(
         enabled,
     };
 
+    crate::feature_flags::mark(env, crate::feature_flags::CORRELATION);
     let key = DataKey::CorrelationBand(base_asset.clone(), quote_asset.clone());
     let is_new = !env.storage().persistent().has(&key);
     env.storage().persistent().set(&key, &band);
@@ -126,6 +127,9 @@ pub fn remove_correlation_pair(env: &Env, base_asset: Address, quote_asset: Addr
 
 /// Returns all registered correlation pairs.
 pub fn get_correlation_pairs(env: &Env) -> Vec<CorrelationPair> {
+    if !crate::feature_flags::on(env, crate::feature_flags::CORRELATION) {
+        return Vec::new(env);
+    }
     let list_key = DataKey::CorrelationPairList;
     env.storage()
         .persistent()
@@ -283,6 +287,9 @@ enum PairRole {
 
 /// Returns `true` if the (source, asset) pair has an active correlation flag.
 pub fn is_correlation_flagged(env: &Env, source: &Address, asset: &Address) -> bool {
+    if !crate::feature_flags::on(env, crate::feature_flags::CORRELATION) {
+        return false;
+    }
     let key = DataKey::CorrelationFlagged(source.clone(), asset.clone());
     env.storage().persistent().has(&key)
 }

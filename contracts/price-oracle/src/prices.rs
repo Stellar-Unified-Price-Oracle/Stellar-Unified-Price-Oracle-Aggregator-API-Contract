@@ -114,6 +114,9 @@ fn build_candidate_aggregate(
 }
 
 fn read_bft_fault_tolerance(env: &Env) -> u32 {
+    if !crate::feature_flags::on(env, crate::feature_flags::BFT) {
+        return 0;
+    }
     env.storage()
         .persistent()
         .get(&DataKey::CfgBftFaultTolerance)
@@ -121,6 +124,9 @@ fn read_bft_fault_tolerance(env: &Env) -> u32 {
 }
 
 fn read_bft_aggregation_method(env: &Env) -> u32 {
+    if !crate::feature_flags::on(env, crate::feature_flags::BFT) {
+        return BftAggregationMethod::Median as u32;
+    }
     env.storage()
         .persistent()
         .get(&DataKey::CfgBftAggregationMethod)
@@ -137,6 +143,9 @@ fn enforce_commit_reveal_for_bft(env: &Env) {
 }
 
 fn read_commit_reveal_enabled(env: &Env) -> bool {
+    if !crate::feature_flags::on(env, crate::feature_flags::COMMIT_REVEAL) {
+        return false;
+    }
     env.storage()
         .persistent()
         .get(&DataKey::CommitRevealEnabled)
@@ -231,6 +240,7 @@ pub fn set_bft_parameters(env: &Env, fault_tolerance: u32, method: u32) {
     if method > BftAggregationMethod::TrimmedMean as u32 {
         panic_with_error!(env, ErrorCode::InvalidConfiguration);
     }
+    crate::feature_flags::mark(env, crate::feature_flags::BFT);
     env.storage()
         .persistent()
         .set(&DataKey::CfgBftFaultTolerance, &fault_tolerance);
@@ -413,7 +423,9 @@ pub fn submit_prices(env: &Env, source: Address, asset_prices: Vec<(Address, i12
 fn count_contributing_sources(env: &Env, asset: &Address, current_ledger: u32) -> u32 {
     let min_interval = {
         let key = DataKey::AssetMinSubmissionInterval(asset.clone());
-        if env.storage().persistent().has(&key) {
+        if crate::feature_flags::on(env, crate::feature_flags::ASSET_MIN_SUBMISSION_INTERVAL)
+            && env.storage().persistent().has(&key)
+        {
             env.storage()
                 .persistent()
                 .extend_ttl(&key, LEDGER_THRESHOLD, LEDGER_BUMP);
@@ -614,7 +626,9 @@ fn aggregate_asset(env: &Env, asset: &Address, current_ledger: u32, decimals: u3
 
     let min_interval = {
         let key = DataKey::AssetMinSubmissionInterval(asset.clone());
-        if env.storage().persistent().has(&key) {
+        if crate::feature_flags::on(env, crate::feature_flags::ASSET_MIN_SUBMISSION_INTERVAL)
+            && env.storage().persistent().has(&key)
+        {
             env.storage()
                 .persistent()
                 .extend_ttl(&key, LEDGER_THRESHOLD, LEDGER_BUMP);
@@ -701,6 +715,13 @@ fn aggregate_asset(env: &Env, asset: &Address, current_ledger: u32, decimals: u3
                     .saturating_sub(entry_data.ledger_timestamp)
                     > policy.freshness_secs
             {
+                continue;
+            }
+            // #489: a submission outside the asset's freshness window does not
+            // count toward quorum, and is reported as stale.
+            let (window, _) = crate::freshness_quorum::window_for(env, asset);
+            if !crate::freshness_quorum::is_fresh(env, &entry_data, window) {
+                stale_sources += 1;
                 continue;
             }
             if let Some(round) = dq_round.as_ref() {
@@ -1267,12 +1288,12 @@ pub fn submit_price(
     source.require_auth();
     check_source(env, &source);
     check_registered_asset(env, &asset);
-    
+
     // Check if asset is disabled
     if crate::admin::is_asset_disabled(env, &asset) {
         panic_with_error!(env, ErrorCode::AssetDisabled);
     }
-    
+
     crate::freeze::check_not_frozen(env, &asset);
     check_source_asset(env, &source, &asset);
     enforce_commit_reveal_for_bft(env);
@@ -1383,12 +1404,12 @@ pub fn submit_price_with_volume(
     source.require_auth();
     check_source(env, &source);
     check_registered_asset(env, &asset);
-    
+
     // Check if asset is disabled
     if crate::admin::is_asset_disabled(env, &asset) {
         panic_with_error!(env, ErrorCode::AssetDisabled);
     }
-    
+
     crate::freeze::check_not_frozen(env, &asset);
     check_source_asset(env, &source, &asset);
     enforce_commit_reveal_for_bft(env);
@@ -1641,12 +1662,12 @@ pub fn get_price(env: &Env, asset: Address, max_age: u64) -> Option<AggregatePri
     // ─────────────────────────────────────────────────────────────────────────────
 
     check_registered_asset(env, &asset);
-    
+
     // Check if asset is disabled: disabled assets cannot serve current prices
     if crate::admin::is_asset_disabled(env, &asset) {
         panic_with_error!(env, ErrorCode::AssetDisabled);
     }
-    
+
     let current_ledger = env.ledger().sequence();
     let ledger_time = env.ledger().timestamp();
     let min_sources = crate::policy::effective_policy(env, &asset).min_sources;
@@ -1824,12 +1845,12 @@ pub fn get_price_with_confidence(env: &Env, asset: Address) -> Option<(Aggregate
 
 pub fn get_source_price(env: &Env, asset: Address, source: Address) -> PriceEntry {
     check_registered_asset(env, &asset);
-    
+
     // Check if asset is disabled
     if crate::admin::is_asset_disabled(env, &asset) {
         panic_with_error!(env, ErrorCode::AssetDisabled);
     }
-    
+
     check_source(env, &source);
     let key = DataKey::Submission(asset.clone(), source.clone());
     if let Some(entry) = env.storage().persistent().get::<_, PriceEntry>(&key) {
@@ -1854,12 +1875,12 @@ pub fn get_source_price(env: &Env, asset: Address, source: Address) -> PriceEntr
 
 pub fn get_all_prices(env: &Env, asset: Address) -> Vec<PriceEntry> {
     check_registered_asset(env, &asset);
-    
+
     // Check if asset is disabled
     if crate::admin::is_asset_disabled(env, &asset) {
         panic_with_error!(env, ErrorCode::AssetDisabled);
     }
-    
+
     // Read the sources list once; iterate without extra reads or writes per entry.
     let oracle_sources: OracleSources = read_oracle_sources(env);
     let mut prices: Vec<PriceEntry> = Vec::new(env);
@@ -2969,6 +2990,7 @@ pub fn submit_price_merkle(
 pub fn set_commit_reveal_enabled(env: &Env, enabled: bool) {
     let admin = get_admin(env);
     admin.require_auth();
+    crate::feature_flags::mark(env, crate::feature_flags::COMMIT_REVEAL);
     env.storage()
         .persistent()
         .set(&DataKey::CommitRevealEnabled, &enabled);
@@ -2976,6 +2998,9 @@ pub fn set_commit_reveal_enabled(env: &Env, enabled: bool) {
 
 /// Returns whether standalone commit-reveal mode is enabled.
 pub fn get_commit_reveal_enabled(env: &Env) -> bool {
+    if !crate::feature_flags::on(env, crate::feature_flags::COMMIT_REVEAL) {
+        return false;
+    }
     env.storage()
         .persistent()
         .get(&DataKey::CommitRevealEnabled)

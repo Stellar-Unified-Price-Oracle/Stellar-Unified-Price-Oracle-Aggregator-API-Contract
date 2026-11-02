@@ -111,6 +111,7 @@ pub fn set_config(env: &Env, asset: Address, cfg: DqConfig) {
     if invalid {
         panic_with_error!(env, ErrorCode::InvalidConfiguration);
     }
+    crate::feature_flags::mark(env, crate::feature_flags::DQ_PIPELINE);
     let key = DqKey::Config(asset.clone());
     env.storage().persistent().set(&key, &cfg);
     env.storage()
@@ -143,6 +144,9 @@ pub fn clear_config(env: &Env, asset: Address) {
 }
 
 pub fn get_config(env: &Env, asset: &Address) -> Option<DqConfig> {
+    if !crate::feature_flags::on(env, crate::feature_flags::DQ_PIPELINE) {
+        return None;
+    }
     env.storage()
         .persistent()
         .get(&DqKey::Config(asset.clone()))

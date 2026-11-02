@@ -310,6 +310,7 @@ pub fn evaluate_rearm(env: &Env, asset: &Address, deviation_bps: u32) -> bool {
         asset: asset.clone(),
         deviation_bps,
         settle_ledgers: streak,
+        required_ledgers: policy.settle_ledgers,
         source_recovered,
         rearmed: can_rearm,
         ledger: now,
@@ -340,6 +341,7 @@ pub fn evaluate_rearm(env: &Env, asset: &Address, deviation_bps: u32) -> bool {
         BreakerRearmedEvent {
             asset: asset.clone(),
             deviation_bps,
+            settled_for_ledgers: streak,
             ledger: now,
         }
         .publish(env);

@@ -65,6 +65,7 @@ pub fn register_price_callback(
 ) {
     consumer.require_auth();
     check_registered_asset(env, &asset);
+    crate::feature_flags::mark(env, crate::feature_flags::PRICE_CALLBACK);
 
     let list_key = DataKey::PriceCallbackList(asset.clone());
     let mut registrations: Vec<CallbackRegistration> = env
@@ -187,6 +188,9 @@ pub fn invoke_price_callbacks(
     timestamp: u64,
     num_sources: u32,
 ) {
+    if !crate::feature_flags::on(env, crate::feature_flags::PRICE_CALLBACK) {
+        return;
+    }
     let list_key = DataKey::PriceCallbackList(asset.clone());
     let registrations: Vec<CallbackRegistration> = match env
         .storage()

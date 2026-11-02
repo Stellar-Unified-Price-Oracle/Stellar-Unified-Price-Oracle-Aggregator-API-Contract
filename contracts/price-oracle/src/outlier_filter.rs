@@ -77,6 +77,13 @@ pub const MAX_CANDIDATES: usize = 128;
 /// Returns the configuration in force for `asset`, or the default
 /// (filtering disabled) when the asset has no override.
 pub fn get_config(env: &Env, asset: &Address) -> OutlierConfig {
+    if !crate::feature_flags::on(env, crate::feature_flags::OUTLIER_FILTER) {
+        return OutlierConfig {
+            detector: DETECTOR_NONE,
+            sensitivity_bps: DEFAULT_MAD_SENSITIVITY_BPS,
+            min_sources: DEFAULT_MIN_SOURCES,
+        };
+    }
     let key = DataKey::OutlierConfig(asset.clone());
     let cfg: Option<OutlierConfig> = env.storage().persistent().get(&key);
     if cfg.is_some() {
@@ -105,6 +112,7 @@ pub fn set_config(env: &Env, asset: Address, config: Option<OutlierConfig>) {
             panic_with_error!(env, ErrorCode::InvalidConfiguration);
         }
     }
+    crate::feature_flags::mark(env, crate::feature_flags::OUTLIER_FILTER);
     let key = DataKey::OutlierConfig(asset.clone());
     let old: Option<OutlierConfig> = env.storage().persistent().get(&key);
     match &config {
@@ -334,11 +342,16 @@ pub fn filter_round(
 /// configures it — and writing an empty list every round would cost a ledger
 /// entry per asset for no information.
 fn store_exclusions(env: &Env, asset: &Address, exclusions: &Vec<OutlierExclusion>) {
+    if exclusions.is_empty() && !crate::feature_flags::on(env, crate::feature_flags::OUTLIER_FILTER)
+    {
+        return;
+    }
     let key = DataKey::OutlierExclusions(asset.clone());
     if exclusions.is_empty() {
         env.storage().persistent().remove(&key);
         return;
     }
+    crate::feature_flags::mark(env, crate::feature_flags::OUTLIER_FILTER);
     env.storage().persistent().set(&key, exclusions);
     env.storage()
         .persistent()
@@ -347,6 +360,9 @@ fn store_exclusions(env: &Env, asset: &Address, exclusions: &Vec<OutlierExclusio
 
 /// Exclusions produced by the most recent aggregation of `asset`.
 pub fn get_exclusions(env: &Env, asset: &Address) -> Vec<OutlierExclusion> {
+    if !crate::feature_flags::on(env, crate::feature_flags::OUTLIER_FILTER) {
+        return Vec::new(env);
+    }
     let key = DataKey::OutlierExclusions(asset.clone());
     let v: Vec<OutlierExclusion> = env
         .storage()

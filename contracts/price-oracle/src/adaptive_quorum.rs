@@ -245,9 +245,7 @@ fn classify(
     let prior_streak = previous.as_ref().map(|r| r.streak).unwrap_or(0);
 
     // Tightening is immediate; relaxing waits for the target to hold.
-    let (bucket, streak) = if target >= from {
-        (target, 0)
-    } else if prior_streak + 1 >= config.relax_after {
+    let (bucket, streak) = if target >= from || prior_streak + 1 >= config.relax_after {
         (target, 0)
     } else {
         // Hold the current (stricter) bucket and count the relaxation run.

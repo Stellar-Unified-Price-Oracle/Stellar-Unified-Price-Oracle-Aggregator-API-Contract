@@ -90,7 +90,11 @@ fn assert_within_budget(op: &str, measured: (u64, u64), budget: (u64, u64)) {
     // Always surface the measurement so CI logs carry the benchmark output.
     std::println!(
         "BUDGET {}: cpu={} (baseline {}), mem={} (baseline {})",
-        op, cpu, budget_cpu, mem, budget_mem
+        op,
+        cpu,
+        budget_cpu,
+        mem,
+        budget_mem
     );
 
     let cpu_limit = budget_cpu + budget_cpu * REGRESSION_TOLERANCE_PCT / 100;
@@ -117,7 +121,10 @@ fn assert_within_budget(op: &str, measured: (u64, u64), budget: (u64, u64)) {
 fn measure<F: FnOnce()>(e: &Env, f: F) -> (u64, u64) {
     e.budget().reset_default();
     f();
-    (e.budget().cpu_instruction_cost(), e.budget().memory_bytes_cost())
+    (
+        e.budget().cpu_instruction_cost(),
+        e.budget().memory_bytes_cost(),
+    )
 }
 
 #[test]
@@ -153,10 +160,8 @@ fn bench_source_update_budget() {
         &String::from_str(&e, "Fee budget baseline"),
     );
 
-    let source = Address::generate(&e);
-
     let measured = measure(&e, || {
-        register_test_source(&e, &client, &source);
+        register_test_source(&e, &client, "bench-source");
     });
 
     assert_within_budget("source_update", measured, BUDGET_SOURCE_UPDATE);
@@ -176,11 +181,17 @@ fn bench_price_submission_budget() {
         &String::from_str(&e, "Fee budget baseline"),
     );
 
-    let source = register_test_source(&e, &client, &Address::generate(&e));
+    let source = register_test_source(&e, &client, "bench-source");
     let asset = register_test_asset(&e, &client);
 
     let measured = measure(&e, || {
-        submit_test_price(&e, &client, &source, &asset, 100_000_000i128);
+        submit_test_price(
+            &client,
+            &source,
+            &asset,
+            100_000_000i128,
+            e.ledger().timestamp(),
+        );
     });
 
     assert_within_budget("price_submission", measured, BUDGET_PRICE_SUBMISSION);
@@ -206,7 +217,12 @@ fn bench_price_submission_rejects_stale_source() {
     let unknown_source = Address::generate(&e);
 
     let measured = measure(&e, || {
-        let result = client.try_submit_price(&unknown_source, &asset, &100_000_000i128);
+        let result = client.try_submit_price(
+            &unknown_source,
+            &asset,
+            &100_000_000i128,
+            &e.ledger().timestamp(),
+        );
         assert!(result.is_err(), "unregistered source must be rejected");
     });
 

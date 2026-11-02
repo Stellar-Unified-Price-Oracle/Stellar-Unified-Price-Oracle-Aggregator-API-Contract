@@ -121,6 +121,9 @@ pub fn params(tier: RiskTier) -> TierParams {
 /// rather than panicking, so a corrupted assignment degrades to "unassigned"
 /// and the asset then fails closed like any other unconfigured asset.
 pub fn get_tier(env: &Env, asset: &Address) -> Option<RiskTier> {
+    if !crate::feature_flags::on(env, crate::feature_flags::RISK_TIER) {
+        return None;
+    }
     let key = DataKey::AssetRiskTier(asset.clone());
     let raw: Option<u32> = env.storage().persistent().get(&key);
     if raw.is_some() {
@@ -155,6 +158,7 @@ pub fn set_tier(env: &Env, asset: Address, tier: Option<RiskTier>, reason: Strin
     let key = DataKey::AssetRiskTier(asset.clone());
     match tier {
         Some(t) => {
+            crate::feature_flags::mark(env, crate::feature_flags::RISK_TIER);
             env.storage().persistent().set(&key, &(t as u32));
             env.storage()
                 .persistent()
@@ -252,6 +256,7 @@ pub(crate) fn set_enforced_flag(env: &Env, enabled: bool) {
     use crate::types::DataKey as DK;
     let key = DK::RiskTierEnforcement;
     if enabled {
+        crate::feature_flags::mark(env, crate::feature_flags::RISK_TIER);
         env.storage().persistent().set(&key, &true);
         env.storage()
             .persistent()
@@ -265,6 +270,9 @@ pub(crate) fn set_enforced_flag(env: &Env, enabled: bool) {
 /// publication path can distinguish "no tiers configured at all" (skip
 /// everything) from "tiers configured but not yet mandatory".
 pub fn enforcement_flag(env: &Env) -> bool {
+    if !crate::feature_flags::on(env, crate::feature_flags::RISK_TIER) {
+        return false;
+    }
     env.storage()
         .persistent()
         .get(&crate::types::DataKey::RiskTierEnforcement)
@@ -282,10 +290,7 @@ pub fn apply_to_policy(env: &Env, asset: &Address, policy: &mut crate::types::Ef
         return;
     };
     let base = params(tier);
-    let over: Option<PolicyOverride> = env
-        .storage()
-        .persistent()
-        .get(&DataKey::AssetPolicy(asset.clone()));
+    let over: Option<PolicyOverride> = crate::policy::get_asset_policy(env, asset);
     if over.as_ref().and_then(|o| o.method).is_none() {
         policy.method = base.method;
     }

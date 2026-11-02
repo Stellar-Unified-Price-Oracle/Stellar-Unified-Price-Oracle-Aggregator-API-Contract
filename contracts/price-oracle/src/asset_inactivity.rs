@@ -5,6 +5,12 @@ use soroban_sdk::{symbol_short, Address, Env, Vec};
 /// Default global inactivity timeout: 0 = disabled.
 const DEFAULT_INACTIVITY_TIMEOUT: u32 = 0;
 
+/// Default freshness SLO target in ledgers: 0 = disabled (no SLO evaluation).
+const DEFAULT_FRESHNESS_TARGET: u32 = 0;
+
+/// Default error budget in ledgers of accumulated staleness: 0 = disabled.
+const DEFAULT_ERROR_BUDGET: u32 = 0;
+
 /// Default per-source clock-skew threshold in seconds: 0 = disabled.
 const DEFAULT_SKEW_THRESHOLD: u64 = 0;
 
@@ -95,11 +101,9 @@ pub fn set_error_budget(env: &Env, budget_ledgers: u32) {
     env.storage()
         .persistent()
         .set(&DataKey::CfgErrorBudget, &budget_ledgers);
-    env.storage().persistent().extend_ttl(
-        &DataKey::CfgErrorBudget,
-        LEDGER_THRESHOLD,
-        LEDGER_BUMP,
-    );
+    env.storage()
+        .persistent()
+        .extend_ttl(&DataKey::CfgErrorBudget, LEDGER_THRESHOLD, LEDGER_BUMP);
 }
 
 pub fn get_error_budget(env: &Env) -> u32 {
@@ -408,5 +412,18 @@ fn emit_source_skew_alert(
     env.events().publish(
         (symbol_short!("skew_alrt"), source.clone()),
         (ledger_skew, submission_skew, threshold),
+    );
+}
+
+fn emit_freshness_budget_burn(
+    env: &Env,
+    asset: &Address,
+    staleness: u32,
+    target: u32,
+    budget: u32,
+) {
+    env.events().publish(
+        (symbol_short!("slo_burn"), asset.clone()),
+        (staleness, target, budget),
     );
 }

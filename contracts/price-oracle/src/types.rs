@@ -206,8 +206,893 @@ pub enum DataKey {
     Resolution,
     /// Decimals key used in timelock.rs batch execution (mirrors CfgDecimals).
     Decimals,
+
+    // -------------------------------------------------------------------------
+    // #92/#93/#94: event spam protection, max aggregation sources, per-asset history cap
+    // -------------------------------------------------------------------------
+    /// Per-asset maximum number of price entries before the oldest is pruned (issue #94).
+    MaxHistoryPerAsset,
+    /// Maximum number of events that may be emitted in a single call (issue #92).
+    MaxEventsPerCall,
+    /// Maximum number of sources used for aggregation; excess sources are randomly
+    /// sub-sampled using the ledger hash (issue #93).
+    MaxAggregationSources,
+    /// Maximum number of oracle sources that may be registered. `0` = unlimited.
+    MaxSources,
+    /// Whether linear interpolation is used for historical price lookups that miss
+    /// an exact ledger match.
+    InterpolationEnabled,
+
+    // -------------------------------------------------------------------------
+    // #186: Adaptive heartbeat / liveness detection
+    // -------------------------------------------------------------------------
+    /// Number of consecutive missed heartbeats for a source (u32).
+    SrcMissedHeartbeats(Address),
+    /// Ledger sequence of the last price submission from a source (u32).
+    SrcLastPriceLedger(Address),
+    /// Flag: source has submitted a price since its last heartbeat reactivation (bool).
+    SrcPriceSubmitAfterReactivation(Address),
+    /// Ledger sequence at which a source first became inactive — for auto-removal timer (u32).
+    SrcInactiveSinceLedger(Address),
+    /// Maximum ledgers a source may remain inactive before automatic removal (u32).
+    CfgMaxInactiveLedgers,
+    /// Window size (number of heartbeat periods) used when computing the adaptive interval (u32).
+    CfgHeartbeatWindow,
+
+    // -------------------------------------------------------------------------
+    // #187: Commit-reveal MEV resistance
+    // -------------------------------------------------------------------------
+    /// A pending price commit: stores PriceCommit under (asset, source, round_ledger).
+    PriceCommit(Address, Address, u32),
+    /// Number of ledgers that the commit phase lasts (sources must commit within this window).
+    CfgCommitWindow,
+    /// Number of ledgers after the commit deadline during which sources may reveal.
+    CfgRevealWindow,
+    /// Number of faulty sources the BFT aggregator is configured to tolerate.
+    CfgBftFaultTolerance,
+    /// Aggregation method used by the BFT path.
+    CfgBftAggregationMethod,
+    /// Global flag to enable standalone commit-reveal mode independent of BFT.
+    CommitRevealEnabled,
+    /// Amount to slash from sources who commit but do not reveal in a round.
+    CommitRevealSlashAmount,
+
+    // -------------------------------------------------------------------------
+    // #188: Economic finality gadget
+    // -------------------------------------------------------------------------
+    /// A pending finality entry for an asset at a given ledger (PendingFinalityEntry).
+    PendingFinality(Address, u32),
+    /// Number of ledgers to wait before an aggregated price is considered finalized (u32).
+    CfgFinalityLedgers,
+    /// Recorded ledger hash for reorg detection, keyed by ledger sequence number (BytesN<32>).
+    LedgerHashChain(u32),
+    /// The finalized aggregate price for an asset (FinalizedPrice).
+    FinalizedPrice(Address),
+
+    // -------------------------------------------------------------------------
+    // #171: Source Reputation & Slashing
+    // -------------------------------------------------------------------------
+    /// Staking record for an oracle source (SourceStakeRecord).
+    SourceStake(Address),
+    /// Address of the XLM/oracle token contract used for staking and fees.
+    StakeTokenContract,
+    /// Percentage of stake to slash (u32, 0–100) per slash event.
+    SlashPercent,
+    /// Threshold below which a source's reputation triggers slash eligibility (u32, 0–100).
+    SlashReputationThreshold,
+    /// Total slashed funds held in contract treasury (i128 stroops).
+    TreasuryBalance,
+
+    // -------------------------------------------------------------------------
+    // #172: Cross-Asset Correlation
+    // -------------------------------------------------------------------------
+    /// Min/max ratio band for a (base_asset, quote_asset) pair.
+    CorrelationBand(Address, Address),
+    /// Ordered list of (base, quote) correlation pairs registered.
+    CorrelationPairList,
+    /// Flag marking a (source, asset) price submission as correlation-violating.
+    /// Flagged submissions are excluded from aggregation.
+    CorrelationFlagged(Address, Address),
+
+    // -------------------------------------------------------------------------
+    // #173: Tiered Consumer Whitelisting
+    // -------------------------------------------------------------------------
+    /// Consumer tier and quota info for an address.
+    ConsumerInfo(Address),
+    /// Pricing for each tier (ConsumerTier discriminant → price in stroops per ledger cycle).
+    TierPricing(u32),
+    /// Per-ledger query counter for a tiered consumer.
+    TierQueryCount(Address, u32),
+    /// Treasury address for XLM fee sweeps.
+    WhitelistTreasury,
+    /// Address of the XLM token contract used for subscription fee collection.
+    XlmTokenContract,
+
+    // -------------------------------------------------------------------------
+    // Gas metering
+    // -------------------------------------------------------------------------
+    /// Storage key for the last recorded gas usage (submit/aggregate)
+    LastGasRecord,
+
+    // -------------------------------------------------------------------------
+    // #174: Price Deviation Alerts
+    // -------------------------------------------------------------------------
+    /// Alert subscription record for a (consumer, asset) pair.
+    AlertSubscription(Address, Address),
+    /// Ordered list of (consumer, asset) pairs that have active alert subscriptions.
+    AlertSubscriptionList,
+    /// Maximum number of alert subscriptions allowed globally.
+    MaxAlertSubscriptions,
+    /// TTL in ledgers for alert subscriptions before auto-expiry.
+    AlertSubscriptionTtl,
+    /// Last aggregate price recorded per asset for deviation comparison.
+    AlertLastPrice(Address),
+
+    // -------------------------------------------------------------------------
+    // Off-chain relayer network integration
+    // -------------------------------------------------------------------------
+    /// Metadata for an approved relayer address.
+    ApprovedRelayer(Address),
+    /// Registry of currently approved relayers used for cross-relayer comparisons.
+    RelayerRegistry,
+    /// Fee (in stroops) credited to a relayer per successful relayed price submission.
+    RelayerFeePerSubmission,
+    /// Accumulated fee balance (in stroops) owed to a relayer.
+    RelayerFeeBalance(Address),
+    /// Running count of successful price submissions made by a relayer.
+    RelayerSubmissionCount(Address),
+    /// Ledger timestamps for a relayer's recent successful submissions.
+    RelayerSubmissionHistory(Address),
+    /// Total latency accumulated for a relayer's successful submissions (seconds).
+    RelayerLatencySum(Address),
+    /// Individual latency samples for relayer percentile calculations.
+    RelayerLatencyHistory(Address),
+    /// Ordered list of assets a relayer has ever successfully submitted for.
+    RelayerAssetList(Address),
+    /// Successful submission count for a relayer/asset pair.
+    RelayerAssetCount(Address, Address),
+    /// Latency total for a relayer/asset pair.
+    RelayerAssetLatencySum(Address, Address),
+    /// Latency sample count for a relayer/asset pair.
+    RelayerAssetLatencyCount(Address, Address),
+    /// Total reported failure incidents for a relayer.
+    RelayerFailureCount(Address),
+    /// Required performance bond amount for relayers.
+    RelayerBondAmount,
+    /// Deposited bond balance for a relayer.
+    RelayerBond(Address),
+    /// Percentage of bond slashed per incident.
+    RelayerSlashPercent,
+    /// Failure threshold at which a relayer becomes slash-eligible.
+    RelayerFailureThreshold,
+    /// Reward rate credited per submission for accurate relayers.
+    RelayerRewardRate,
+    /// Accumulated reward balance owed to a relayer.
+    RelayerRewardBalance(Address),
+
+    // -------------------------------------------------------------------------
+    // Cross-reference oracle checks
+    // -------------------------------------------------------------------------
+    /// Stored [`ReferenceOracleEntry`] for a registered external reference oracle.
+    ReferenceOracle(Address),
+    /// Ordered list of registered reference oracle contract addresses.
+    ReferenceOracleList,
+    /// Allowed deviation in basis points before a cross-reference alert is emitted.
+    CrossRefDeviationThreshold,
+    /// Demerit and disqualification state for an oracle source.
+    SourceDemerits(Address),
+    /// Configured thresholds for progressive disqualification.
+    DemeritConfig,
+    /// Configured multi-sig source governance settings.
+    SourceGovConfig,
+    /// Total number of source proposals created.
+    SourceProposalCount,
+    /// A pending source proposal details.
+    SourceProposal(u32),
+    /// Geolocation metadata for a registered oracle source.
+    SourceGeo(Address),
+    /// Configured liveness bond amount required for sources.
+    SourceBondAmount,
+    /// Deposited bond amount for a registered oracle source.
+    SourceBond(Address),
+
+    // -------------------------------------------------------------------------
+    // Additional keys for feature modules
+    // -------------------------------------------------------------------------
+    /// Per-asset minimum submission interval override.
+    AssetMinSubmissionInterval(Address),
+
+    /// Active source set for an asset rotation schedule (#206).
+    AssetActiveSourceSet(Address),
+    /// Standby source set for an asset rotation schedule (#206).
+    AssetStandbySourceSet(Address),
+    /// Rotation schedule for an asset (#206).
+    AssetRotationSchedule(Address),
+    /// Next rotation ledger for an asset (#206).
+    AssetNextRotationLedger(Address),
+
+    /// Ledger when an asset's TTL was last extended (#203).
+    AssetLastTtlExtended(Address),
+
+    /// Per-day operation count for an admin op type (daily limit).
+    AdminOpDailyCount(u32, u32),
+    /// Per-day operation limit configuration for an admin op type.
+    AdminOpDailyLimit(u32),
+
+    /// AMM pool data for an asset (#180).
+    AmmPool(Symbol),
+    /// AMM maximum deviation basis points (global setting).
+    AmmMaxDeviationBps,
+    /// AMM weight configuration for aggregation inclusion.
+    AmmWeight(Address),
+    /// Stellar DEX pool reserves for an asset pair.
+    DexPool(Address, Address),
+    /// Soroswap pool configuration for an asset pair.
+    SoroswapPool(Address, Address),
+
+    /// Challenge entries keyed by ID (#235).
+    Challenge(u32),
+    /// Total challenge count (#235).
+    ChallengeCount,
+    /// Challenger rewards balance (#235).
+    ChallengerRewards(Address),
+    /// Unresolved challenges filed by a challenger (#461).
+    ChallengerOpenCount(Address),
+    /// Challenges resolved as invalid for a challenger (#461).
+    ChallengerStrikes(Address),
+    /// Unresolved challenges against an asset (#461).
+    AssetOpenChallenges(Address),
+
+    /// Cross-chain relay configuration (#182).
+    CrossChainRelayConfig,
+
+    /// Submission deadline for an asset (#202).
+    SubmissionDeadline(Address, Address),
+    /// Rebate amount available for a source/asset pair (#202).
+    SubmissionRebate(Address, Address),
+    /// Total rebate balance available for distribution (#202).
+    RebateBalance(Address),
+
+    /// Event type registry for structured event indexing (#201).
+    EventTypeRegistry,
+
+    /// Exotic asset pricing configuration (#177).
+    ExoticAssetConfig(Address),
+
+    /// Fee market pending queue (#176).
+    FmPendingQueue,
+    /// Fee market fee pool balance (#176).
+    FmFeePool,
+    /// Per-source fee balance in the fee market (#176).
+    FmSourceFeeBalance(Address),
+    /// Fee market treasury address (#176).
+    FmTreasury,
+    /// Total treasury balance in fee market (#176).
+    FmTreasuryBalance,
+    /// Minimum priority fee setting (#176).
+    FmMinPriorityFee,
+    /// Fee distribution ratio (bps to sources vs treasury) (#176).
+    FmFeeDistributionRatio,
+
+    /// Multi-sig governors list (#178).
+    MsGovernors,
+    /// Multi-sig required approval count (#178).
+    MsRequiredApprovals,
+    /// The threshold in force immediately before the most recent signer-set
+    /// rotation (#508). Retained so the rotation event can report both the old
+    /// and the new threshold.
+    MsPreviousRequiredApprovals,
+    /// A multi-sig operation by ID (#178).
+    MsOp(u32),
+    /// Multi-sig queue head pointer (#178).
+    MsQueueHead,
+    /// Multi-sig queue tail pointer (#178).
+    MsQueueTail,
+    /// Total multi-sig operation count (#178).
+    MsOpCount,
+
+    /// State channel per source (#179).
+    StateChannel(Address),
+    /// Ed25519 key bound to a source's state channel on first batch (#466).
+    StateChannelSigner(Address),
+
+    /// Current aggregation round metadata.
+    CurrentAggregationRound,
+
+    /// VDF sampling size configuration.
+    VdfSamplingSize,
+
+    /// ZK verifying key storage (#175).
+    ZkVerifyingKey,
+
+    /// Per-asset decimal configuration (#227).
+    AssetDecimals(Address),
+
+    /// Delegated role: (holder, role_discriminant) → bool.
+    DelegatedRole(Address, u32),
+    /// Role holders list keyed by role discriminant.
+    RoleHolders(u32),
+
+    /// Emergency pause entry (#240).
+    EmergencyPauseEntry,
+    /// Whether emergency pause is currently active (#240).
+    EmergencyPauseActive,
+    /// Reason for emergency pause (#240).
+    EmergencyPauseReason,
+
+    /// Per-source fee credit balance (for source reward schemes).
+    SourceFeeBalance(Address),
+    /// Total submission count across all sources.
+    TotalSubmissionCount,
+    /// Per-source submission count.
+    SourceSubmissionCount(Address),
+
+    /// Circuit breaker threshold in basis points.
+    CircuitBreakerThreshold,
+
+    /// Audit log entry by ID (#239).
+    AuditEntry(u32),
+    /// Total audit log entry count (#239).
+    AuditEntryCount,
+    /// Current audit log chain head hash (#239).
+    AuditLogHead,
+
+    // -------------------------------------------------------------------------
+    // Pre-existing keys referenced by storage.rs/sources.rs/cross_chain_verify.rs
+    // but missing from this enum (build-blocking gap, restored here).
+    // -------------------------------------------------------------------------
+    /// Assets a source is authorized to submit prices for (#226 support).
+    SourceAssets(Address),
+    /// Ledger sequence of a source's last key rotation (#226 support).
+    SourceRotationLedger(Address),
+    /// Verification metadata for a source (#226 support).
+    SourceVerification(Address),
+    /// Whether cross-chain price verification is globally enabled (#226).
+    CrossChainVerificationEnabled,
+    /// Maximum allowed deviation (bps) between this chain and a reference chain (#226).
+    CrossChainDeviationThreshold,
+    /// Stored cross-chain price observation for (asset, oracle_chain) (#226).
+    CrossChainPrice(Address, Address),
+
+    // -------------------------------------------------------------------------
+    // #216: Off-chain signature-verified price submission
+    // -------------------------------------------------------------------------
+    /// Ed25519 public key registered by a source for pre-signed submissions.
+    SignedSubmitPubKey(Address),
+    /// Last accepted (strictly increasing) nonce for a source's signed submissions.
+    SignedSubmitNonce(Address),
+    /// Source-authorized relayer delegation for `(source, relayer)`.
+    SourceRelayerDelegation(Address, Address),
+    /// Last accepted nonce for a source's relayer delegation messages.
+    SourceRelayerDelegationNonce(Address),
+
+    // -------------------------------------------------------------------------
+    // #218: Configurable aggregation triggers
+    // -------------------------------------------------------------------------
+    /// Minimum seconds between time-triggered aggregations for an asset (0 = disabled).
+    TriggerTimeInterval(Address),
+    /// Number of new submissions required to auto-trigger aggregation (0 = disabled).
+    TriggerSubmissionThreshold(Address),
+    /// Submissions accumulated since the last trigger-driven aggregation for an asset.
+    TriggerSubmissionCount(Address),
+    /// Deviation in basis points that auto-triggers aggregation (0 = disabled).
+    TriggerDeviationBps(Address),
+    /// Unix timestamp of the last trigger-driven aggregation for an asset.
+    TriggerLastAggTime(Address),
+    // #223: Price freeze mechanism for market emergencies
+    // -------------------------------------------------------------------------
+    /// Frozen price snapshot for an asset, present only while frozen (#223).
+    FrozenPrice(Address),
+
+    // -------------------------------------------------------------------------
+    // #229: Cursor-paginated historical price queries
+    // -------------------------------------------------------------------------
+    // (no additional storage keys — pagination reuses `PriceHistoryLedgers`)
+
+    // -------------------------------------------------------------------------
+    // #243: Admin notification preference system
+    // -------------------------------------------------------------------------
+    /// Notification preferences registered for a given event-type discriminant (#243).
+    NotificationPrefs(u32),
+    /// Every event-type discriminant that currently has at least one preference (#243).
+    NotificationEventTypes,
+
+    // -------------------------------------------------------------------------
+    // History export / timelock priority
+    // -------------------------------------------------------------------------
+    /// Delay (ledgers) for Urgent priority operations.
+    TlUrgentDelay,
+    /// Delay (ledgers) for Normal priority operations (mirrors CfgTimelockDuration).
+    TlNormalDelay,
+    /// Delay (ledgers) for LongTerm priority operations.
+    TlLongTermDelay,
+
+    // -------------------------------------------------------------------------
+    // #283: Stellar DID Integration
+    // -------------------------------------------------------------------------
+    /// Stored DID document for a decentralized identity address.
+    DidDocument(Address),
+    /// Source address mapped to a DID address for identity verification.
+    SourceDid(Address),
+
+    // -------------------------------------------------------------------------
+    // #282: Bridge Oracle for Non-Stellar Assets
+    // -------------------------------------------------------------------------
+    /// Bridge oracle configuration for a (source_asset, target_asset) pair.
+    BridgeOracle(Address, Address),
+    /// Latest bridged price observation for an asset pair.
+    BridgedPrice(Address, Address),
+
+    // -------------------------------------------------------------------------
+    // #285: Ecosystem Metadata Registration
+    // -------------------------------------------------------------------------
+    /// Stellar ecosystem metadata registry entry.
+    EcosystemMetadata,
+
+    // -------------------------------------------------------------------------
+    // Canonical cross-chain asset registry
+    // -------------------------------------------------------------------------
+    /// Canonical [`ForeignAssetMapping`] keyed by (chain identifier, foreign asset id).
+    ForeignAssetMapping(String, BytesN<32>),
+    /// Ordered list of (chain, foreign_address) keys registered for a Stellar asset.
+    AssetForeignMappings(Address),
+    /// Global ordered list of all (chain, foreign_address) keys, for enumeration.
+    ForeignAssetRegistryList,
+
+    // -------------------------------------------------------------------------
+    // Axelar GMP integration
+    // -------------------------------------------------------------------------
+    /// Trusted Axelar Gateway contract address permitted to invoke `execute_axelar_message`.
+    AxelarGateway,
+    /// Replay-protection flag for a processed Axelar `command_id`.
+    AxelarExecutedCommand(BytesN<32>),
+    /// Maps a trusted (source_chain, source_address) GMP sender to a registered bridge source.
+    AxelarTrustedSource(String, String),
+
+    // -------------------------------------------------------------------------
+    // LayerZero integration
+    // -------------------------------------------------------------------------
+    /// Trusted LayerZero Endpoint contract address permitted to invoke `lz_receive`.
+    LzEndpoint,
+    /// Last accepted inbound nonce for a (source endpoint id, sender) pathway.
+    LzInboundNonce(u32, BytesN<32>),
+    /// Maps a trusted (src_eid, sender) LayerZero pathway to a registered bridge source.
+    LzTrustedRemote(u32, BytesN<32>),
+    /// Canonical registry chain name for a LayerZero source endpoint id.
+    LzEidChainName(u32),
+
+    // -------------------------------------------------------------------------
+    // #251: History sharding (weekly time buckets)
+    // -------------------------------------------------------------------------
+    /// A sharded history bucket for an asset (weekly time bucket).
+    HistoryBucket(Address, u32),
+    /// Current bucket index for an asset (u32).
+    HistoryBucketIndex(Address),
+    /// Per-asset compaction metadata (CompactionMetadata).
+    CompactionMeta(Address),
+
+    // -------------------------------------------------------------------------
+    // Config snapshot history (#205)
+    // -------------------------------------------------------------------------
+    /// A configuration snapshot by version (u32 -> ConfigSnapshot).
+    ConfigSnapshot(u32),
+    /// Latest configuration snapshot version (u32).
+    ConfigVersionCount,
+    /// Ordered list of retained configuration snapshot versions (Vec<u32>).
+    ConfigVersionIndex,
+
+    // -------------------------------------------------------------------------
+    // #262: Operation dependency graph
+    // -------------------------------------------------------------------------
+    /// An operation by id (String -> Operation).
+    Operation(String),
+    /// Dependent operation ids for an operation (String -> Vec<String>).
+    OperationDependents(String),
+
+    // -------------------------------------------------------------------------
+    // #245: Admin key social recovery
+    // -------------------------------------------------------------------------
+    /// A pending GuardianRecovery (unit key).
+    PendingRecovery,
+    /// Cancellation-window delay in ledgers (u32).
+    RecoveryDelay,
+    /// Registered guardian addresses (Vec<Address>).
+    RecoveryGuardians,
+    /// Guardian approval threshold (u32).
+    RecoveryThreshold,
+    /// `(vetoed_candidate, cooldown_until_ledger)` recorded when the admin
+    /// cancels a quorum-approved recovery (#454).
+    RecoveryVeto,
+
+    // -------------------------------------------------------------------------
+    // #297: Price callbacks
+    // -------------------------------------------------------------------------
+    /// Per-asset callback registration list (Vec<Address>).
+    PriceCallbackList(Address),
+
+    // -------------------------------------------------------------------------
+    // #294: Native token subscription payments
+    // -------------------------------------------------------------------------
+    /// Address of the token contract used for subscription payments.
+    SubscriptionToken,
+    /// Token deposit balance for a consumer (i128).
+    SubscriptionTokenDeposit(Address),
+
+    // -------------------------------------------------------------------------
+    // #296: External submission proofs
+    // -------------------------------------------------------------------------
+    /// Stored submission proof for (asset, source).
+    SubmissionProof(Address, Address),
+    /// Last accepted proof nonce for a source (u64).
+    SubmissionProofNonce(Address, Address),
+
+    // -------------------------------------------------------------------------
+    // #265: Contribution quality scoring
+    // -------------------------------------------------------------------------
+    /// Contribution quality score for (source, asset) (u32).
+    ContribScore(Address, Address),
+    /// Contribution scoring window size (u32).
+    ContribScoringWindow,
+
+    // -------------------------------------------------------------------------
+    // #296: Per-asset proof requirements / retention
+    // -------------------------------------------------------------------------
+    /// Per-asset external proof requirement (u32 discriminant).
+    AssetProofRequirement(Address),
+    /// Per-asset history retention window in ledgers (u32).
+    AssetRetentionWindow(Address),
+
+    // -------------------------------------------------------------------------
+    // Severity-based alerting
+    // -------------------------------------------------------------------------
+    /// Per-asset severity thresholds (AlertSeverityThresholds).
+    AssetSeverityThresholds(Address),
+    /// Global severity thresholds (AlertSeverityThresholds).
+    CfgSeverityThresholds,
+    /// Last emitted severity for an asset (u32).
+    LastAlertSeverity(Address),
+
+    // -------------------------------------------------------------------------
+    // #218: Scheduled submissions
+    // -------------------------------------------------------------------------
+    /// Last scheduled submission record for a (source, asset) pair.
+    LastScheduledSubmission(Address, Address),
+    /// Submission schedule for a (source, asset) pair.
+    SubmissionSchedule(Address, Address),
+
+    // -------------------------------------------------------------------------
+    // Per-source submission nonce (#216)
+    // -------------------------------------------------------------------------
+    /// Last accepted price-submission nonce for a source (u64).
+    SourceNonce(Address),
+
+    // -------------------------------------------------------------------------
+    // Wormhole relay integration
+    // -------------------------------------------------------------------------
+    /// Maps a Wormhole chain id (u32) to an oracle-chain Address.
+    WormholeChainMapping(u32),
+    /// Guardian quorum (minimum valid signatures, u32).
+    WormholeGuardianQuorum,
+    /// Current Wormhole guardian set (WormholeGuardianSet).
+    WormholeGuardianSet,
+    /// Last processed VAA sequence for (chain, emitter_address) (u64).
+    WormholeLastSequence(u32, BytesN<32>),
+
+    // -------------------------------------------------------------------------
+    // #304: Consumer contract authorization
+    // -------------------------------------------------------------------------
+    /// Global consumer access mode (ConsumerAccessMode).
+    ConsumerAccessMode,
+    /// Explicit allowlist flag for a consumer (bool).
+    ConsumerAuthorized(Address),
+    /// Explicit blocklist flag for a consumer (bool).
+    ConsumerBlocked(Address),
+
+    // -------------------------------------------------------------------------
+    // #305: Price update subscription registry
+    // -------------------------------------------------------------------------
+    /// Per-asset ordered list of subscribed consumers (Vec<Address>).
+    AssetSubscriberList(Address),
+    /// Subscription flag for a (consumer, asset) pair (bool).
+    PriceUpdateSubscription(Address, Address),
+
+    // -------------------------------------------------------------------------
+    // #251: History compaction threshold
+    // -------------------------------------------------------------------------
+    /// Compaction threshold in basis points (u32).
+    CfgCompactionThresholdBps,
+
+    // -------------------------------------------------------------------------
+    // Cross-contract governance delegation
+    // -------------------------------------------------------------------------
+    /// Address of the external governor the admin has delegated to.
+    ExternalGovernor,
+    /// Allow-list flag for a governance operation name (bool).
+    GovernorAllowedOp(String),
+
+    // -------------------------------------------------------------------------
+    // #495: Degraded-mode serving analytics
+    // -------------------------------------------------------------------------
+    /// Instrumentation switch + sampling/window configuration.
+    DegradationConfig,
+    /// Per-(asset, window) serving counters, one slot per [`DegradationState`].
+    DegradationCounters(Address, u32),
+
+    // -------------------------------------------------------------------------
+    // #496: Anomaly explanation reports
+    // -------------------------------------------------------------------------
+    /// Bounded ring of per-source flag explanations for an asset.
+    AnomalyLog(Address, Address),
+    /// Bounded ring of aggregate-level flag explanations for an asset.
+    AggregateAnomalyLog(Address),
+    /// Maximum retained explanations per log (ring size).
+    AnomalyRetention,
+
+    // -------------------------------------------------------------------------
+    // #497: Oracle-vs-benchmark drift detection
+    // -------------------------------------------------------------------------
+    /// Rolling, bounded window of time-aligned signed bias samples (bps).
+    DriftWindow(Address),
+    /// Count of samples discarded for exceeding the snapshot alignment tolerance.
+    DriftMisaligned(Address),
+    /// Drift alert thresholds.
+    DriftThresholds,
+    /// Ledger of the last emitted drift alert, per asset (alert de-duplication).
+    DriftLastAlertLedger(Address),
+
+    // -------------------------------------------------------------------------
+    // #498: Source coverage gap analysis
+    // -------------------------------------------------------------------------
+    /// Coverage thresholds (minimum independent sources per asset).
+    CoverageThresholds,
+
+    // -------------------------------------------------------------------------
+    // #399: Source diversity — effective independence thresholds
+    // -------------------------------------------------------------------------
+    /// Alert thresholds for source-diversity monitoring (DiversityThresholds).
+    DiversityThresholds,
+    /// Ledger of the last diversity-threshold breach (u32, for alert damping).
+    DiversityLastBreachLedger,
+
+    // -------------------------------------------------------------------------
+    // #483: Aggregate recomputation on source-set change
+    // -------------------------------------------------------------------------
+    /// Ledger at which a forced aggregate recomputation last ran (u32).
+    LastForcedRecompute,
+
+    // -------------------------------------------------------------------------
+    // #484: Two-tier price bounds (soft clamp / hard reject)
+    // -------------------------------------------------------------------------
+    /// Soft/hard bound pair for an asset (BoundsTier).
+    AssetBoundsTier(Address),
+    /// Last bound decision published for an asset (BoundStatus).
+    AssetBoundStatus(Address),
+
+    // -------------------------------------------------------------------------
+    // #485: Deferred (quorum-within-window) aggregation
+    // -------------------------------------------------------------------------
+    /// Deferral policy for an asset (DeferralPolicy).
+    AssetDeferral(Address),
+    /// Publication state for a deferrable asset (PublicationStatus).
+    AssetPublicationState(Address),
+
+    // -------------------------------------------------------------------------
+    // #486: Auditable price corrections
+    // -------------------------------------------------------------------------
+    /// Immutable revision chain for an asset's published aggregate (Vec<PriceRevision>).
+    PriceRevisions(Address),
+    /// The first-ever published aggregate value, preserved across corrections.
+    PriceOriginal(Address),
+    /// Count of corrections applied, used to enforce the per-asset correction cap.
+    PriceCorrectionCount(Address),
+    /// Global correction limits (CorrectionScope).
+    CfgCorrectionScope,
+    /// Global publication-path guard flags (PublicationGuards). Read exactly
+    /// once per aggregation pass; when every bit is clear the whole optional
+    /// post-publication path is skipped, so an oracle that uses none of
+    /// #483/#484/#485 pays a single storage read for all of them.
+    PublicationGuards,
+
+    // -------------------------------------------------------------------------
+    // #487: Asset risk tiers
+    // -------------------------------------------------------------------------
+    /// Per-asset aggregation policy override (Option<PolicyOverride>).
+    AssetPolicy(Address),
+    /// Aggregation policy override for an asset class (Option<PolicyOverride>).
+    ClassPolicy(u32),
+    /// Asset class an asset belongs to (u32).
+    AssetClassId(Address),
+    /// Freshness-weighting curve for an asset (FreshnessCurve).
+    FreshnessCurve(Address),
+    /// Current external-governor authorization epoch (u32).
+    GovernorEpoch,
+    /// Per-operation grant to the external governor (bool).
+    GovernorOpGrant(String),
+    /// Minimum distinct TWAP observations required (u32).
+    TwapMinCardinality,
+    // Configuration keys referenced by policy.rs / prices.rs /
+    // external_governance.rs
+    /// Minimum distinct observations a TWAP window needs (u32).
+    /// External-governor authorization epoch (u32); bumping it revokes every grant.
+    /// Epoch at which an operation name was allow-listed for the external governor.
+    /// Per-asset freshness decay curve (FreshnessCurve).
+    /// Asset-class id an asset is assigned to (u32).
+    /// Per-asset policy override (`Option<PolicyOverride>`).
+    /// Per-asset-class policy override (`Option<PolicyOverride>`).
+    // #246: Per-asset price-history storage tier
+    /// The [`StorageTier`] (temporary/persistent) an asset's history is written to.
+    AssetStorageTier(Address),
+    /// A pending, multi-party-approved downgrade request for an asset's history tier.
+    AssetStorageTierDowngrade(Address),
+    /// Ledger of the last completed history-tier migration for an asset.
+    AssetStorageTierMigrated(Address),
+    // #289: Subscription auto-renewal
+    /// The standing [`AutoRenewRecord`] a consumer granted for auto-renewal.
+    SubscriptionAutoRenew(Address),
+    /// A single-use, per-period renewal authorization for a consumer.
+    SubscriptionRenewalAuthorization(Address, u64),
+    /// Marker recording that a consumer's renewal for a period was already spent.
+    SubscriptionRenewalSpent(Address, u64),
+    // #397: Multi-round price confirmation (consensus rounds)
+    /// Per-asset consensus-round configuration.
+    ConsensusRoundConfig(Address),
+    /// Monotonic round counter for an asset (the current round identity).
+    ConsensusRoundCounter(Address),
+    /// Ledger at which a given round for an asset became live.
+    ConsensusRoundStart(Address, u32),
+    /// A source's signed observation inside one round.
+    ConsensusRoundVote(Address, u32, Address),
+    /// The distinct sources that have voted in a round, in submission order.
+    ///
+    /// Enumerating a round's voters through this index keeps the per-round cost
+    /// `O(votes)` rather than `O(registered sources)`, and makes "quorum
+    /// distinct sources" a check over actual votes rather than a count of
+    /// everyone who could have voted (#397).
+    ConsensusRoundVoteIndex(Address, u32),
+    /// The tally (median + vote count) recorded for a round that reached quorum.
+    ConsensusRoundTally(Address, u32),
+    /// The observation id (BytesN<32>) a round consumed, used to reject replay.
+    ConsensusRoundEvidence(Address, u32, BytesN<32>),
+    /// Maps an observation id to the first round that consumed it.
+    ConsensusRoundEvidenceOwner(Address, BytesN<32>),
+    /// Set when a source is barred from a round for equivocation.
+    ConsensusRoundEquivocation(Address, u32, Address),
+    /// Lifetime equivocation counter for a source on a given asset.
+    ConsensusEquivocationCount(Address, Address),
+    /// The confirmed price produced by a finalized confirmation run.
+    ConsensusConfirmedPrice(Address),
+    /// The consecutive confirmed rounds backing `ConsensusConfirmedPrice`.
+    ConsensusConfirmedRounds(Address),
+    /// Number of times a stalled round was abandoned (bounded-abandonment counter).
+    ConsensusRoundAbandoned(Address),
+    // #478: On-chain derived price feeds
+    /// Admin-set canonical base price for an asset, used by the derivation engine
+    /// in preference to the live aggregate when present.
+    DerivedFeedBase(Address),
+
+    // -------------------------------------------------------------------------
+    // #712 — Historical query completeness watermark
+    // -------------------------------------------------------------------------
+    /// The [`CompletenessWatermark`] for an asset — the highest ledger through
+    /// which historical data is complete and contiguous.
+    HistoryWatermark(Address),
+
+    // -------------------------------------------------------------------------
+    // #713 — Consumer-visible uncertainty and confidence semantics
+    // -------------------------------------------------------------------------
+    /// The latest [`SpreadIndicator`] for an asset, updated on every aggregation.
+    SpreadIndicator(Address),
+
+    // -------------------------------------------------------------------------
+    // #714 — Data retention and correction trace policy
+    // -------------------------------------------------------------------------
+    /// The global [`DataRetentionPolicy`] specifying retention windows for
+    /// history, audit entries, and correction traces.
+    RetentionPolicy,
     Description,
     SourceEnrollment(Address),
+
+    // Restored: variants dropped by broken merges (recovered from git history).
+    /// A basket's constituent list, weights and policies (`BasketConfig`).
+    Basket(Address),
+    /// Maximum age, in seconds, a constituent aggregate may have and still
+    /// count as fresh.
+    BasketMaxStaleness,
+    /// Per-asset breaker thresholds and re-arm policy (`BreakerPolicy`).
+    BreakerPolicy(Address),
+    /// Ledger at which the current settle streak began, and its length.
+    BreakerSettleStreak(Address),
+    /// Ledger at which the asset's breaker last tripped.
+    BreakerArmedLedger(Address),
+    /// Number of times the asset's breaker has been escalated.
+    BreakerEscalations(Address),
+    /// Volatility bucket boundaries, quorums and hysteresis settings.
+    AdaptiveQuorumConfig,
+    /// Per-asset current volatility bucket and the quorum it selects.
+    AdaptiveQuorumState(Address),
+    /// Quorum frozen at the start of a round, so a mid-round regime change
+    /// cannot alter it.
+    AdaptiveQuorumRound(Address, u32),
+    /// Rolling window of observed absolute returns (bps) per asset, used to
+    /// estimate volatility.
+    VolatilityWindow(Address),
+    /// The last price fed to the volatility estimator, used to compute the
+    /// next return.
+    VolatilityLastPrice(Address),
+    /// Most recently computed [`DisagreementIndex`] for an asset, together
+    /// with the rolling window of prior values that forms its baseline (#494).
+    /// Held in one entry so a round writes one key instead of two.
+    DisagreementIndex(Address),
+    /// Rolling latency samples for a (source, asset) pair (#492).
+    LatencySamples(Address, Address),
+    /// Per-asset [`OutlierConfig`] for the MAD/IQR pre-filter (#491).
+    OutlierConfig(Address),
+    /// Exclusions produced by the most recent aggregation of an asset (#491).
+    OutlierExclusions(Address),
+    /// [`ProvenanceRecord`] published for an asset at a ledger (#493).
+    Provenance(Address, u32),
+    /// Chain head of an asset's provenance (#493): the hash and ledger of its
+    /// most recent record, in one entry so a round does not pay for two.
+    ProvenanceHead(Address),
+    /// Risk tier assigned to an asset (u32, validated against `RiskTier`).
+    AssetRiskTier(Address),
+    /// Effective default freshness window, in seconds, applied to every asset
+    /// that has neither a tier-derived nor a per-asset window (#489).
+    DefaultFreshnessWindow,
+    /// Per-asset freshness window override, in seconds (#489).
+    AssetFreshnessWindow(Address),
+    /// Last freshness-filter outcome for an asset (FreshnessStatus, #489).
+    AssetFreshnessStatus(Address),
+    /// Whether an asset is currently suspended from cross-asset sanity checks
+    /// by a declared de-peg (#488).
+    AssetSanitySuspended(Address),
+    /// Configured cross-asset sanity relations for an asset (#488).
+    AssetSanityRelations(Address),
+    /// Last sanity-check violation recorded for an asset (#488).
+    AssetSanityStatus(Address),
+    /// Rolling accuracy scorecard for a source (#490).
+    SourceScorecard(Address),
+    /// Global scorecard configuration: window sizes and the outlier floor (#490).
+    CfgScorecard,
+    /// `true` once the admin requires every asset to carry a risk tier (#487).
+    RiskTierEnforcement,
+    /// Dead-man switch configuration (DeadManConfig). Absent means disabled.
+    DeadManConfig,
+    /// Timestamp of the last heartbeat accepted from a registered operator (u64).
+    DeadManLastHeartbeat,
+    /// Set when the heartbeat deadline has passed and the switch has tripped.
+    DeadManDegraded,
+    /// Ledger timestamp at which the switch tripped (u64).
+    DeadManTriggeredAt,
+    /// Latch recording that the pre-trigger warning has already been emitted,
+    /// so the warning is emitted once per lapse rather than every ledger.
+    DeadManWarned,
+
+    // ── Emergency council (#549) ──
+    /// Address of the active emergency council.
+    EmergencyCouncil,
+    /// Timestamp (u64) at which the emergency council mandate expires.
+    EmergencyExpiry,
+    /// The emergency action awaiting governance ratification.
+    EmergencyPending,
+
+    // ── Alerting, freshness SLOs and breaker recovery (#614, #616, #623, #624) ──
+    /// Per-asset history of reference-deviation alert records.
+    AlertHistory(Address),
+    /// Deduplicated alert incident for an (incident, asset, source) group.
+    AlertIncident(Symbol, Address, Symbol),
+    /// Individual occurrence `index` within an alert incident.
+    AlertOccurrence(Symbol, Address, Symbol, u32),
+    /// Number of active alert incidents for an asset (u32).
+    ActiveIncidentCount(Address),
+    /// Global freshness target, in ledgers (u32).
+    CfgFreshnessTarget,
+    /// Global freshness error budget, in ledgers (u32).
+    CfgErrorBudget,
+    /// Per-asset freshness SLO override.
+    AssetFreshnessSlo(Address),
+    /// Consecutive healthy source submissions observed since a breaker trip (u32).
+    BreakerSourceRecovery(Address),
 }
 
 /// A price submission from a single oracle source for a specific asset.
@@ -2205,6 +3090,50 @@ pub enum AssetProofRequirement {
     RequireMultiSig = 3,
 }
 
+/// A deduplicated alert incident: equivalent alerts for the same
+/// `(incident, asset, source)` group fold into one record (#624).
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct AlertIncident {
+    pub incident: Symbol,
+    pub asset: Address,
+    pub source: Symbol,
+    /// Highest severity seen for the group.
+    pub severity: AlertSeverity,
+    /// Number of occurrences folded into this incident.
+    pub event_count: u32,
+    pub first_ledger: u32,
+    pub last_ledger: u32,
+    /// `false` once the incident has been resolved.
+    pub active: bool,
+}
+
+/// One recorded occurrence inside an [`AlertIncident`], kept for audit (#624).
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct AlertOccurrence {
+    pub ledger: u32,
+    /// `AlertSeverity` discriminant.
+    pub severity: u32,
+    pub movement_bps: u32,
+}
+
+/// Result of a governance-event completeness audit over the admin audit log
+/// (#659). `complete` is `true` only when every count is zero.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct GovernanceAuditReport {
+    pub complete: bool,
+    /// Entries checked.
+    pub total_events: u32,
+    /// Entries absent from storage.
+    pub missing_events: u32,
+    /// Entries whose stored hash does not match their contents.
+    pub malformed_events: u32,
+    /// Entries not linked to the previous entry's hash.
+    pub unlinked_events: u32,
+}
+
 /// Severity classification for price-movement alerts.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[contracttype]
@@ -3536,4 +4465,327 @@ pub struct DataRetentionPolicy {
     /// Whether this policy is currently active. When `false` the system falls
     /// back to the default retention (TTL expiry only, no guaranteed minimum).
     pub active: bool,
+}
+
+/// Global scorecard configuration (#490).
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct ScorecardConfig {
+    /// Samples in the short (recent) window.
+    pub short_window: u32,
+    /// Samples in the long (sustained) window.
+    pub long_window: u32,
+    /// Below this many samples a source is `cold_start`, not scored.
+    pub cold_start_samples: u32,
+    /// A sample counts as a "hit" when its error is within this many bps.
+    pub hit_tolerance_bps: u32,
+    /// Per-sample error above this is winsorized to it, so one catastrophic
+    /// outlier cannot collapse a long window. See `docs/source-scorecards.md`.
+    pub outlier_cap_bps: u32,
+}
+
+/// How a source's accuracy is measured, over a rolling window (#490).
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct ScorecardWindow {
+    /// Number of most recent samples in this window.
+    pub samples: u32,
+    /// Mean absolute relative error against the reference, in bps.
+    pub mean_abs_error_bps: u32,
+    /// Mean *signed* relative error, in bps. Non-zero means persistent bias.
+    pub bias_bps: i32,
+    /// Share of samples within [`ScorecardConfig::hit_tolerance_bps`], in bps.
+    pub hit_rate_bps: u32,
+}
+
+/// A source's rolling accuracy scorecards (#490).
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct SourceScorecard {
+    pub source: Address,
+    /// Recent window: responsiveness to current conditions.
+    pub short: ScorecardWindow,
+    /// Long window: sustained quality.
+    pub long: ScorecardWindow,
+    /// `true` while the source has fewer than [`ScorecardConfig::cold_start_samples`]
+    /// samples, i.e. it is not yet being *scored*, only counted. A cold-start
+    /// source is never reported as poor.
+    pub cold_start: bool,
+    /// Sample count on which the short window's error is based.
+    pub short_samples: u32,
+    /// Largest single-sample error seen in the long window, in bps. This is the
+    /// figure the outlier floor guards against.
+    pub long_max_error_bps: u32,
+}
+
+/// What a sanity violation does to the offending aggregate (#488).
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[contracttype]
+pub enum SanityAction {
+    /// Publish, but record and event the violation so it is visible.
+    Flag = 0,
+    /// Do not publish; the previous aggregate stays live.
+    Reject = 1,
+    /// Do not publish and mark the asset quarantined until an admin clears it.
+    Quarantine = 2,
+}
+
+/// One declared consistency relation between assets (#488).
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct SanityRelation {
+    /// The asset the relation is declared on.
+    pub asset: Address,
+    /// The asset it is checked against. Unused (and equal to `asset`) for
+    /// [`SanityRelationKind::Triangle`], which carries two peers instead.
+    pub peer: Address,
+    /// Second peer, for a triangular cross only.
+    pub peer2: Option<Address>,
+    pub kind: SanityRelationKind,
+    /// Permitted relative deviation, in bps. `1..=MAX_TOLERANCE_BPS`.
+    pub tolerance_bps: u32,
+    /// Peg ratio numerator/denominator. The relation is
+    /// `price(peer) * ratio_num / ratio_den`. Only meaningful for
+    /// [`SanityRelationKind::Peg`].
+    pub ratio_num: i128,
+    pub ratio_den: i128,
+    /// Action taken when the relation is violated.
+    pub action: SanityAction,
+}
+
+/// Kinds of cross-asset consistency relation (#488).
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[contracttype]
+pub enum SanityRelationKind {
+    /// `price(asset) ~= price(peer) * ratio` within tolerance — a stablecoin
+    /// or wrapped-token peg.
+    Peg = 0,
+    /// `price(a) * price(b) ~= price(c)` within tolerance — a triangular FX
+    /// cross. All three legs must be live.
+    Triangle = 1,
+    /// `|price(asset) - price(peer)| / price(asset) <= tolerance` — a plain
+    /// spread cap between two assets quoted in the same unit.
+    Spread = 2,
+}
+
+/// The outcome of checking one aggregate against its relations (#488).
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct SanityStatus {
+    pub asset: Address,
+    /// `true` when at least one relation was violated by the candidate.
+    pub violated: bool,
+    /// `true` when the asset is suspended by a declared de-peg, in which case
+    /// relations are skipped but the asset stays fully usable.
+    pub suspended: bool,
+    /// Number of relations actually evaluated (suspended ones are excluded).
+    pub checked: u32,
+    /// The asset whose value broke the relation.
+    pub conflicting_asset: Option<Address>,
+    /// Observed relative deviation, in bps. Reproduces the check exactly.
+    pub magnitude_bps: u32,
+    /// Tolerance the observation was compared against.
+    pub tolerance_bps: u32,
+    /// Action applied to the candidate aggregate.
+    pub action: SanityAction,
+    /// `true` when the asset is quarantined and must be cleared by an admin.
+    pub quarantined: bool,
+    pub ledger: u32,
+}
+
+/// An asset's tier together with the parameters it actually resolves to (#487).
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct ResolvedTier {
+    /// The assigned tier.
+    pub tier: RiskTier,
+    /// Tier-supplied parameters, before any per-asset override.
+    pub base: TierParams,
+    /// Tier parameters after the documented per-asset overrides are applied.
+    pub effective: TierParams,
+    /// `true` when at least one field was overridden away from the tier value.
+    pub overridden: bool,
+}
+
+/// The fixed set of risk tiers an asset may be assigned to (#487).
+///
+/// The set is closed and versioned: adding a tier later is a new discriminant,
+/// never a reinterpretation of an existing one, so a stored assignment always
+/// resolves to the same parameters it did when it was made. See
+/// `docs/asset-risk-tiers.md`.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[contracttype]
+pub enum RiskTier {
+    /// Deep, highly liquid markets. Median over a wide quorum, tight deviation.
+    Tier1BlueChip = 0,
+    /// Ordinary majors. Median over a standard quorum.
+    Tier2Standard = 1,
+    /// Thin but real markets. Trimmed mean, small quorum, loose bounds.
+    Tier3Thin = 2,
+    /// Speculative / newly listed. Widest tolerance, weakest quorum, fastest
+    /// expiry.
+    Tier4Speculative = 3,
+}
+
+/// A tier's fixed parameter set (#487).
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct TierParams {
+    /// Aggregation method (see `AggregationMethod`).
+    pub method: u32,
+    /// Quorum: minimum fresh contributing sources.
+    pub min_sources: u32,
+    /// Freshness window, in seconds. `0` means "no tier-imposed limit".
+    pub freshness_secs: u64,
+    /// Maximum deviation from the median, in bps. `0` disables the filter.
+    pub max_deviation_bps: u32,
+}
+
+/// Why an asset is not currently publishable, and with how much participation.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[contracttype]
+pub enum FreshnessState {
+    /// Enough fresh sources to satisfy quorum.
+    Fresh = 0,
+    /// Submissions exist but too few are inside the freshness window.
+    Stale = 1,
+    /// The asset has no submissions at all.
+    Absent = 2,
+}
+
+/// The freshness-filter outcome of the most recent aggregation (#489).
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct FreshnessStatus {
+    pub asset: Address,
+    /// Submissions inside the window. Only these count toward quorum.
+    pub fresh: u32,
+    /// Submissions present but older than the window. These are *excluded*.
+    pub stale: u32,
+    /// Quorum the fresh count was measured against.
+    pub quorum: u32,
+    /// The window actually applied, after tier and per-asset overrides.
+    pub window_secs: u64,
+    /// `true` when the window came from the tier or the asset rather than the
+    /// global default.
+    pub overridden: bool,
+    pub state: FreshnessState,
+    /// Ledger time the ages were measured against.
+    pub measured_at: u64,
+    pub ledger: u32,
+}
+
+/// An asset's current regime and the quorum it implies.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct QuorumRegime {
+    /// The current bucket index.
+    pub bucket: u32,
+    /// The quorum this bucket requires.
+    pub quorum: u32,
+    /// The volatility estimate, in bps, behind the classification.
+    pub volatility_bps: u32,
+    /// Observations in the rolling window.
+    pub samples: u32,
+    /// Consecutive observations the estimate has sat in the current bucket.
+    pub streak: u32,
+}
+
+/// The quorum frozen for one round.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct RoundQuorum {
+    /// The round this quorum is pinned to.
+    pub round: u32,
+    /// The bucket in force at round start.
+    pub bucket: u32,
+    /// The quorum this round enforces, fixed for the round's lifetime.
+    pub quorum: u32,
+    /// The volatility estimate behind the decision.
+    pub volatility_bps: u32,
+}
+
+/// Volatility bucket boundaries, in basis points, ascending.
+///
+/// `bucket_of` returns the first index `i` with `volatility_bps <
+/// boundaries[i]`, or `VOLATILITY_BUCKETS - 1` when above every boundary. So
+/// `boundaries = [500, 2_000]` classifies `< 500` as bucket 0 (calm),
+/// `500..2_000` as bucket 1 and `>= 2_000` as bucket 2 (volatile).
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct VolatilityBuckets {
+    /// Ascending upper bounds, in bps. Must be strictly increasing.
+    pub boundaries: soroban_sdk::Vec<u32>,
+    /// Quorum required in each bucket. One entry per bucket.
+    pub quorums: soroban_sdk::Vec<u32>,
+    /// Additional consecutive observations required before the regime may be
+    /// *relaxed* into a lower bucket.
+    ///
+    /// Raising the quorum is immediate; lowering it is damped. That asymmetry is
+    /// the anti-manipulation property: one submission cannot talk the quorum
+    /// down, because the bucket has to hold for `relax_after` observations.
+    pub relax_after: u32,
+    /// Minimum observations required before the regime is classified at all.
+    pub min_samples: u32,
+    /// Rolling window of returns the estimate is taken over.
+    pub window: u32,
+}
+
+/// A deviation breaker's thresholds and re-arm policy.
+///
+/// The two thresholds are what make the breaker a control rather than a
+/// flapping indicator: see `docs/breaker-hysteresis.md`.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct BreakerPolicy {
+    /// Deviation, in bps, at or above which the breaker trips.
+    pub trip_bps: u32,
+    /// Deviation, in bps, below which the market counts as settled. Must be
+    /// **strictly** below `trip_bps`; the gap is the deadband.
+    pub clear_bps: u32,
+    /// Consecutive ledgers the deviation must stay below `clear_bps` before the
+    /// breaker re-arms itself.
+    pub settle_ledgers: u32,
+    /// Ledgers the breaker may stay open before automatic re-arm is abandoned
+    /// in favour of escalation.
+    pub max_open_ledgers: u32,
+    /// `true` to enable the settle-based automatic re-arm for this asset.
+    pub auto_rearm: bool,
+}
+
+impl BreakerPolicy {
+    /// Sensible defaults: trip at 20 %, clear at 10 %, settle for 10 ledgers,
+    /// escalate after 1 000 ledgers, auto re-arm on.
+    ///
+    /// The deadband is half the trip threshold, which is wide enough that a
+    /// price oscillating either side of the trip line does not re-trip the
+    /// breaker the moment it clears.
+    pub fn default_policy() -> BreakerPolicy {
+        BreakerPolicy {
+            trip_bps: 2_000,
+            clear_bps: 1_000,
+            settle_ledgers: 10,
+            max_open_ledgers: 1_000,
+            auto_rearm: true,
+        }
+    }
+}
+
+/// A breaker's observable state.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct BreakerStatus {
+    /// `true` while the breaker is refusing submissions.
+    pub is_open: bool,
+    /// The configured policy.
+    pub policy: BreakerPolicy,
+    /// The deviation observed at the most recent evaluation, in bps.
+    pub last_deviation_bps: u32,
+    /// Consecutive ledgers the market has spent below `clear_bps`.
+    pub settle_ledgers: u32,
+    /// Ledgers the breaker has been open, or `0` when armed.
+    pub open_ledgers: u32,
+    /// `true` once the breaker has been open past `max_open_ledgers` and
+    /// automatic re-arm has been abandoned.
+    pub escalated: bool,
 }

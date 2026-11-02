@@ -47,6 +47,12 @@ pub fn weight_for_age(age_secs: u64, curve: &FreshnessCurve) -> u32 {
 
 /// Returns the curve for `asset`, or the default when none is configured.
 pub fn get_curve(env: &Env, asset: &Address) -> FreshnessCurve {
+    if !crate::feature_flags::on(env, crate::feature_flags::FRESHNESS_CURVE) {
+        return FreshnessCurve {
+            window_secs: DEFAULT_WINDOW_SECS,
+            min_weight: DEFAULT_MIN_WEIGHT,
+        };
+    }
     let key = DataKey::FreshnessCurve(asset.clone());
     match env.storage().persistent().get(&key) {
         Some(c) => {
@@ -72,6 +78,7 @@ pub fn set_curve(env: &Env, asset: Address, window_secs: u64, min_weight: u32) {
     if window_secs == 0 || window_secs > MAX_WINDOW_SECS || min_weight == 0 || min_weight > W_MAX {
         panic_with_error!(env, ErrorCode::InvalidConfiguration);
     }
+    crate::feature_flags::mark(env, crate::feature_flags::FRESHNESS_CURVE);
     let key = DataKey::FreshnessCurve(asset);
     env.storage().persistent().set(
         &key,
