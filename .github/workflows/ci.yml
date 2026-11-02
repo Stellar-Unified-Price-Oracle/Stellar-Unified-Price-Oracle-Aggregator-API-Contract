@@ -5,8 +5,21 @@ on:
     branches: [main]
   pull_request:
 
+permissions:
+  contents: read
+
 jobs:
+  # Runs first and blocks every other job: refuses any change that carries a
+  # known supply-chain payload (see docs/security/malware-incident-2026-10.md).
+  malware-scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Supply-chain malware scan
+        run: ./scripts/supply-chain-scan.sh
+
   build-and-test:
+    needs: malware-scan
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -40,6 +53,7 @@ jobs:
   # of truth in docs/protocol-compatibility.md; keep the two in sync.
   compatibility-matrix:
     name: Compatibility (${{ matrix.target }} / protocol ${{ matrix.protocol }} / sdk ${{ matrix.sdk }})
+    needs: malware-scan
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -93,6 +107,7 @@ jobs:
   # enough to run on every pull request. `make conformance` runs all four.
   conformance:
     name: Conformance, determinism, upgrade matrix, event snapshots
+    needs: malware-scan
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

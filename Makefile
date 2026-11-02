@@ -37,7 +37,7 @@
         mutation-gate mutation-per-module hermetic sast secret-scan \
         check-pins reproducible-build security rpc-gate indexer-trust \
         tx-review-gate redaction-gate trust-boundary source-count-bench \
-        endpoint-budgets retention-bench burst-capacity
+        endpoint-budgets retention-bench burst-capacity malware-scan
 
 all: build test
 
@@ -99,12 +99,16 @@ secret-scan:
 check-pins:
 	python3 -m services.pinned_deps.pin_check .
 
+# Supply-chain malware scan (PolinRider-style injected payloads). Reads only.
+malware-scan:
+	./scripts/supply-chain-scan.sh
+
 # Byte-reproducibility: two clean builds, compared digests.
 reproducible-build:
 	./scripts/reproducible-build.sh
 
 # Everything the three hardening issues gate on, plus their test suites.
-security: sast secret-scan check-pins
+security: malware-scan sast secret-scan check-pins
 	python3 -m pytest services/static_analysis services/secret_scan services/pinned_deps -q
 
 # #684: replay the RPC response fixture corpus. Fails if a documented
