@@ -114,6 +114,9 @@ fn build_candidate_aggregate(
 }
 
 fn read_bft_fault_tolerance(env: &Env) -> u32 {
+    if !crate::feature_flags::on(env, crate::feature_flags::BFT) {
+        return 0;
+    }
     env.storage()
         .persistent()
         .get(&DataKey::CfgBftFaultTolerance)
@@ -121,6 +124,9 @@ fn read_bft_fault_tolerance(env: &Env) -> u32 {
 }
 
 fn read_bft_aggregation_method(env: &Env) -> u32 {
+    if !crate::feature_flags::on(env, crate::feature_flags::BFT) {
+        return BftAggregationMethod::Median as u32;
+    }
     env.storage()
         .persistent()
         .get(&DataKey::CfgBftAggregationMethod)
@@ -137,6 +143,9 @@ fn enforce_commit_reveal_for_bft(env: &Env) {
 }
 
 fn read_commit_reveal_enabled(env: &Env) -> bool {
+    if !crate::feature_flags::on(env, crate::feature_flags::COMMIT_REVEAL) {
+        return false;
+    }
     env.storage()
         .persistent()
         .get(&DataKey::CommitRevealEnabled)
@@ -231,6 +240,7 @@ pub fn set_bft_parameters(env: &Env, fault_tolerance: u32, method: u32) {
     if method > BftAggregationMethod::TrimmedMean as u32 {
         panic_with_error!(env, ErrorCode::InvalidConfiguration);
     }
+    crate::feature_flags::mark(env, crate::feature_flags::BFT);
     env.storage()
         .persistent()
         .set(&DataKey::CfgBftFaultTolerance, &fault_tolerance);
@@ -413,7 +423,9 @@ pub fn submit_prices(env: &Env, source: Address, asset_prices: Vec<(Address, i12
 fn count_contributing_sources(env: &Env, asset: &Address, current_ledger: u32) -> u32 {
     let min_interval = {
         let key = DataKey::AssetMinSubmissionInterval(asset.clone());
-        if env.storage().persistent().has(&key) {
+        if crate::feature_flags::on(env, crate::feature_flags::ASSET_MIN_SUBMISSION_INTERVAL)
+            && env.storage().persistent().has(&key)
+        {
             env.storage()
                 .persistent()
                 .extend_ttl(&key, LEDGER_THRESHOLD, LEDGER_BUMP);
@@ -520,7 +532,7 @@ fn maybe_aggregate_after_submission(env: &Env, asset: &Address, current_ledger: 
 pub fn recompute_asset(env: &Env, asset: &Address) -> (i128, u32) {
     let current_ledger = env.ledger().sequence();
     let decimals = get_decimals(env);
-    aggregate_asset(env, asset, current_ledger, decimals);
+    aggregate_asset_mode(env, asset, current_ledger, decimals, true);
     match env
         .storage()
         .persistent()
@@ -533,6 +545,21 @@ pub fn recompute_asset(env: &Env, asset: &Address) -> (i128, u32) {
 
 /// Internal helper: re-aggregate all sources for a single asset and write history.
 fn aggregate_asset(env: &Env, asset: &Address, current_ledger: u32, decimals: u32) {
+    aggregate_asset_mode(env, asset, current_ledger, decimals, false);
+}
+
+/// `recompute` is set when no new submission arrived (a source-set change
+/// re-derives the aggregate). Per-source round metrics (latency samples and
+/// contribution scores) are skipped then: the submissions were already scored
+/// when first counted, and re-scoring them would double-count them, as well
+/// as rewrite two ledger entries per source per asset.
+fn aggregate_asset_mode(
+    env: &Env,
+    asset: &Address,
+    current_ledger: u32,
+    decimals: u32,
+    recompute: bool,
+) {
     let max_events = get_max_events_per_call(env);
     let mut event_count: u32 = 0;
 
@@ -614,7 +641,9 @@ fn aggregate_asset(env: &Env, asset: &Address, current_ledger: u32, decimals: u3
 
     let min_interval = {
         let key = DataKey::AssetMinSubmissionInterval(asset.clone());
-        if env.storage().persistent().has(&key) {
+        if crate::feature_flags::on(env, crate::feature_flags::ASSET_MIN_SUBMISSION_INTERVAL)
+            && env.storage().persistent().has(&key)
+        {
             env.storage()
                 .persistent()
                 .extend_ttl(&key, LEDGER_THRESHOLD, LEDGER_BUMP);
@@ -638,6 +667,12 @@ fn aggregate_asset(env: &Env, asset: &Address, current_ledger: u32, decimals: u3
     let comparison = crate::source_comparison::is_enabled(env, asset);
     let mut admitted_sources: Vec<Address> = Vec::new(env);
     let mut admitted_prices: Vec<i128> = Vec::new(env);
+    // #489: the freshness window depends only on the asset, so resolve it
+    // once rather than once per source.
+    let (fresh_window, _) = crate::freshness_quorum::window_for(env, asset);
+    // #298: (source, price, submission ledger) of every submission read
+    // below, reused by contribution scoring instead of reading it again.
+    let mut scored: Vec<(Address, i128, u32)> = Vec::new(env);
 
     for i in 0..selected_count {
         let src = selected_sources.get_unchecked(i);
@@ -679,6 +714,9 @@ fn aggregate_asset(env: &Env, asset: &Address, current_ledger: u32, decimals: u3
         let sub_key = DataKey::Submission(asset.clone(), src.clone());
         let sub: Option<PriceEntry> = env.storage().persistent().get(&sub_key);
         if let Some(entry_data) = sub {
+            if !recompute {
+                scored.push_back((src.clone(), entry_data.price, entry_data.last_updated));
+            }
             // Skip prices flagged for correlation violations.
             if crate::correlation::is_correlation_flagged(env, &src, asset) {
                 continue;
@@ -701,6 +739,12 @@ fn aggregate_asset(env: &Env, asset: &Address, current_ledger: u32, decimals: u3
                     .saturating_sub(entry_data.ledger_timestamp)
                     > policy.freshness_secs
             {
+                continue;
+            }
+            // #489: a submission outside the asset's freshness window does not
+            // count toward quorum, and is reported as stale.
+            if !crate::freshness_quorum::is_fresh(env, &entry_data, fresh_window) {
+                stale_sources += 1;
                 continue;
             }
             if let Some(round) = dq_round.as_ref() {
@@ -892,6 +936,16 @@ fn aggregate_asset(env: &Env, asset: &Address, current_ledger: u32, decimals: u3
                     version: 0,
                 });
 
+            // S5: a published aggregate never becomes less final. Only a
+            // recompute after a source left can rebuild from older
+            // submissions; it keeps the published timestamp rather than
+            // moving it backwards.
+            let latest_timestamp = if recompute {
+                latest_timestamp.max(prev_aggregate.timestamp)
+            } else {
+                latest_timestamp
+            };
+
             // Increment version only when the price actually changes (#252).
             let new_version = if median_price != prev_aggregate.price {
                 prev_aggregate.version.saturating_add(1)
@@ -960,14 +1014,16 @@ fn aggregate_asset(env: &Env, asset: &Address, current_ledger: u32, decimals: u3
             for i in 0..contributing_sources {
                 let src = valid_sources.get_unchecked(i);
                 let sub_ledger = valid_sub_ledgers.get_unchecked(i);
-                crate::latency::record_counted(
-                    env,
-                    &src,
-                    asset,
-                    sub_ledger,
-                    current_ledger,
-                    deferral,
-                );
+                if !recompute {
+                    crate::latency::record_counted(
+                        env,
+                        &src,
+                        asset,
+                        sub_ledger,
+                        current_ledger,
+                        deferral,
+                    );
+                }
                 contributors.push_back(crate::types::ProvenanceEntry {
                     source: src,
                     price: valid_prices.get_unchecked(i),
@@ -1117,27 +1173,19 @@ fn aggregate_asset(env: &Env, asset: &Address, current_ledger: u32, decimals: u3
                 .publish(env);
             }
 
-            // ── #298: Update contribution quality scores for all contributing sources ──
-            let oracle_sources_for_quality = read_oracle_sources(env);
-            let nsrc = oracle_sources_for_quality.sources.len();
-            for qi in 0..nsrc {
-                let src = oracle_sources_for_quality.sources.get_unchecked(qi);
-                let sub_key = DataKey::Submission(asset.clone(), src.clone());
-                if let Some(entry) = env
-                    .storage()
-                    .persistent()
-                    .get::<DataKey, crate::types::PriceEntry>(&sub_key)
-                {
-                    crate::contribution_quality::update_contribution_quality(
-                        env,
-                        &src,
-                        asset,
-                        entry.price,
-                        median_price,
-                        entry.last_updated,
-                        current_ledger,
-                    );
-                }
+            // ── #298: Update contribution quality scores ──────────────────────
+            // Scores every source whose submission was read above (empty on a
+            // recompute), from the values already in hand.
+            for (src, price, last_updated) in scored.iter() {
+                crate::contribution_quality::update_contribution_quality(
+                    env,
+                    &src,
+                    asset,
+                    price,
+                    median_price,
+                    last_updated,
+                    current_ledger,
+                );
             }
 
             // ── #297: Invoke registered price callbacks (fault-isolated) ─────────────
@@ -1267,12 +1315,12 @@ pub fn submit_price(
     source.require_auth();
     check_source(env, &source);
     check_registered_asset(env, &asset);
-    
+
     // Check if asset is disabled
     if crate::admin::is_asset_disabled(env, &asset) {
         panic_with_error!(env, ErrorCode::AssetDisabled);
     }
-    
+
     crate::freeze::check_not_frozen(env, &asset);
     check_source_asset(env, &source, &asset);
     enforce_commit_reveal_for_bft(env);
@@ -1383,12 +1431,12 @@ pub fn submit_price_with_volume(
     source.require_auth();
     check_source(env, &source);
     check_registered_asset(env, &asset);
-    
+
     // Check if asset is disabled
     if crate::admin::is_asset_disabled(env, &asset) {
         panic_with_error!(env, ErrorCode::AssetDisabled);
     }
-    
+
     crate::freeze::check_not_frozen(env, &asset);
     check_source_asset(env, &source, &asset);
     enforce_commit_reveal_for_bft(env);
@@ -1641,12 +1689,12 @@ pub fn get_price(env: &Env, asset: Address, max_age: u64) -> Option<AggregatePri
     // ─────────────────────────────────────────────────────────────────────────────
 
     check_registered_asset(env, &asset);
-    
+
     // Check if asset is disabled: disabled assets cannot serve current prices
     if crate::admin::is_asset_disabled(env, &asset) {
         panic_with_error!(env, ErrorCode::AssetDisabled);
     }
-    
+
     let current_ledger = env.ledger().sequence();
     let ledger_time = env.ledger().timestamp();
     let min_sources = crate::policy::effective_policy(env, &asset).min_sources;
@@ -1824,12 +1872,12 @@ pub fn get_price_with_confidence(env: &Env, asset: Address) -> Option<(Aggregate
 
 pub fn get_source_price(env: &Env, asset: Address, source: Address) -> PriceEntry {
     check_registered_asset(env, &asset);
-    
+
     // Check if asset is disabled
     if crate::admin::is_asset_disabled(env, &asset) {
         panic_with_error!(env, ErrorCode::AssetDisabled);
     }
-    
+
     check_source(env, &source);
     let key = DataKey::Submission(asset.clone(), source.clone());
     if let Some(entry) = env.storage().persistent().get::<_, PriceEntry>(&key) {
@@ -1854,12 +1902,12 @@ pub fn get_source_price(env: &Env, asset: Address, source: Address) -> PriceEntr
 
 pub fn get_all_prices(env: &Env, asset: Address) -> Vec<PriceEntry> {
     check_registered_asset(env, &asset);
-    
+
     // Check if asset is disabled
     if crate::admin::is_asset_disabled(env, &asset) {
         panic_with_error!(env, ErrorCode::AssetDisabled);
     }
-    
+
     // Read the sources list once; iterate without extra reads or writes per entry.
     let oracle_sources: OracleSources = read_oracle_sources(env);
     let mut prices: Vec<PriceEntry> = Vec::new(env);
@@ -2969,6 +3017,7 @@ pub fn submit_price_merkle(
 pub fn set_commit_reveal_enabled(env: &Env, enabled: bool) {
     let admin = get_admin(env);
     admin.require_auth();
+    crate::feature_flags::mark(env, crate::feature_flags::COMMIT_REVEAL);
     env.storage()
         .persistent()
         .set(&DataKey::CommitRevealEnabled, &enabled);
@@ -2976,6 +3025,9 @@ pub fn set_commit_reveal_enabled(env: &Env, enabled: bool) {
 
 /// Returns whether standalone commit-reveal mode is enabled.
 pub fn get_commit_reveal_enabled(env: &Env) -> bool {
+    if !crate::feature_flags::on(env, crate::feature_flags::COMMIT_REVEAL) {
+        return false;
+    }
     env.storage()
         .persistent()
         .get(&DataKey::CommitRevealEnabled)

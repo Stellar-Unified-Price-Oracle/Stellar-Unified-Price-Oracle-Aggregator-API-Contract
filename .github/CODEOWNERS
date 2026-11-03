@@ -15,3 +15,14 @@
 # integrations maintainers; S3/S4 fall back to the default owners above.
 /docs/integrations/                 @stellar-oracle/integrations
 /.github/ISSUE_TEMPLATE/integration-report.yml  @stellar-oracle/integrations
+
+# Supply-chain hardening (see docs/security/malware-incident-2026-10.md).
+# Changes to anything that can execute code on a contributor's machine or in CI
+# need a maintainer's review.
+/.github/                           @stellar-oracle/maintainers
+/.husky/                            @stellar-oracle/maintainers
+/.devcontainer/                     @stellar-oracle/maintainers
+/scripts/                           @stellar-oracle/maintainers
+**/package.json                     @stellar-oracle/maintainers
+**/package-lock.json                @stellar-oracle/maintainers
+/.gitignore                         @stellar-oracle/maintainers

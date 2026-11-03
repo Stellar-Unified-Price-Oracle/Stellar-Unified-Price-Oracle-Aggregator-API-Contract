@@ -390,14 +390,7 @@ pub enum ErrorCode {
     StorageTierMigrationFailed = 174,
 
     // ── 175–179: Subscription auto-renewal (#289) ─────────────────────────────
-    /// A renewal authorization was replayed after it had already been consumed.
-    RenewalAuthorizationReplay = 175,
-    /// No single-use renewal authorization exists for the requested period.
-    RenewalAuthorizationMissing = 176,
-    /// The consumer has no standing auto-renewal authorization.
-    AutoRenewalNotEnabled = 177,
-    /// The subscription was cancelled or superseded, so it cannot renew.
-    AutoRenewalCancelled = 178,
+    // 175–178 are the auto-renewal codes 159–162 above (duplicate removed).
     /// The consumer's pre-approved allowance would be exceeded by this renewal.
     AutoRenewalAllowanceExceeded = 179,
 
@@ -411,18 +404,97 @@ pub enum ErrorCode {
     /// The participant equivocated inside a round and was penalized.
     RoundEquivocation = 183,
 
-    // ── 184–187: Derived price feeds (#478) ────────────────────────────────────
+    // ── 184, 195–197: Derived price feeds (#478; 185–187 were already taken) ────────────────────────────────────
     /// A derived feed was requested with a zero denominator.
     DerivedFeedZeroDenominator = 184,
     /// One (or more) of the requested pair/triplet is unknown or has no price.
-    UnknownDerivedPair = 185,
+    UnknownDerivedPair = 195,
     /// The requested derivation would form a cycle in the derivation graph.
-    DerivedFeedCycle = 186,
+    DerivedFeedCycle = 196,
     /// The derivation graph depth bound would be exceeded.
-    DerivedFeedDepthExceeded = 187,
+    DerivedFeedDepthExceeded = 197,
 
-    // ── 190–194: Asset lifecycle management ────────────────────────────────────
+    // ── 198: Asset lifecycle management (190 was already taken) ────────────────────────────────────
     /// The asset is currently disabled and cannot accept new submissions or aggregations.
     /// Historical prices remain queryable.
-    AssetDisabled = 190,
+    AssetDisabled = 198,
+
+    // ── 199: Source enrollment evidence (#764) ─────────────────────────────────
+    /// A source enrollment is missing one of its four required evidence values.
+    SourceEvidenceMissing = 199,
+
+    // Restored: variants dropped by broken merges (recovered from git history;
+    // renumbered from 200 where the original discriminant was taken).
+    /// The supplied risk tier discriminant is not one of the defined tiers.
+    InvalidRiskTier = 200,
+    /// A sanity relation names an asset that is not registered, or repeats an
+    /// asset in a way the relation kind cannot express (#488).
+    InvalidSanityRelation = 201,
+    /// A sanity tolerance is `0` or above `MAX_TOLERANCE_BPS` (#488).
+    InvalidSanityTolerance = 202,
+    /// The freshness window is `0` or above `MAX_FRESHNESS_WINDOW_SECS` (#489).
+    InvalidFreshnessWindow = 203,
+    /// A scorecard window/configuration value is outside its documented bounds
+    /// (#490).
+    InvalidScorecardConfig = 204,
+    /// The supplied ratio for a peg relation has a zero or negative denominator
+    /// (#488).
+    InvalidSanityRatio = 205,
+    /// A heartbeat was submitted while the dead-man switch is not armed.
+    DeadManDisabled = 206,
+    /// The dead-man switch is not currently in the degraded state, so there is
+    /// nothing to recover from.
+    NotDegraded = 207,
+    /// The contract is in the dead-man degraded state: submissions are
+    /// rejected and reads serve no value until the recovery path clears it.
+    OracleDegraded = 208,
+    /// Parameter write outside the registered bounds (#544).
+    ParamOutOfBounds = 166,
+    /// The source address or identity fingerprint was offboarded and may not
+    /// be registered again (#402).
+    IdentityRevoked = 209,
+    /// Parameter is not present in the registry (#544).
+    ParamNotRegistered = 167,
+    /// Critical proposal lacks a worst-case simulation (#545).
+    SimulationRequired = 168,
+    /// Proposal simulation flagged harmful impact (#545).
+    ProposalHarmful = 169,
+    /// A `String` parameter exceeds its documented byte cap (#506).
+    TextTooLong = 210,
+    /// A `String` parameter is empty, whitespace-padded, or contains a byte
+    /// outside the canonical printable-ASCII form (#506).
+    InvalidTextContent = 211,
+    /// A `Bytes` parameter exceeds its documented byte cap (#506).
+    PayloadTooLarge = 212,
+    /// A basket's weights do not sum to `BASKET_WEIGHT_SCALE`.
+    InvalidBasketWeights = 213,
+    /// A basket's constituent list is empty, oversized, or repeats an asset.
+    InvalidBasketComposition = 214,
+    /// A basket names itself as a constituent, directly or transitively.
+    RecursiveBasket = 215,
+    /// A constituent has no price, or one older than the staleness bound,
+    /// under the `Reject` policy.
+    BasketConstituentStale = 216,
+    /// No basket is configured at `basket`.
+    BasketNotFound = 217,
+    /// The breaker's clear threshold is not strictly below its trip threshold.
+    InvalidBreakerDeadband = 218,
+    /// The settle window or open-timeout is zero.
+    InvalidBreakerPolicy = 219,
+    /// The adaptive-quorum configuration violates its documented bounds.
+    InvalidAdaptiveQuorum = 220,
+    /// Too few volatility observations to classify the regime.
+    InsufficientVolatilitySamples = 221,
+
+    // ── Emergency council (#549) ──
+    /// No active emergency council, or its mandate has expired.
+    EmergencyExpired = 222,
+    /// The action is outside the emergency-only set, or mutates governance.
+    EmergencyActionForbidden = 223,
+    /// There is no emergency action awaiting ratification.
+    NoPendingEmergency = 224,
+    /// The ratification deadline for the pending emergency action has passed.
+    EmergencyRatificationExpired = 225,
+    /// An input argument is malformed or out of range.
+    InvalidInput = 226,
 }

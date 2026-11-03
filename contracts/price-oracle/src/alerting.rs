@@ -7,7 +7,7 @@
 //! maps oracle impact levels to response roles, pause authority,
 //! communications requirements, and escalation deadlines.
 
-use soroban_sdk::{Address, Env, Symbol};
+use soroban_sdk::{contracttype, Address, Env, String, Symbol, Vec};
 
 use crate::events::PriceDeviationAlertEvent;
 use crate::storage::LEDGER_BUMP;
@@ -17,7 +17,8 @@ use crate::types::DataKey;
 const MAX_INCIDENT_ALERTS: u32 = 32;
 
 /// A single redacted alert record captured for incident reproduction.
-#[derive(Clone)]
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct IncidentAlertRecord {
     /// Asset the alert was raised for.
     pub asset: Address,
@@ -36,7 +37,8 @@ pub struct IncidentAlertRecord {
 /// Contains only the data required to reproduce a source incident: the alert
 /// history, timestamps (ledger sequences), and the source version. Credentials
 /// and unrelated user data are never included.
-#[derive(Clone)]
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct IncidentEvidenceBundle {
     /// Source version string (e.g. contract build identifier).
     pub source_version: String,
@@ -110,13 +112,7 @@ fn record_deviation_alert(
         .extend_ttl(&key, 300000, LEDGER_BUMP);
 
     // Append to the bounded alert history used by the incident evidence bundle.
-    append_alert_history(
-        env,
-        asset,
-        our_price,
-        reference_price,
-        deviation_bps,
-    );
+    append_alert_history(env, asset, our_price, reference_price, deviation_bps);
 
     PriceDeviationAlertEvent {
         asset: asset.clone(),
@@ -240,6 +236,7 @@ pub fn register_reference_oracle(env: &Env, asset: Address, reference_oracle: Ad
 ///
 /// `Recovered` is terminal for a given incident; a new outage opens a new
 /// incident record so history is never overwritten.
+#[contracttype]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum OutageState {
     /// Source is healthy; no open incident.
@@ -257,6 +254,7 @@ pub enum OutageState {
 /// Persisted incident record for a source outage.
 ///
 /// Retained after recovery so the incident history is never lost.
+#[contracttype]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct OutageIncident {
     /// Monotonic incident id (per asset).
@@ -533,7 +531,9 @@ pub fn decision_authority_for_deviation(deviation_bps: u32) -> SeverityPolicy {
 pub fn declare_incident(env: &Env, asset: Address, deviation_bps: u32) -> SeverityPolicy {
     let policy = decision_authority_for_deviation(deviation_bps);
     let key = DataKey::AlertLastPrice(asset.clone());
-    env.storage().persistent().set(&key, &(policy.severity.rank() as i128));
+    env.storage()
+        .persistent()
+        .set(&key, &(policy.severity.rank() as i128));
     env.storage()
         .persistent()
         .extend_ttl(&key, 300000, LEDGER_BUMP);
@@ -593,14 +593,38 @@ mod tabletop_tests {
     /// Boundary conditions map to exactly one severity each.
     #[test]
     fn tabletop_deviation_boundaries_map_to_expected_severity() {
-        assert_eq!(IncidentSeverity::from_deviation_bps(0), IncidentSeverity::Sev4);
-        assert_eq!(IncidentSeverity::from_deviation_bps(249), IncidentSeverity::Sev4);
-        assert_eq!(IncidentSeverity::from_deviation_bps(250), IncidentSeverity::Sev3);
-        assert_eq!(IncidentSeverity::from_deviation_bps(999), IncidentSeverity::Sev3);
-        assert_eq!(IncidentSeverity::from_deviation_bps(1_000), IncidentSeverity::Sev2);
-        assert_eq!(IncidentSeverity::from_deviation_bps(4_999), IncidentSeverity::Sev2);
-        assert_eq!(IncidentSeverity::from_deviation_bps(5_000), IncidentSeverity::Sev1);
-        assert_eq!(IncidentSeverity::from_deviation_bps(10_000), IncidentSeverity::Sev1);
+        assert_eq!(
+            IncidentSeverity::from_deviation_bps(0),
+            IncidentSeverity::Sev4
+        );
+        assert_eq!(
+            IncidentSeverity::from_deviation_bps(249),
+            IncidentSeverity::Sev4
+        );
+        assert_eq!(
+            IncidentSeverity::from_deviation_bps(250),
+            IncidentSeverity::Sev3
+        );
+        assert_eq!(
+            IncidentSeverity::from_deviation_bps(999),
+            IncidentSeverity::Sev3
+        );
+        assert_eq!(
+            IncidentSeverity::from_deviation_bps(1_000),
+            IncidentSeverity::Sev2
+        );
+        assert_eq!(
+            IncidentSeverity::from_deviation_bps(4_999),
+            IncidentSeverity::Sev2
+        );
+        assert_eq!(
+            IncidentSeverity::from_deviation_bps(5_000),
+            IncidentSeverity::Sev1
+        );
+        assert_eq!(
+            IncidentSeverity::from_deviation_bps(10_000),
+            IncidentSeverity::Sev1
+        );
     }
 
     /// Escalation deadlines tighten monotonically with severity.

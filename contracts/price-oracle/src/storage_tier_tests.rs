@@ -14,7 +14,7 @@ use soroban_sdk::{
 };
 
 use crate::events::{StorageTierChangedEvent, StorageTierMigratedEvent};
-use crate::history::LEDGERS_PER_WEEK;
+use crate::history::LEDGERS_PER_BUCKET;
 use crate::test_helpers::*;
 use crate::types::{
     DataKey, HistoryStorageTier, PriceHistoryEntry, StorageTierDowngradeRequest,
@@ -226,7 +226,7 @@ fn test_set_tier_unauthorized() {
 // ─────────────────────────────────────────────────────────────────────────────
 
 /// The admin alone cannot downgrade: `set_asset_storage_tier(.., Temporary)` is
-/// refused with `StorageTierDowngradeNotReady` (#156).
+/// refused with `StorageTierDowngradeNotReady` (#172).
 #[test]
 fn test_downgrade_without_approval_is_rejected() {
     let e = Env::default();
@@ -236,7 +236,7 @@ fn test_downgrade_without_approval_is_rejected() {
 
     expect_contract_err(
         client.try_set_asset_storage_tier(&asset, &HistoryStorageTier::Temporary),
-        156,
+        172,
     );
 
     // Tier is untouched.
@@ -440,7 +440,7 @@ fn test_downgrade_does_not_erase_stored_history() {
 
     // The bucket entry was NOT deleted — it is still physically there, and a
     // migration (an explicit, non-destructive copy) finds it again.
-    let bucket_key = DataKey::HistoryBucket(asset.clone(), 100u32 / LEDGERS_PER_WEEK);
+    let bucket_key = DataKey::HistoryBucket(asset.clone(), 100u32 / LEDGERS_PER_BUCKET);
     let still_there: Option<Vec<PriceHistoryEntry>> = e.as_contract(&client.address, || {
         e.storage().persistent().get(&bucket_key)
     });
@@ -546,7 +546,7 @@ fn test_no_cross_tier_fallback_persistent_value_hidden_by_temporary_tier() {
     let asset = register_test_asset(&e, &client);
     ledger_default(&e, 100, 1_000);
 
-    // Move the asset to Persistent so the write below lands in the week bucket.
+    // Move the asset to Persistent so the write below lands in a shard bucket.
     client.set_asset_storage_tier(&asset, &HistoryStorageTier::Persistent);
 
     // Write an entry that exists ONLY in the persistent week bucket.

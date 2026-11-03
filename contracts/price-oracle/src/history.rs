@@ -12,14 +12,19 @@ use crate::types::{
 // #251 — History sharding constants
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// Number of ledgers per week bucket used by history sharding (#251).
-/// At ~5 seconds per ledger: 7 × 24 × 3600 / 5 = 120 960 ≈ 120 000.
-pub const LEDGERS_PER_WEEK: u32 = 120_960;
+/// Number of ledgers covered by one history shard bucket (#251).
+///
+/// A bucket holds at most one entry per ledger, and Soroban caps a single
+/// ledger entry at 64 KiB. At ~131 bytes per history entry, 256 ledgers keep
+/// a full bucket near 34 KiB. (The original weekly bucket of 120 960 ledgers
+/// overflowed the cap after about 500 updates.) Smaller buckets also mean
+/// each history write rewrites less data.
+pub const LEDGERS_PER_BUCKET: u32 = 256;
 
-/// Derive the week-bucket index from a ledger sequence number.
+/// Derive the shard-bucket index from a ledger sequence number.
 #[inline]
-fn ledger_to_bucket(ledger: u32) -> u32 {
-    ledger / LEDGERS_PER_WEEK
+pub(crate) fn ledger_to_bucket(ledger: u32) -> u32 {
+    ledger / LEDGERS_PER_BUCKET
 }
 
 pub(crate) fn read_history_entry(
@@ -65,7 +70,7 @@ pub fn get_historical_price(env: &Env, asset: Address, ledger: u32) -> PriceHist
         return env.storage().temporary().get(&key).unwrap();
     }
 
-    // Transparent shard fallback: search the correct week bucket.
+    // Transparent shard fallback: search the correct shard bucket.
     let bucket_idx = ledger_to_bucket(ledger);
     let bucket_key = DataKey::HistoryBucket(asset.clone(), bucket_idx);
     if env.storage().persistent().has(&bucket_key) {
@@ -262,6 +267,9 @@ pub const DEFAULT_COMPACTION_THRESHOLD_BPS: u32 = 0;
 /// Reads the configured compaction threshold in basis points.
 /// Returns 0 when not set (compaction disabled).
 pub fn get_compaction_threshold_bps(env: &Env) -> u32 {
+    if !crate::feature_flags::on(env, crate::feature_flags::COMPACTION_THRESHOLD) {
+        return DEFAULT_COMPACTION_THRESHOLD_BPS;
+    }
     env.storage()
         .persistent()
         .get(&DataKey::CfgCompactionThresholdBps)
@@ -271,6 +279,7 @@ pub fn get_compaction_threshold_bps(env: &Env) -> u32 {
 /// Sets the compaction threshold in basis points. 0 disables compaction.
 /// Requires admin authentication (checked by the caller in lib.rs).
 pub fn set_compaction_threshold_bps(env: &Env, threshold_bps: u32) {
+    crate::feature_flags::mark(env, crate::feature_flags::COMPACTION_THRESHOLD);
     env.storage()
         .persistent()
         .set(&DataKey::CfgCompactionThresholdBps, &threshold_bps);
@@ -438,19 +447,19 @@ pub fn get_compaction_metadata(env: &Env, asset: Address) -> Option<CompactionMe
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// #251 — History Sharding (weekly time buckets)
+// #251 — History Sharding (256-ledger buckets)
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// Writes a `PriceHistoryEntry` into the appropriate weekly shard bucket for an asset.
+/// Writes a `PriceHistoryEntry` into the appropriate shard bucket for an asset.
 ///
-/// The bucket is identified by `ledger / LEDGERS_PER_WEEK`. This mirrors the
+/// The bucket is identified by `ledger / LEDGERS_PER_BUCKET`. This mirrors the
 /// existing per-ledger temporary storage write so both paths co-exist during
 /// the migration window. Consumers transparently benefit through
 /// `get_historical_price` which checks both the legacy and shard paths.
 ///
 /// Stored as persistent (not temporary) storage to survive TTL expirations on
 /// individual entries — the bucket itself carries one expiry that covers the
-/// entire weekly set.
+/// entire bucket.
 pub fn write_history_shard(env: &Env, asset: &Address, entry: &PriceHistoryEntry) {
     let bucket_idx = ledger_to_bucket(entry.ledger);
     let bucket_key = DataKey::HistoryBucket(asset.clone(), bucket_idx);
@@ -619,7 +628,7 @@ pub fn migrate_history_to_shards(env: &Env, asset: Address) -> u32 {
     migrated
 }
 
-/// Returns all entries from the weekly bucket containing `ledger`.
+/// Returns all entries from the shard bucket containing `ledger`.
 ///
 /// Transparent to consumers — they do not need to know which bucket to query.
 pub fn get_bucket_entries(env: &Env, asset: Address, ledger: u32) -> Vec<PriceHistoryEntry> {

@@ -77,6 +77,7 @@ pub fn set_submission_threshold_trigger(env: &Env, asset: Address, threshold: u3
     admin.require_auth();
     check_registered_asset(env, &asset);
 
+    crate::feature_flags::mark(env, crate::feature_flags::TRIGGERS);
     let key = DataKey::TriggerSubmissionThreshold(asset.clone());
     env.storage().persistent().set(&key, &threshold);
     env.storage()
@@ -92,6 +93,9 @@ pub fn set_submission_threshold_trigger(env: &Env, asset: Address, threshold: u3
 }
 
 pub fn get_submission_threshold_trigger(env: &Env, asset: Address) -> u32 {
+    if !crate::feature_flags::on(env, crate::feature_flags::TRIGGERS) {
+        return 0;
+    }
     let key = DataKey::TriggerSubmissionThreshold(asset);
     if env.storage().persistent().has(&key) {
         env.storage()
@@ -113,6 +117,7 @@ pub fn set_deviation_trigger(env: &Env, asset: Address, deviation_bps: u32) {
         panic_with_error!(env, ErrorCode::InvalidConfiguration);
     }
 
+    crate::feature_flags::mark(env, crate::feature_flags::TRIGGERS);
     let key = DataKey::TriggerDeviationBps(asset.clone());
     env.storage().persistent().set(&key, &deviation_bps);
     env.storage()
@@ -128,6 +133,9 @@ pub fn set_deviation_trigger(env: &Env, asset: Address, deviation_bps: u32) {
 }
 
 pub fn get_deviation_trigger(env: &Env, asset: Address) -> u32 {
+    if !crate::feature_flags::on(env, crate::feature_flags::TRIGGERS) {
+        return 0;
+    }
     let key = DataKey::TriggerDeviationBps(asset);
     if env.storage().persistent().has(&key) {
         env.storage()

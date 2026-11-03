@@ -47,6 +47,7 @@ pub fn emergency_pause(env: &Env, reason: String, auto_unpause_ledgers: u32) {
     };
 
     // Set pause flag
+    crate::feature_flags::mark(env, crate::feature_flags::PAUSE);
     env.storage()
         .persistent()
         .set(&DataKey::CfgPauseFlag, &true);

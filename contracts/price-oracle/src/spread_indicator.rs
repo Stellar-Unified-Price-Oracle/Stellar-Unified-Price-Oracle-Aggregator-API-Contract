@@ -137,7 +137,7 @@ pub fn compute_and_store(
 
     // Nearest-rank quartile indices (same formula as confidence_band.rs).
     let q1_idx = (n - 1) / 4;
-    let q3_idx = (3 * (n - 1) + 3) / 4; // ceil(3*(n-1)/4)
+    let q3_idx = (3 * (n - 1)).div_ceil(4); // ceil(3*(n-1)/4)
     let q3_idx = q3_idx.min(n - 1);
 
     let q1 = sorted.get_unchecked(q1_idx);

@@ -14,12 +14,30 @@ jobs:
     timeout-minutes: 120
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: dtolnay/rust-toolchain@1.91.0
+        with:
+          targets: wasm32v1-none
       - uses: Swatinem/rust-cache@v2
       - uses: taiki-e/install-action@v2
         with:
           tool: cargo-mutants
+      # Tests embed the built WASM (include_bytes!); without it the unmutated
+      # baseline does not compile and nothing is tested. mutants.toml sets
+      # copy_target so the build reaches cargo-mutants' scratch copy.
+      - name: Build contract WASM
+        run: make build
+      # PRs only mutate changed code to keep duration bounded; the weekly
+      # schedule covers the whole tree.
+      - name: Limit to PR diff
+        if: github.event_name == 'pull_request'
+        run: |
+          git diff origin/${{ github.base_ref }}...HEAD > pr.diff
+          echo "DIFF_ARGS=--in-diff pr.diff" >> "$GITHUB_ENV"
       - name: Security-critical mutants (100% kill required)
+        env:
+          MUTANTS_ARGS: ${{ env.DIFF_ARGS }}
         run: ./scripts/mutation-gate.sh critical
       - uses: actions/upload-artifact@v4
         if: always()
@@ -39,10 +57,17 @@ jobs:
         with:
           fetch-depth: 0
       - uses: dtolnay/rust-toolchain@1.91.0
+        with:
+          targets: wasm32v1-none
       - uses: Swatinem/rust-cache@v2
       - uses: taiki-e/install-action@v2
         with:
           tool: cargo-mutants
+      # Tests embed the built WASM (include_bytes!); without it the unmutated
+      # baseline does not compile and nothing is tested. mutants.toml sets
+      # copy_target so the build reaches cargo-mutants' scratch copy.
+      - name: Build contract WASM
+        run: make build
       # PRs only mutate changed code to keep duration bounded; the weekly
       # schedule covers the whole tree.
       - name: Limit to PR diff
@@ -89,15 +114,30 @@ jobs:
         with:
           fetch-depth: 0
       - uses: dtolnay/rust-toolchain@1.91.0
+        with:
+          targets: wasm32v1-none
       - uses: Swatinem/rust-cache@v2
       - uses: taiki-e/install-action@v2
         with:
           tool: cargo-mutants
+      # Tests embed the built WASM (include_bytes!); without it the unmutated
+      # baseline does not compile and nothing is tested. mutants.toml sets
+      # copy_target so the build reaches cargo-mutants' scratch copy.
+      - name: Build contract WASM
+        run: make build
+      # PRs only mutate changed code to keep duration bounded; the weekly
+      # schedule covers the whole tree.
+      - name: Limit to PR diff
+        if: github.event_name == 'pull_request'
+        run: |
+          git diff origin/${{ github.base_ref }}...HEAD > pr.diff
+          echo "DIFF_ARGS=--in-diff pr.diff" >> "$GITHUB_ENV"
       - name: Mutate one module and enforce its threshold
         env:
+          MUTANTS_ARGS: ${{ env.DIFF_ARGS }}
           # Scoped to a single module per job: this is what keeps the wall clock
           # inside budget while still scoring every guarded module.
-          MUTANTS_ARGS: --file contracts/price-oracle/src/${{ matrix.module }}.rs
+          PER_MODULE: ${{ matrix.module }}.rs
         run: |
           set -euo pipefail
           ./scripts/mutation-gate.sh per-module

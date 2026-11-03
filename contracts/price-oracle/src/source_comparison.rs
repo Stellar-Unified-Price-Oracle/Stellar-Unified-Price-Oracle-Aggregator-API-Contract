@@ -104,6 +104,7 @@ pub fn set_enabled(env: &Env, asset: Address, enabled: bool) {
     get_admin(env).require_auth();
     check_registered_asset(env, &asset);
     if enabled {
+        crate::feature_flags::mark(env, crate::feature_flags::SOURCE_COMPARISON);
         env.storage()
             .persistent()
             .set(&CmpKey::Enabled(asset.clone()), &true);
@@ -119,6 +120,9 @@ pub fn set_enabled(env: &Env, asset: Address, enabled: bool) {
 }
 
 pub fn is_enabled(env: &Env, asset: &Address) -> bool {
+    if !crate::feature_flags::on(env, crate::feature_flags::SOURCE_COMPARISON) {
+        return false;
+    }
     env.storage()
         .persistent()
         .has(&CmpKey::Enabled(asset.clone()))

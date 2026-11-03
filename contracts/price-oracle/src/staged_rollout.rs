@@ -181,7 +181,9 @@ pub fn advance(env: &Env, percent: u32) {
 pub fn complete(env: &Env) {
     require_admin(env);
     let r = load(env);
-    env.storage().persistent().set(&RolloutKey::Baseline, &r.candidate);
+    env.storage()
+        .persistent()
+        .set(&RolloutKey::Baseline, &r.candidate);
     env.storage().persistent().remove(&RolloutKey::Active);
     emit(env, RolloutPhase::Completed, &r);
 }

@@ -45,7 +45,9 @@
 //! - `AlertLastPrice(asset)` → last recorded price (i128) for deviation comparison.
 //! - `AlertDelivery(delivery_id)` → `DeliveryRecord` tracking attempts/ack state.
 
-use soroban_sdk::{panic_with_error, Address, Bytes, Env, IntoVal, Symbol, Vec};
+use soroban_sdk::{
+    contracttype, panic_with_error, xdr::ToXdr, Address, Bytes, Env, IntoVal, Symbol, Vec,
+};
 
 use crate::events::{AlertSubscribedEvent, AlertSubscriptionExpiredEvent, AlertTriggeredEvent};
 use crate::storage::{get_admin, LEDGER_BUMP, LEDGER_THRESHOLD};
@@ -79,8 +81,7 @@ pub fn compute_delivery_id(
     buf.extend_from_array(&new_price.to_be_bytes());
     buf.extend_from_array(&ledger.to_be_bytes());
     // Mix in the asset address bytes so distinct assets never collide.
-    let asset_bytes = asset.to_string();
-    buf.append(&Bytes::from_slice(env, asset_bytes.to_string().as_bytes()));
+    buf.append(&asset.clone().to_xdr(env));
     buf
 }
 
@@ -280,6 +281,7 @@ pub fn dispatch_alerts(env: &Env, asset: &Address, old_price: i128, new_price: i
             AlertSubscriptionExpiredEvent {
                 consumer: sub.consumer.clone(),
                 asset: sub.asset.clone(),
+                expired_ledger: current_ledger,
             }
             .publish(env);
             any_removed = true;
@@ -300,7 +302,8 @@ pub fn dispatch_alerts(env: &Env, asset: &Address, old_price: i128, new_price: i
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 /// Reference to a subscription stored in the enumeration list.
-#[derive(Clone)]
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct AlertSubscriptionRef {
     pub consumer: Address,
     pub asset: Address,

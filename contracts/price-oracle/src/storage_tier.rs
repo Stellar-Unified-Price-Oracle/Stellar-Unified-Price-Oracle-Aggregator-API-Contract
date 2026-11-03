@@ -44,7 +44,7 @@
 use soroban_sdk::{panic_with_error, Address, Env, Vec};
 
 use crate::events::{StorageTierChangedEvent, StorageTierMigratedEvent};
-use crate::history::{write_history_shard, LEDGERS_PER_WEEK};
+use crate::history::write_history_shard;
 use crate::storage::{check_registered_asset, get_admin, LEDGER_BUMP, LEDGER_THRESHOLD};
 use crate::types::{
     DataKey, ErrorCode, HistoryStorageTier, PriceHistoryEntry, StorageTierDowngradeRequest,
@@ -72,10 +72,10 @@ fn temporary_ttl() -> u32 {
     TEMPORARY_RETENTION_LEDGERS.min(LEDGER_THRESHOLD)
 }
 
-/// Week-bucket index a ledger falls into.
+/// Shard-bucket index a ledger falls into (same mapping as `history.rs`).
 #[inline]
 fn ledger_to_bucket(ledger: u32) -> u32 {
-    ledger / LEDGERS_PER_WEEK
+    crate::history::ledger_to_bucket(ledger)
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -84,6 +84,9 @@ fn ledger_to_bucket(ledger: u32) -> u32 {
 
 /// Returns the tier an asset's price history is written to. Default: temporary.
 pub fn get_asset_storage_tier(env: &Env, asset: &Address) -> HistoryStorageTier {
+    if !crate::feature_flags::on(env, crate::feature_flags::STORAGE_TIER) {
+        return HistoryStorageTier::Temporary;
+    }
     let key = DataKey::AssetStorageTier(asset.clone());
     match env
         .storage()
@@ -139,6 +142,7 @@ fn read_last_change_ledger(env: &Env, asset: &Address) -> u32 {
 }
 
 fn write_tier(env: &Env, asset: &Address, tier: HistoryStorageTier) {
+    crate::feature_flags::mark(env, crate::feature_flags::STORAGE_TIER);
     let key = DataKey::AssetStorageTier(asset.clone());
     env.storage().persistent().set(&key, &tier);
     env.storage()
@@ -516,7 +520,7 @@ pub fn write_history_entry(env: &Env, asset: &Address, entry: &PriceHistoryEntry
 /// Removes the entry from the asset's *configured* tier only: the temporary
 /// `DataKey::PriceHistory(asset, ledger)` key, or the matching
 /// `PriceHistoryEntry` inside the week-bucket vector at
-/// `DataKey::HistoryBucket(asset, ledger / LEDGERS_PER_WEEK)`. The vector is
+/// `DataKey::HistoryBucket(asset, ledger / LEDGERS_PER_BUCKET)`. The vector is
 /// shrunk and an emptied bucket key is removed rather than left behind.
 ///
 /// Silently does nothing when the entry is absent — it never panics, so the

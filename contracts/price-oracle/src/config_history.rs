@@ -169,6 +169,18 @@ fn apply_snapshot(env: &Env, snapshot: &ConfigSnapshot) {
     env.storage()
         .persistent()
         .set(&DataKey::CfgAggregationMethod, &snapshot.aggregation_method);
+    {
+        use crate::feature_flags as ff;
+        ff::mark(
+            env,
+            ff::TIMESTAMP_THRESHOLD
+                | ff::MAX_HISTORY_PER_ASSET
+                | ff::MAX_EVENTS_PER_CALL
+                | ff::MAX_AGGREGATION_SOURCES
+                | ff::MIN_SUBMISSION_INTERVAL
+                | ff::PAUSE,
+        );
+    }
     env.storage().persistent().set(
         &DataKey::CfgTimestampThreshold,
         &snapshot.timestamp_threshold,

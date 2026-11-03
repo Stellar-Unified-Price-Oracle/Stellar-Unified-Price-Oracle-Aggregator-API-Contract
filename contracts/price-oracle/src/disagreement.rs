@@ -91,7 +91,15 @@ pub fn compute(prices: &[i128]) -> (u32, u32) {
     let mut max_bps: u32 = 0;
     for i in 0..n {
         for j in (i + 1)..n {
-            let dev = (sorted[j] - sorted[i]).unsigned_abs() * 10_000u128 / (med as u128);
+            let diff = sorted[j].abs_diff(sorted[i]);
+            let med_u = med as u128;
+            let dev = match diff.checked_mul(10_000) {
+                Some(scaled) => scaled / med_u,
+                // Only reachable for diffs near i128::MAX; scaling the divisor
+                // instead keeps the result within a rounding step, and it is
+                // clamped to u32::MAX bps below anyway.
+                None => diff / (med_u / 10_000).max(1),
+            };
             let bps = dev.min(u32::MAX as u128) as u32;
             if m < cap {
                 devs[m] = bps;

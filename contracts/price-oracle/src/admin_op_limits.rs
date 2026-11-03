@@ -408,7 +408,10 @@ mod tests {
             }
             i += 1;
         }
-        assert_eq!(GOVERNANCE_ACTION_REGISTRY.len(), GovernanceActionKind::ALL.len());
+        assert_eq!(
+            GOVERNANCE_ACTION_REGISTRY.len(),
+            GovernanceActionKind::ALL.len()
+        );
     }
 
     #[test]

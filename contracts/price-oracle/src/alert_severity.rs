@@ -25,6 +25,15 @@
 //! but are not routed anywhere; they exist purely so operators can distinguish "no
 //! alert has ever fired" from "the last alert was below the warning line".
 //!
+//! ## Alert deduplication & grouping
+//!
+//! A storm of equivalent alerts must not page an operator once per occurrence.
+//! Alerts are grouped by the `(incident, asset, source)` triple: the first alert in
+//! a group opens an active incident, and every subsequent equivalent alert is folded
+//! into that incident, incrementing its event count while preserving each individual
+//! occurrence (ledger + movement) for audit. See [`record_alert`], [`get_incident`],
+//! and [`get_incident_occurrence`].
+
 //! ## Price quality status vocabulary
 //!
 //! Consumers need a stable, machine-readable view of how trustworthy a price is.
@@ -42,7 +51,7 @@
 //! this vocabulary. Clients MUST handle every variant explicitly and treat any
 //! unknown future discriminant as `Unavailable` (fail safe).
 
-use soroban_sdk::{panic_with_error, Address, Env, String};
+use soroban_sdk::{panic_with_error, Address, Env, String, Symbol, Vec};
 
 use crate::events::{LagAlertEvent, SeverityAlertEvent, SeverityThresholdsSetEvent};
 use crate::storage::{get_admin, LEDGER_BUMP, LEDGER_THRESHOLD};
@@ -98,6 +107,14 @@ impl PriceQualityStatus {
         }
     }
 }
+
+/// Default ingest-lag thresholds, in ledgers.
+///
+/// Warning fires when lag reaches ~30 ledgers (~2.5 min at 5s/ledger); page
+/// (Critical) fires at ~120 ledgers (~10 min). These are the actionable lines
+/// operators agreed on for the source-to-indexer and ledger-to-consumer paths.
+pub const DEFAULT_LAG_WARNING_LEDGERS: u32 = 30;
+pub const DEFAULT_LAG_CRITICAL_LEDGERS: u32 = 120;
 
 fn default_thresholds() -> SeverityThresholds {
     SeverityThresholds {
@@ -283,6 +300,151 @@ pub fn get_last_alert_severity(env: &Env, asset: Address) -> Option<AlertSeverit
         .get(&DataKey::LastAlertSeverity(asset))
 }
 
+// ─── Deduplication & grouping ───────────────────────────────────────────────────
+
+/// Records an alert occurrence, grouping it into an active incident keyed by
+/// `(incident, asset, source)`.
+///
+/// The first occurrence in a group opens a new active incident with an event
+/// count of `1`. Every subsequent equivalent occurrence is folded into the same
+/// incident: the count is incremented and the individual occurrence is appended
+/// to the incident's audit trail (see [`get_incident_occurrence`]). This means a
+/// storm of equivalent alerts yields exactly one active incident while retaining
+/// an accurate event count and per-occurrence audit records.
+///
+/// Returns the incident id (the `incident` symbol) so callers can correlate.
+pub fn record_alert(
+    env: &Env,
+    incident: Symbol,
+    asset: Address,
+    source: Symbol,
+    severity: AlertSeverity,
+    movement_bps: u32,
+) -> Symbol {
+    let key = DataKey::AlertIncident(incident.clone(), asset.clone(), source.clone());
+
+    let mut record = match env
+        .storage()
+        .persistent()
+        .get::<DataKey, AlertIncident>(&key)
+    {
+        Some(existing) => existing,
+        None => AlertIncident {
+            incident: incident.clone(),
+            asset: asset.clone(),
+            source: source.clone(),
+            severity,
+            event_count: 0,
+            first_ledger: env.ledger().sequence(),
+            last_ledger: env.ledger().sequence(),
+            active: true,
+        },
+    };
+
+    // Preserve the individual occurrence for audit before folding it in.
+    let occurrence = AlertOccurrence {
+        ledger: env.ledger().sequence(),
+        severity: severity as u32,
+        movement_bps,
+    };
+    let occ_key = DataKey::AlertOccurrence(
+        incident.clone(),
+        asset.clone(),
+        source.clone(),
+        record.event_count,
+    );
+    env.storage().persistent().set(&occ_key, &occurrence);
+    env.storage()
+        .persistent()
+        .extend_ttl(&occ_key, LEDGER_THRESHOLD, LEDGER_BUMP);
+
+    record.event_count = record.event_count.saturating_add(1);
+    record.last_ledger = env.ledger().sequence();
+    // Escalate the incident's severity to the highest seen in the group.
+    if (severity as u32) > (record.severity as u32) {
+        record.severity = severity;
+    }
+
+    env.storage().persistent().set(&key, &record);
+    env.storage()
+        .persistent()
+        .extend_ttl(&key, LEDGER_THRESHOLD, LEDGER_BUMP);
+
+    incident
+}
+
+/// Returns the grouped incident for `(incident, asset, source)`, or `None` if no
+/// alert has ever been recorded for that group.
+pub fn get_incident(
+    env: &Env,
+    incident: Symbol,
+    asset: Address,
+    source: Symbol,
+) -> Option<AlertIncident> {
+    let key = DataKey::AlertIncident(incident, asset, source);
+    let record = env
+        .storage()
+        .persistent()
+        .get::<DataKey, AlertIncident>(&key);
+    if record.is_some() {
+        env.storage()
+            .persistent()
+            .extend_ttl(&key, LEDGER_THRESHOLD, LEDGER_BUMP);
+    }
+    record
+}
+
+/// Returns the individual occurrence at `index` within a group's audit trail, or
+/// `None` if it was never recorded.
+pub fn get_incident_occurrence(
+    env: &Env,
+    incident: Symbol,
+    asset: Address,
+    source: Symbol,
+    index: u32,
+) -> Option<AlertOccurrence> {
+    let key = DataKey::AlertOccurrence(incident, asset, source, index);
+    env.storage().persistent().get(&key)
+}
+
+/// Returns the number of active incidents for `asset` across all sources.
+///
+/// Used by operators to confirm that a storm of equivalent alerts collapsed into
+/// a single active incident rather than one per occurrence.
+pub fn count_active_incidents(env: &Env, asset: Address) -> u32 {
+    let key = DataKey::ActiveIncidentCount(asset);
+    env.storage().persistent().get(&key).unwrap_or(0)
+}
+
+/// Marks the incident for `(incident, asset, source)` as resolved, decrementing
+/// the active-incident counter for the asset. Idempotent: resolving an already
+/// resolved (or unknown) incident is a no-op.
+pub fn resolve_incident(env: &Env, incident: Symbol, asset: Address, source: Symbol) {
+    let key = DataKey::AlertIncident(incident, asset.clone(), source);
+    if let Some(mut record) = env
+        .storage()
+        .persistent()
+        .get::<DataKey, AlertIncident>(&key)
+    {
+        if record.active {
+            record.active = false;
+            env.storage().persistent().set(&key, &record);
+            env.storage()
+                .persistent()
+                .extend_ttl(&key, LEDGER_THRESHOLD, LEDGER_BUMP);
+
+            let count_key = DataKey::ActiveIncidentCount(asset);
+            let current: u32 = env.storage().persistent().get(&count_key).unwrap_or(0);
+            env.storage()
+                .persistent()
+                .set(&count_key, &current.saturating_sub(1));
+            env.storage()
+                .persistent()
+                .extend_ttl(&count_key, LEDGER_THRESHOLD, LEDGER_BUMP);
+        }
+    }
+}
+
 // ─── Price quality status mapping ──────────────────────────────────────────────
 
 /// Maps the existing freshness/health signals for `asset` into the stable
@@ -298,20 +460,22 @@ pub fn get_last_alert_severity(env: &Env, asset: Address) -> Option<AlertSeverit
 /// * Last alert severity at `Warning` or above → `Degraded`.
 /// * Otherwise → `Fresh`.
 pub fn get_price_quality_status(env: &Env, asset: Address) -> PriceQualityStatus {
-    let price_key = DataKey::Price(asset.clone());
-    let price: Option<crate::types::PriceData> = env.storage().persistent().get(&price_key);
+    let price: Option<crate::types::AggregatePrice> = env
+        .storage()
+        .persistent()
+        .get(&DataKey::Aggregate(asset.clone()));
     let price = match price {
         Some(p) => p,
         None => return PriceQualityStatus::Unavailable,
     };
 
-    if price.corrected {
+    if crate::corrections::correction_count(env, &asset) > 0 {
         return PriceQualityStatus::Corrected;
     }
-}
 
     let now = env.ledger().timestamp();
-    if now > price.timestamp.saturating_add(price.max_age) {
+    let max_age = crate::admin::get_timestamp_threshold(env);
+    if now > price.timestamp.saturating_add(max_age) {
         return PriceQualityStatus::Stale;
     }
 
@@ -322,6 +486,110 @@ pub fn get_price_quality_status(env: &Env, asset: Address) -> PriceQualityStatus
         _ => PriceQualityStatus::Fresh,
     }
 }
+
+/// Returns the audit trail of occurrences for a group as a `Vec`, in recording
+/// order. Convenience wrapper over [`get_incident_occurrence`].
+pub fn get_incident_occurrences(
+    env: &Env,
+    incident: Symbol,
+    asset: Address,
+    source: Symbol,
+) -> Vec<AlertOccurrence> {
+    let mut out = Vec::new(env);
+    let count = match get_incident(env, incident.clone(), asset.clone(), source.clone()) {
+        Some(record) => record.event_count,
+        None => 0,
+    };
+    let mut i = 0;
+    while i < count {
+        if let Some(occ) =
+            get_incident_occurrence(env, incident.clone(), asset.clone(), source.clone(), i)
+        {
+            out.push_back(occ);
+        }
+        i += 1;
+    }
+    out
+}
+
+// ─── Ingest lag calibration ─────────────────────────────────────────────────────
+
+/// Warning/page thresholds for a single ingest-lag metric, in ledgers.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct LagThresholds {
+    pub warning_ledgers: u32,
+    pub critical_ledgers: u32,
+}
+
+impl LagThresholds {
+    pub fn default_objective() -> Self {
+        LagThresholds {
+            warning_ledgers: DEFAULT_LAG_WARNING_LEDGERS,
+            critical_ledgers: DEFAULT_LAG_CRITICAL_LEDGERS,
+        }
+    }
+}
+
+/// Classifies an ingest lag (in ledgers) against [`LagThresholds`].
+///
+/// `Warning` at/above `warning_ledgers`, `Critical` (page) at/above
+/// `critical_ledgers`, otherwise `Info`.
+pub fn classify_lag(lag_ledgers: u32, thresholds: &LagThresholds) -> AlertSeverity {
+    if lag_ledgers >= thresholds.critical_ledgers {
+        AlertSeverity::Critical
+    } else if lag_ledgers >= thresholds.warning_ledgers {
+        AlertSeverity::Warning
+    } else {
+        AlertSeverity::Info
+    }
+}
+
+/// Evaluates both ingest-lag metrics for `asset` on `network` and emits a
+/// [`LagAlertEvent`] for each metric whose severity is `Warning` or above.
+///
+/// `source_to_indexer_lag` and `ledger_to_consumer_lag` are measured in ledgers.
+/// The emitted event carries the affected `network` and `asset` so a replayed lag
+/// incident routes to the expected severity with full context.
+///
+/// Returns the `(source_to_indexer, ledger_to_consumer)` severities so callers
+/// can assert on the classification (e.g. in replay tests).
+pub fn evaluate_ingest_lag(
+    env: &Env,
+    network: &String,
+    asset: &Address,
+    source_to_indexer_lag: u32,
+    ledger_to_consumer_lag: u32,
+) -> (AlertSeverity, AlertSeverity) {
+    let thresholds = LagThresholds::default_objective();
+
+    let source_severity = classify_lag(source_to_indexer_lag, &thresholds);
+    let consumer_severity = classify_lag(ledger_to_consumer_lag, &thresholds);
+
+    if source_severity != AlertSeverity::Info {
+        LagAlertEvent {
+            network: network.clone(),
+            asset: asset.clone(),
+            metric: 0, // source-to-indexer
+            lag_ledgers: source_to_indexer_lag,
+            severity: source_severity as u32,
+            channel: route_for(source_severity) as u32,
+            ledger: env.ledger().sequence(),
+        }
+        .publish(env);
+    }
+
+    if consumer_severity != AlertSeverity::Info {
+        LagAlertEvent {
+            network: network.clone(),
+            asset: asset.clone(),
+            metric: 1, // ledger-to-consumer
+            lag_ledgers: ledger_to_consumer_lag,
+            severity: consumer_severity as u32,
+            channel: route_for(consumer_severity) as u32,
+            ledger: env.ledger().sequence(),
+        }
+        .publish(env);
+    }
 
     (source_severity, consumer_severity)
 }

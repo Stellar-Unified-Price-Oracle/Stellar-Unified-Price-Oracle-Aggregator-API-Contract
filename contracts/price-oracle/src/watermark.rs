@@ -188,7 +188,7 @@ fn read_history_timestamp(env: &Env, asset: &Address, ledger: u32) -> u64 {
         return entry.timestamp;
     }
     // Also check sharded bucket path.
-    let bucket_idx = ledger / crate::history::LEDGERS_PER_WEEK;
+    let bucket_idx = crate::history::ledger_to_bucket(ledger);
     let bucket_key = DataKey::HistoryBucket(asset.clone(), bucket_idx);
     if let Some(bucket) = env
         .storage()
@@ -219,10 +219,14 @@ fn compute_dominant_stride(ledger_list: &soroban_sdk::Vec<u32>) -> u32 {
     // Collect strides (up to a small sample to keep cost bounded).
     let sample = n.min(16);
     let mut strides: [u32; 16] = [0u32; 16];
-    for i in 0..sample.saturating_sub(1) as usize {
+    for (i, stride) in strides
+        .iter_mut()
+        .enumerate()
+        .take(sample.saturating_sub(1) as usize)
+    {
         let prev = ledger_list.get_unchecked(i as u32);
         let curr = ledger_list.get_unchecked(i as u32 + 1);
-        strides[i] = curr.saturating_sub(prev);
+        *stride = curr.saturating_sub(prev);
     }
 
     // Find the most common stride value (mode) using a simple O(n²) pass — n
@@ -230,14 +234,8 @@ fn compute_dominant_stride(ledger_list: &soroban_sdk::Vec<u32>) -> u32 {
     let count = (sample - 1) as usize;
     let mut best_stride = strides[0];
     let mut best_count = 0u32;
-    for i in 0..count {
-        let s = strides[i];
-        let mut cnt = 0u32;
-        for j in 0..count {
-            if strides[j] == s {
-                cnt += 1;
-            }
-        }
+    for &s in &strides[..count] {
+        let cnt = strides[..count].iter().filter(|&&x| x == s).count() as u32;
         if cnt > best_count {
             best_count = cnt;
             best_stride = s;

@@ -219,7 +219,7 @@ fn step(
                 }
                 model.sources[source].1 = Some(price);
                 // The contract re-aggregates on every accepted submission and
-                // caches the result; removals do not trigger a recompute.
+                // caches the result (removals recompute too, see RemoveSource).
                 let xs = model.contributors();
                 // The contract only *overwrites* the cached aggregate when a
                 // new one can be computed. A submission that does not reach the
@@ -243,6 +243,17 @@ fn step(
                 // A removed source loses both its registry entry and its
                 // contribution — this is INV-4.
                 model.sources[source] = (false, None);
+                // #483: removal re-derives a published aggregate from the
+                // surviving contributors. As with a submission, a value is
+                // only replaced when the survivors still reach the quorum.
+                if model.last_aggregate.is_some() {
+                    let xs = model.contributors();
+                    if let Some(next) = Model::median_of(&xs, model.min_sources) {
+                        model.last_aggregate = Some(next);
+                        model.aggregate_range =
+                            xs.iter().copied().min().zip(xs.iter().copied().max());
+                    }
+                }
             }
         }
         Op::RaiseQuorum(n) => {

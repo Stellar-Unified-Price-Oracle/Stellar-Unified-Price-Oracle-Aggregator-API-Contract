@@ -211,7 +211,7 @@ pub fn temporal_participation(
     for i in start..n {
         let ledger = ledgers.get_unchecked(i);
         // `read_history_entry` covers both storage tiers: the hot temporary
-        // entry and the persistent weekly bucket an older ledger spills into.
+        // entry and the persistent shard bucket an older ledger spills into.
         let entry = match crate::history::read_history_entry(env, asset, ledger) {
             Some(e) => e,
             None => continue,

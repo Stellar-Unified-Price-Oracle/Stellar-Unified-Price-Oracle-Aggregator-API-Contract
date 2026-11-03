@@ -9,6 +9,7 @@ pub fn pause(env: &Env) {
     admin.require_auth();
 
     crate::config_history::snapshot_before_change(env, &admin);
+    crate::feature_flags::mark(env, crate::feature_flags::PAUSE);
     env.storage()
         .persistent()
         .set(&DataKey::CfgPauseFlag, &true);
@@ -37,6 +38,9 @@ pub fn unpause(env: &Env) {
 }
 
 pub fn is_paused(env: &Env) -> bool {
+    if !crate::feature_flags::on(env, crate::feature_flags::PAUSE) {
+        return false;
+    }
     env.storage()
         .persistent()
         .get(&DataKey::CfgPauseFlag)

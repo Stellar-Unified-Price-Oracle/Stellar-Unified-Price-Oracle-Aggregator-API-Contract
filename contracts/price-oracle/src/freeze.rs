@@ -47,6 +47,7 @@ pub fn freeze_price(env: &Env, asset: Address, reason: String) {
         reason: reason.clone(),
         frozen_at_ledger: current_ledger,
     };
+    crate::feature_flags::mark(env, crate::feature_flags::FREEZE);
     env.storage().persistent().set(&key, &frozen);
 
     PriceFrozenEvent {
@@ -82,11 +83,17 @@ pub fn unfreeze_price(env: &Env, asset: Address) {
 
 /// Returns whether an asset's price is currently frozen.
 pub fn is_price_frozen(env: &Env, asset: Address) -> bool {
+    if !crate::feature_flags::on(env, crate::feature_flags::FREEZE) {
+        return false;
+    }
     env.storage().persistent().has(&DataKey::FrozenPrice(asset))
 }
 
 /// Returns the frozen price snapshot for an asset, if one is active.
 pub fn get_frozen_price(env: &Env, asset: Address) -> Option<FrozenPrice> {
+    if !crate::feature_flags::on(env, crate::feature_flags::FREEZE) {
+        return None;
+    }
     env.storage().persistent().get(&DataKey::FrozenPrice(asset))
 }
 
@@ -94,6 +101,9 @@ pub fn get_frozen_price(env: &Env, asset: Address) -> Option<FrozenPrice> {
 ///
 /// Called by every price-submission entry point to enforce the freeze.
 pub fn check_not_frozen(env: &Env, asset: &Address) {
+    if !crate::feature_flags::on(env, crate::feature_flags::FREEZE) {
+        return;
+    }
     if env
         .storage()
         .persistent()

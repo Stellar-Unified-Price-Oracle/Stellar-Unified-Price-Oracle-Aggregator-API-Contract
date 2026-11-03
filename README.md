@@ -1,400 +1,223 @@
-# Price Oracle
+# Stellar Unified Price Oracle
 
-A Soroban-based price oracle for Stellar. This document covers the operator-facing
-runbook, including the incident severity and decision authority matrix.
+[![CI](https://github.com/Stellar-Unified-Price-Oracle/Stellar-Unified-Price-Oracle-Aggregator-API-Contract/actions/workflows/ci.yml/badge.svg)](https://github.com/Stellar-Unified-Price-Oracle/Stellar-Unified-Price-Oracle-Aggregator-API-Contract/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-## Incident severity and decision authority matrix
+A Soroban smart contract that collects prices from multiple permissioned oracle
+sources, aggregates them by **median**, and serves current and historical prices
+to other Stellar contracts through the standard **SEP-40** oracle interface.
 
-Oracle impact levels map to response roles, pause authority, communications, and
-escalation deadlines. Use the highest severity that applies.
+DeFi protocols on Stellar (lending, perps, stablecoins) need a price they can
+trust. A single feed is a single point of failure; this contract combines
+several independent sources so that one bad or compromised feed cannot move
+the price.
 
-| Severity | Oracle impact | Incident commander | Pause authority | Communications | Escalation deadline |
-| --- | --- | --- | --- | --- | --- |
-| SEV1 | Stale or manipulated prices served on-chain; funds at risk | On-call lead + protocol maintainer | On-call lead may pause immediately; maintainer confirms within 15 min | Public status page + consumer notice within 30 min | Acknowledge in 5 min; escalate to maintainers in 15 min |
-| SEV2 | Degraded feeds, partial asset coverage, or delayed updates | On-call lead | On-call lead may pause affected assets | Consumer notice within 1 hour | Acknowledge in 15 min; escalate in 1 hour |
-| SEV3 | Single asset anomaly with fallback intact | On-call engineer | On-call engineer may pause the single asset | Internal channel notice within 4 hours | Acknowledge in 1 hour; escalate in 4 hours |
-| SEV4 | Cosmetic or non-impacting issue | On-call engineer | No pause authority required | Logged in incident tracker | Triage within 1 business day |
+> **Security notice (November 2026):** two pull requests merged on 2026-10-22
+> contained a third-party malware payload (the "PolinRider" campaign). It has
+> been removed and CI now blocks it. If you cloned this repo between
+> 2026-10-22 and the cleanup, read
+> [docs/security/malware-incident-2026-10.md](docs/security/malware-incident-2026-10.md).
 
-### Decision authority rules
+## Features
 
-- Only the roles listed for a severity may pause the oracle or an asset.
-- Pausing above the listed authority requires incident-commander approval.
-- Every pause must be recorded with severity, role, timestamp, and rationale.
-- Resuming requires the same authority that paused, plus a post-incident review.
+- **Median aggregation** across N permissioned sources, with a configurable
+  minimum quorum (`min_sources_required`).
+- **SEP-40 consumer interface**: `lastprice`, `price`, `prices`, `assets`,
+  `decimals`, `resolution`, `base`.
+- **Price history** per asset with ranged and cursor-paginated reads and
+  optional gap interpolation.
+- **Source enrollment with evidence**: sources submit identity, endpoint
+  ownership, contact and reliability evidence before an admin activates them.
+- **Asset lifecycle**: register, temporarily disable, re-enable, delist.
+- **Admin-gated upgrades and configuration**, with events for every change.
+- **Client SDKs** (TypeScript, Python, Rust, Go) and runnable consumer
+  [examples](examples/).
+- **Security gates in CI**: unit, property, model-based and Kani-bounded tests,
+  attack-regression corpus, fuzzing, secret scanning and a supply-chain
+  malware scan.
+
+## How it works
+
+```
+ source A ─┐
+ source B ─┼─ submit_price ─▶ [ Price Oracle contract ] ─▶ median ─▶ AggregatePrice + history
+ source C ─┘   (source auth)        │                                     │
+                                    └── admin: sources, assets, config    └─▶ SEP-40 reads by
+                                                                               consumer contracts
+```
+
+1. The admin initializes the contract and registers assets.
+2. Sources enroll, submit evidence, and are activated by the admin.
+3. Each source signs and submits prices with `submit_price`.
+4. Once `min_sources_required` fresh prices exist, the contract publishes the
+   median and records it in history.
+5. Consumer contracts read it with `lastprice(asset)` or other SEP-40 calls.
+
+See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) and
+[docs/aggregation-semantics.md](docs/aggregation-semantics.md) for details.
+
+## Quick start
+
+### Prerequisites
+
+- Rust (toolchain pinned in `rust-toolchain.toml`, target `wasm32v1-none`)
+- [Stellar CLI](https://developers.stellar.org/docs/tools/developer-tools) for deployment
+
+### Build and test
+
+```bash
+make build    # cargo build -p price-oracle --target wasm32v1-none --release
+make test     # cargo test -p price-oracle --lib
+make lint     # clippy -D warnings
+make check    # rustfmt --check
+```
+
+### Deploy to testnet
+
+```bash
+stellar keys generate admin --network testnet --fund
+stellar contract deploy \
+  --wasm target/wasm32v1-none/release/price_oracle.wasm \
+  --source admin --network testnet
+# => C... (contract ID)
+
+stellar contract invoke --id <CONTRACT_ID> --source admin --network testnet -- \
+  initialize --admin $(stellar keys address admin) \
+  --min_sources_required 1 --max_history_length 100 --decimals 14 \
+  --description "Stellar Unified Price Oracle (testnet)"
+```
+
+Or use the guided deployer: `./scripts/deploy-oracle.sh`. Record every
+deployment in [docs/deployment.md](docs/deployment.md).
+
+### Operate with oracle-cli
+
+```bash
+./scripts/oracle-cli.sh add-source --address GBBB... --name "Source A" --admin-key admin
+./scripts/oracle-cli.sh register-asset --asset GCCC... --admin-key admin
+./scripts/oracle-cli.sh submit-price --source GBBB... --asset GCCC... \
+  --price 50000000000000000000 --source-key source-a
+./scripts/oracle-cli.sh get-price --asset GCCC...
+./scripts/oracle-cli.sh health-check
+```
+
+## Deployments
+
+| Network | Contract ID | Status |
+|---|---|---|
+| Testnet | see [docs/deployment.md](docs/deployment.md) | |
+| Mainnet | — | not yet deployed |
+
+## Contract API
+
+### Sources
 
 | Function | Description |
 |----------|-------------|
-| `add_source(address, name)` | Create a pending source enrollment |
+| `add_source(address, name)` | Create a pending source enrollment (admin) |
 | `submit_source_evidence(address, identity, endpoint_ownership, operational_contact, reliability)` | Submit required evidence as the source address |
-| `activate_source(address)` | Activate a fully evidenced source (admin only) |
-| `remove_source(address)` | Remove an oracle source |
+| `activate_source(address)` | Activate a fully evidenced source (admin) |
+| `remove_source(address)` | Remove a pending enrollment or an active source (admin) |
 | `is_source(address) -> bool` | Check if address is an active source |
 | `get_source_enrollment(address) -> Option<SourceEnrollment>` | Review submitted enrollment evidence |
 | `get_oracle_sources() -> OracleSources` | Get all active sources |
 
-Source enrollment requires four non-empty values: identity evidence, endpoint-ownership evidence, an operational contact, and reliability evidence. The source address must authorize evidence submission; the admin then reviews the submitted evidence off-chain and explicitly activates the source. Enrollment evidence and contacts are public on-chain: use public references and non-secret contact details, never credentials or private keys. `remove_source` can remove either a pending enrollment or an active source.
+Enrollment evidence is public on-chain: use public references and non-secret
+contact details, never credentials or private keys.
 
-The severity matrix is verified by a repeatable tabletop check. For each severity,
-walk the scenario and confirm:
-
-1. The correct incident commander and pause authority are identified.
-2. The communications requirement and channel are met within the stated window.
-3. The escalation deadline is respected.
-
-Run the tabletop before each release and after any incident. Record the outcome in
-the incident tracker; a severity with no correct decision-maker or response path
-fails the check and blocks release.
-
-## Development
+### Submission
 
 | Function | Description |
 |----------|-------------|
-| `submit_price(source, asset, price, timestamp)` | Submit a price (source only) |
+| `submit_price(source, asset, price, timestamp)` | Submit a price (source auth) |
 
-### Price Queries
-
-| Function | Description |
-|----------|-------------|
-| `get_price(asset) -> AggregatePrice` | Get latest aggregated price for an asset |
-| `get_source_price(asset, source) -> PriceEntry` | Get latest price from a specific source |
-| `get_all_prices(asset) -> Vec<PriceEntry>` | Get latest prices from all sources |
-| `get_latest_ledger() -> u32` | Get the latest ledger with price data |
-
-### Historical
+### Price queries
 
 | Function | Description |
 |----------|-------------|
-| `get_historical_price(asset, ledger) -> PriceHistoryEntry` | Get historical price at a specific ledger (interpolated if enabled) |
-| `get_historical_prices(asset, start, end) -> Vec<PriceHistoryEntry>` | Get historical prices in an inclusive range of up to 50 ledger numbers |
-| `get_historical_prices_paginated(asset, cursor, limit)` | Get up to 50 entries in ascending ledger order; pass `next_cursor` to continue |
-| `has_historical_price(asset, ledger) -> bool` | Check if historical price exists |
-| `set_interpolation_enabled(bool)` | Enable/disable linear interpolation for history gaps (admin) |
-| `get_interpolation_enabled() -> bool` | Check if interpolation is enabled |
+| `get_price(asset) -> AggregatePrice` | Latest aggregated price for an asset |
+| `get_source_price(asset, source) -> PriceEntry` | Latest price from a specific source |
+| `get_all_prices(asset) -> Vec<PriceEntry>` | Latest prices from all sources |
+| `get_latest_ledger() -> u32` | Latest ledger with price data |
 
-### Asset Lifecycle Management
-
-When an asset has a data quality issue, is being replaced, or needs temporary maintenance, the admin can temporarily **disable** or permanently **delist** it:
+### History
 
 | Function | Description |
 |----------|-------------|
-| `disable_asset(asset) -> void` | Temporarily disable an asset (admin only; blocks new submissions and aggregations) |
-| `enable_asset(asset) -> void` | Re-enable a disabled asset (admin only; resumes normal operation) |
-| `is_asset_disabled(asset) -> bool` | Check if an asset is currently disabled |
-| `get_asset_disabled_at(asset) -> u32` | Get ledger sequence when an asset was disabled |
-| `unregister_asset(asset) -> void` | Permanently remove an asset from the registry (admin only; price history preserved) |
+| `get_historical_price(asset, ledger) -> PriceHistoryEntry` | Price at a ledger (interpolated if enabled) |
+| `get_historical_prices(asset, start, end) -> Vec<PriceHistoryEntry>` | Inclusive range of up to 50 ledgers |
+| `get_historical_prices_paginated(asset, cursor, limit)` | Up to 50 entries in ascending order; pass `next_cursor` to continue |
+| `has_historical_price(asset, ledger) -> bool` | Whether a historical price exists |
+| `set_interpolation_enabled(bool)` | Enable/disable gap interpolation (admin) |
+| `get_interpolation_enabled() -> bool` | Whether interpolation is enabled |
 
-**Disabled vs Delisted:**
-- **Disabled**: Temporary offline state. New submissions blocked. Queries return `ErrorCode::AssetDisabled` (190). Historical prices remain queryable for audit. Can be re-enabled.
-- **Delisted**: Permanent removal via `unregister_asset()`. Asset removed from registry. Queries return `ErrorCode::AssetNotRegistered`. Historical prices remain queryable indefinitely.
+Start paginated reads with `cursor = 0` and pass each returned `next_cursor`
+unchanged. Gaps are skipped.
 
-For full semantics, see [Asset Lifecycle Design](docs/ASSET_LIFECYCLE_DESIGN.md).
-
-### SEP-40 Oracle Consumer Interface
+### Asset lifecycle
 
 | Function | Description |
 |----------|-------------|
-| `base() → Asset` | Returns the base asset (USD) |
-| `assets() → Vec<Asset>` | Returns all registered assets as `Asset::Stellar` (maximum 100; use pagination for larger registries) |
-| `assets_paginated(cursor, limit)` | Get up to 50 assets in registration order; pass `next_cursor` to continue |
-| `decimals() → u32` | Returns price decimals |
-| `resolution() → u32` | Returns staleness window in seconds (0 = no expiry) |
-| `price(asset, timestamp) → Option<PriceData>` | Get price at or before a given timestamp |
-| `prices(asset, records) → Option<Vec<PriceData>>` | Get up to 50 latest historical price records |
-| `lastprice(asset) → Option<PriceData>` | Get latest aggregated price |
-
-## Overview
-
-This service aggregates price feeds and publishes them on-chain for consumption by Soroban contracts. It is designed to move from feature-complete development into a dependable production service, with explicit, reviewable, and verifiable mainnet readiness decisions.
-
-## Contract Identity & Verification Registry
-
-Canonical deployments are recorded in a machine-readable registry at
-[`config/contract-registry.json`](config/contract-registry.json). Each entry
-records the network, the canonical contract ID, the deployed WASM hash, and the
-verification timestamp, so consumers can independently confirm that the on-chain
-contract matches the recorded release.
-
-### Registry format
-
-```json
-{
-  "schema_version": 1,
-  "entries": [
-    {
-      "network": "mainnet",
-      "contract_id": "CAAAA...",
-      "wasm_hash": "<64-char hex sha256 of the deployed WASM>",
-      "verified_at": "2025-01-01T00:00:00Z"
-    }
-  ]
-}
-```
-
-- `network` — `mainnet`, `testnet`, or `futurenet`
-- `contract_id` — the canonical Stellar contract address (`C...`)
-- `wasm_hash` — lowercase hex SHA-256 of the deployed WASM (64 hex chars)
-- `verified_at` — RFC 3339 UTC timestamp of the last verification
-
-### Verifying a deployment
-
-Use the repeatable check to resolve a contract ID and compare its on-chain WASM
-hash against the recorded release:
-
-```bash
-./scripts/verify-contract.sh --network mainnet --contract-id CAAAA...
-```
-
-The script exits non-zero and prints a clear error when the contract ID is not
-in the registry, the recorded hash is malformed, or the on-chain hash does not
-match the recorded release. Run it after every deploy or upgrade and in CI to
-keep the registry honest.
-
-## oracle-cli
-
-Every asset enabled at launch must satisfy the policy below. A new asset **cannot** enter the production manifest unless all required review fields are present and signed off.
-
-### 1. Eligibility
-
-An asset is eligible for the production manifest only if it:
-
-- Is a supported Stellar/Soroban asset (native, issued, or contract-wrapped) with a verifiable on-chain identifier.
-- Has at least one reliable, independent price source available to the oracle.
-- Has sufficient liquidity and market depth to produce a non-manipulable reference price.
-- Is not subject to sanctions, legal restrictions, or issuer controls that would make pricing unreliable.
-
-# Add a source
-./scripts/oracle-cli.sh add-source \
-  --address GBBB... --name "Chainlink" --admin-key my-admin
-
-# Register an asset
-./scripts/oracle-cli.sh register-asset \
-  --asset GCCC... --admin-key my-admin
-
-# Submit a price  (price = 50 000 × 10^18)
-./scripts/oracle-cli.sh submit-price \
-  --source GBBB... --asset GCCC... \
-  --price 50000000000000000000 \
-  --source-key my-source-identity
-
-# Query latest price
-./scripts/oracle-cli.sh get-price --asset GCCC...
-
-# Health check
-./scripts/oracle-cli.sh health-check
-```
-
-### Query response limits and cursors
-
-Historical range queries include at most 50 ledger numbers, and the SEP-40
-`prices` query returns at most 50 records. For longer history reads, call
-`get_historical_prices_paginated(asset, cursor, limit)` with `cursor = 0` on
-the first request and pass each returned `next_cursor` unchanged; it identifies
-the first ledger to include on the next page. Results are in ascending ledger
-order and gaps are skipped.
-
-The full `assets()` and `list_assets()` responses are capped at 100 assets.
-Use `assets_paginated(cursor, limit)` for larger registries: start with
-`cursor = None`, then pass the last returned asset as the next cursor. This
-preserves registration order without repeats. If that cursor asset has been
-unregistered, the contract returns `InvalidPageCursor`; restart from the first
-page to avoid silently omitting assets. Page limits for both paginated query
-families are 1–50.
-
-## Getting Started
-
-### Prerequisites
-
-- Rust (stable toolchain, see `rust-toolchain.toml`)
-- Soroban CLI (optional, for deployment)
-
-### Build
-
-```bash
-make build
-```
-
-**JavaScript / TypeScript**
-
-```ts
-const DECIMALS = 7;
-const SCALE = 10n ** BigInt(DECIMALS);
-const I128_MAX = (1n << 127n) - 1n;
-const I128_MIN = -(1n << 127n);
-
-// Round-half-up on a rational (numerator / denominator).
-function roundHalfUp(numerator: bigint, denominator: bigint): bigint {
-  const q = numerator / denominator;
-  const r = numerator % denominator;
-  if (r === 0n) return q;
-  const absR = r < 0n ? -r : r;
-  const bump = absR * 2n >= denominator ? 1n : 0n;
-  return numerator < 0n ? q - bump : q + bump;
-}
-
-function toInteger(human: number): bigint {
-  // Convert via string to avoid float precision loss.
-  const [whole, frac = ""] = human.toString().split(".");
-  const fracPadded = (frac + "0".repeat(DECIMALS)).slice(0, DECIMALS);
-  const numerator = BigInt(whole + fracPadded);
-  const scaled = roundHalfUp(numerator, 1n);
-  if (scaled > I128_MAX || scaled < I128_MIN) {
-    throw new Error("price out of i128 range");
-  }
-  return scaled;
-}
-
-function toHuman(integer: bigint): string {
-  const neg = integer < 0n;
-  const abs = neg ? -integer : integer;
-  const whole = abs / SCALE;
-  const frac = (abs % SCALE).toString().padStart(DECIMALS, "0");
-  return `${neg ? "-" : ""}${whole}.${frac}`;
-}
-
-// Examples (decimals = 7)
-console.assert(toInteger(0.0000001) === 1n);
-console.assert(toInteger(1.2345678) === 12345678n);
-console.assert(toHuman(12345678n) === "1.2345678");
-```
-
-**Python**
-
-```python
-from decimal import Decimal, ROUND_HALF_UP
-
-DECIMALS = 7
-SCALE = 10 ** DECIMALS
-I128_MAX = (1 << 127) - 1
-I128_MIN = -(1 << 127)
-
-
-def to_integer(human: Decimal) -> int:
-    scaled = (human * SCALE).quantize(Decimal(1), rounding=ROUND_HALF_UP)
-    value = int(scaled)
-    if value > I128_MAX or value < I128_MIN:
-        raise ValueError("price out of i128 range")
-    return value
-
-
-def to_human(integer: int) -> Decimal:
-    return Decimal(integer) / SCALE
-
-
-# Examples (decimals = 7)
-assert to_integer(Decimal("0.0000001")) == 1
-assert to_integer(Decimal("1.2345678")) == 12345678
-assert to_integer(Decimal("0.00000005")) == 1  # round-half-up
-assert to_human(12345678) == Decimal("1.2345678")
-```
-
-After deploying, record the contract ID and WASM hash in
-`config/contract-registry.json` and run `./scripts/verify-contract.sh` to confirm
-the on-chain hash matches the recorded release.
-
-## Project Structure
-
-Before initializing a production deployment, review the four initialization
-parameters below against the policy for that deployment target. The policy is
-encoded in `scripts/check-init-params.sh` and enforced in CI, so an
-out-of-policy configuration is rejected before it can reach mainnet.
-
-### Parameters under review
-
-| Parameter | Meaning | Mainnet policy | Testnet / local policy |
-|-----------|---------|----------------|------------------------|
-| `min_sources` | Minimum distinct sources required before an aggregate price is published | `>= 3` (median needs an odd quorum to resist a single outlier) | `>= 1` |
-| `decimals` | Price scaling exponent exposed via SEP-40 `decimals()` | `<= 18` (must match consumer expectations; no silent rescale) | `<= 18` |
-| `max_history` | Maximum historical records retained per asset | `>= 1` and `<= 10_000` (bounds storage growth) | `>= 1` and `<= 10_000` |
-| `description` | Human-readable contract description emitted in `ContractInitializedEvent` | non-empty, `<= 256` bytes | non-empty, `<= 256` bytes |
-
-### Boundary conditions
-
-- `min_sources = 0` is always rejected — aggregation would be undefined.
-- `min_sources` greater than the number of registered sources means no price
-  is published until enough sources are added; this is a valid but degraded
-  state and is surfaced by `oracle-cli health-check`.
-- `decimals = 0` is allowed (integer prices); values above 18 are rejected.
-- `max_history = 0` disables history retention and is rejected for production.
-- An empty or whitespace-only `description` is rejected.
-
-### Failure and recovery
-
-If `initialize` is called with out-of-policy values the contract still stores
-them (the contract does not hard-code network policy), so the review is the
-gate. To recover, the admin uses `set_min_sources_required`,
-`set_max_history_length`, `set_decimals`, and `set_description` to bring the
-contract back within policy, then re-runs the validation command below.
-
-### Reproducible validation
-
-```bash
-# Validate a candidate initialization config against the deployment policy.
-# Exits non-zero (rejecting the config) when any parameter is out of policy.
-./scripts/check-init-params.sh --network mainnet --config deploy/mainnet-init.env
-```
-
-The config file is a simple `KEY=VALUE` env file:
-
-```env
-MIN_SOURCES=3
-DECIMALS=18
-MAX_HISTORY=1000
-DESCRIPTION="Stellar Unified Price Oracle (mainnet)"
-```
-
-### Assumptions
-
-All figures are monthly, denominated in USD, and reviewed whenever the
-underlying inputs change materially.
-
-| Input | Value | Notes |
-| --- | --- | --- |
-| Committed funding (treasury balance) | $60,000 | Funds already committed and available. |
-| Baseline operational spend | $2,000 / month | Hosting, RPC/indexer access, monitoring, on-call stipend. |
-| Low-usage operational spend | $1,400 / month | Reduced infrastructure tier; fewer provider submissions. |
-| High-incident operational spend | $4,500 / month | Incident response, extra redundancy, surge support. |
-| Funding-review threshold | 6 months of runway | Below this, a funding review is triggered. |
-
-Operational spend covers infrastructure, provider incentives, monitoring, and
-incident response. It excludes one-off protocol development costs.
-
-### Runway per scenario
-
-Runway is `committed funding / monthly operational spend`.
-
-| Scenario | Monthly spend | Runway | Status vs. 6-month threshold |
-| --- | --- | --- | --- |
-| Baseline | $2,000 | 30.0 months | Healthy |
-| Low-usage | $1,400 | ~42.9 months | Healthy |
-| High-incident | $4,500 | ~13.3 months | Healthy, but monitor |
-
-### Funding-review threshold
-
-A funding review is triggered when projected runway falls **below 6 months**
-under the scenario currently in effect. At the baseline spend of $2,000/month,
-that corresponds to a treasury balance below **$12,000**. The review covers
-replenishment options, spend reduction, and whether the high-incident scenario
-has become the steady state.
-
-### Boundary and failure/recovery paths
-
-- **Boundary:** runway exactly at the 6-month threshold does not trigger a
-  review; only strictly below it does.
-- **Failure:** if the high-incident scenario persists, spend rises to
-  $4,500/month and runway shrinks accordingly; sustained high-incident spend is
-  treated as a funding-review trigger even while nominal runway is above the
-  threshold.
-- **Recovery:** once incident spend returns to baseline, runway is recomputed
-  from the restored spend and the review condition is re-evaluated.
-
-### Repeatable check
-
-See [docs/SLA.md](docs/SLA.md) for price freshness guarantees, uptime commitments, deviation thresholds, incident response times, and compensation terms.
-
-## Handsoff notes
-
-<!-- handsoff-issue-672 -->
-- #672: [Economics] Fee and reward parameter sensitivity analysis
-
-<!-- handsoff-issue-673 -->
-- #673: [Economics] Economic emergency reserve policy
+| `disable_asset(asset)` | Temporarily disable an asset (admin; blocks submissions and aggregation) |
+| `enable_asset(asset)` | Re-enable a disabled asset (admin) |
+| `is_asset_disabled(asset) -> bool` | Whether an asset is disabled |
+| `get_asset_disabled_at(asset) -> u32` | Ledger at which an asset was disabled |
+| `unregister_asset(asset)` | Permanently delist an asset (admin; history preserved) |
+
+Disabled assets return `ErrorCode::AssetDisabled` (198) and can be re-enabled.
+Delisted assets return `ErrorCode::AssetNotRegistered`. History stays readable
+in both cases. See [docs/ASSET_LIFECYCLE_DESIGN.md](docs/ASSET_LIFECYCLE_DESIGN.md).
+
+### SEP-40 consumer interface
+
+| Function | Description |
+|----------|-------------|
+| `base() -> Asset` | Base asset (USD) |
+| `assets() -> Vec<Asset>` | Registered assets (max 100; use pagination beyond that) |
+| `assets_paginated(cursor, limit)` | Up to 50 assets in registration order |
+| `decimals() -> u32` | Price decimals |
+| `resolution() -> u32` | Staleness window in seconds (0 = no expiry) |
+| `price(asset, timestamp) -> Option<PriceData>` | Price at or before a timestamp |
+| `prices(asset, records) -> Option<Vec<PriceData>>` | Up to 50 latest records |
+| `lastprice(asset) -> Option<PriceData>` | Latest aggregated price |
+
+For `assets_paginated`, start with `cursor = None` and pass the last returned
+asset as the next cursor. If that asset was unregistered the contract returns
+`InvalidPageCursor`; restart from the first page. Page limits are 1–50.
+
+The full list of endpoints is in
+[contracts/price-oracle/src/lib.rs](contracts/price-oracle/src/lib.rs) and
+[docs/abi.md](docs/abi.md). Error codes: [docs/error-codes.md](docs/error-codes.md).
+
+## Repository layout
+
+| Path | Contents |
+|---|---|
+| `contracts/price-oracle/` | The Soroban contract and its tests |
+| `sdk/` | TypeScript, Python, Rust and Go client SDKs |
+| `examples/` | Consumer quickstarts: web dApp, Python submission bot, indexer |
+| `scripts/` | Deployment, operations and CI gate scripts |
+| `services/` | Off-chain tooling (monitoring, secret scan, release checks) |
+| `fuzz/` | Fuzz targets and corpora |
+| `docs/` | Design docs, runbooks and policies |
+
+## Operations and policy docs
+
+- [Deployment record](docs/deployment.md) and [runbook](docs/runbook.md)
+- [Incident severity and decision authority matrix](docs/incident-severity-matrix.md)
+- [Initialization parameter policy](docs/init-parameter-policy.md)
+- [Asset listing policy](docs/asset-listing-policy.md)
+- [Price scaling helpers (JS / Python)](docs/price-scaling.md)
+- [SLA](docs/SLA.md), [treasury budget](docs/treasury-budget.md) and [runway](docs/treasury-runway.md)
+- [Security policy](SECURITY.md) and [audit checklist](docs/security-audit-checklist.md)
+
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) and [AGENTS.md](AGENTS.md). Every PR must
+pass `make build test lint check` and the supply-chain scan
+(`make malware-scan`). Changes to `.github/`, `.husky/`, `.devcontainer/`,
+`scripts/` and any `package.json` require maintainer review.
+
+## License
+
+[MIT](LICENSE)

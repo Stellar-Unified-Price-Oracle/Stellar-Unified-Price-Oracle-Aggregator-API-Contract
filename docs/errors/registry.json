@@ -244,9 +244,9 @@
     {
       "code": 30,
       "name": "RecordsLimitExceeded",
-      "meaning": "Records limit exceeded for price history query.",
+      "meaning": "A query exceeded its maximum response size.",
       "class": "caller",
-      "cause": "History query requested too many records.",
+      "cause": "A query requested more results than its fixed response limit.",
       "remediation": "Request fewer records per call and paginate."
     },
     {
@@ -656,6 +656,902 @@
       "class": "caller",
       "cause": "Malformed ZK public signals.",
       "remediation": "Match the public signal layout expected by the circuit."
+    },
+    {
+      "code": 99,
+      "name": "SignatureExpired",
+      "meaning": "A pre-signed price proof's `expiration_ledger` has already passed.",
+      "class": "caller",
+      "cause": "The signed price proof's `expiration_ledger` is in the past.",
+      "remediation": "Re-sign the proof with a later `expiration_ledger` and resubmit promptly."
+    },
+    {
+      "code": 100,
+      "name": "InvalidNonce",
+      "meaning": "The provided nonce does not exceed the source's last accepted nonce.",
+      "class": "caller",
+      "cause": "The nonce is not greater than the source's last accepted nonce.",
+      "remediation": "Use a strictly increasing nonce; read the last accepted one before signing, or use `submit_price` to assign it automatically."
+    },
+    {
+      "code": 101,
+      "name": "SigningKeyNotRegistered",
+      "meaning": "`source` has not registered an Ed25519 key for signed submissions.",
+      "class": "config",
+      "cause": "The source has no Ed25519 key registered for signed submissions.",
+      "remediation": "Register the source's signing key before sending signed submissions."
+    },
+    {
+      "code": 102,
+      "name": "NotificationConfigInvalid",
+      "meaning": "A notification `channel` or `target` string exceeds the maximum allowed length (#243).",
+      "class": "caller",
+      "cause": "A notification `channel` or `target` exceeds its maximum length.",
+      "remediation": "Shorten the channel/target strings to within the documented limits (#243)."
+    },
+    {
+      "code": 103,
+      "name": "ExportLimitExceeded",
+      "meaning": "The requested export limit is `0` or exceeds the configured maximum.",
+      "class": "caller",
+      "cause": "The export `limit` is 0 or above the configured maximum.",
+      "remediation": "Request between 1 and the configured maximum entries, paging if needed."
+    },
+    {
+      "code": 104,
+      "name": "ExportNotFound",
+      "meaning": "No export snapshot was found for the given asset / range.",
+      "class": "state",
+      "cause": "No export snapshot exists for the asset/range.",
+      "remediation": "Create the export first, or check the asset and range arguments."
+    },
+    {
+      "code": 110,
+      "name": "InvalidPriority",
+      "meaning": "The supplied priority discriminant is not a valid `OperationPriority` value.",
+      "class": "caller",
+      "cause": "The priority value is not a valid `OperationPriority`.",
+      "remediation": "Pass one of the defined `OperationPriority` values."
+    },
+    {
+      "code": 111,
+      "name": "PriorityTimelockNotReady",
+      "meaning": "The priority-specific timelock delay has not elapsed for this operation.",
+      "class": "transient",
+      "cause": "The operation's priority-specific timelock has not elapsed.",
+      "remediation": "Wait until the timelock delay has passed, then execute again."
+    },
+    {
+      "code": 112,
+      "name": "InvalidProof",
+      "meaning": "The submitted external proof failed format validation (#296).",
+      "class": "caller",
+      "cause": "The external proof failed format validation (#296).",
+      "remediation": "Rebuild the proof in the documented format and resubmit."
+    },
+    {
+      "code": 113,
+      "name": "ProofTypeMismatch",
+      "meaning": "The proof type does not satisfy the asset's configured proof requirement (#296).",
+      "class": "caller",
+      "cause": "The proof type does not match the asset's required proof type (#296).",
+      "remediation": "Submit the proof type configured for this asset."
+    },
+    {
+      "code": 114,
+      "name": "TooManyCallbacks",
+      "meaning": "The per-asset callback limit has been reached (#297).",
+      "class": "state",
+      "cause": "The asset already has the maximum number of price callbacks (#297).",
+      "remediation": "Unregister an unused callback before adding another."
+    },
+    {
+      "code": 115,
+      "name": "CallbackNotFound",
+      "meaning": "No callback registration found for the given (consumer, asset) pair (#297).",
+      "class": "caller",
+      "cause": "No callback is registered for this (consumer, asset) pair (#297).",
+      "remediation": "Check the consumer and asset; list callbacks with `get_price_callbacks`."
+    },
+    {
+      "code": 116,
+      "name": "PriceFrozen",
+      "meaning": "The asset's price is currently frozen (#223).",
+      "class": "state",
+      "cause": "The asset's price is frozen by the admin (#223).",
+      "remediation": "Wait for the admin to call `unfreeze_price`; submissions resume afterwards."
+    },
+    {
+      "code": 117,
+      "name": "PriceNotFrozen",
+      "meaning": "The asset's price is not currently frozen (#223).",
+      "class": "state",
+      "cause": "`unfreeze_price` was called on an asset that is not frozen (#223).",
+      "remediation": "No action needed; check `is_price_frozen` before unfreezing."
+    },
+    {
+      "code": 118,
+      "name": "InvalidPageSize",
+      "meaning": "The requested pagination limit is `0` or exceeds the configured maximum (#229).",
+      "class": "caller",
+      "cause": "The requested page limit is zero or exceeds the maximum page size.",
+      "remediation": "Choose a page limit from 1 to 50."
+    },
+    {
+      "code": 119,
+      "name": "AxelarGatewayNotConfigured",
+      "meaning": "The Axelar Gateway contract address has not been configured.",
+      "class": "config",
+      "cause": "The Axelar Gateway address has not been set.",
+      "remediation": "Admin: configure the Axelar Gateway contract address."
+    },
+    {
+      "code": 120,
+      "name": "AxelarCommandAlreadyExecuted",
+      "meaning": "This Axelar `command_id` has already been executed (replay).",
+      "class": "caller",
+      "cause": "This Axelar `command_id` was already executed (replay).",
+      "remediation": "Do not resubmit executed commands; each `command_id` is single-use."
+    },
+    {
+      "code": 121,
+      "name": "AxelarSourceNotTrusted",
+      "meaning": "No trusted bridge source is registered for this (source_chain, source_address).",
+      "class": "config",
+      "cause": "No trusted bridge source is registered for this (source_chain, source_address).",
+      "remediation": "Admin: register the sender as a trusted bridge source, or reject the message."
+    },
+    {
+      "code": 122,
+      "name": "LzEndpointNotConfigured",
+      "meaning": "The LayerZero Endpoint contract address has not been configured.",
+      "class": "config",
+      "cause": "The LayerZero Endpoint address has not been set.",
+      "remediation": "Admin: configure the LayerZero Endpoint contract address."
+    },
+    {
+      "code": 123,
+      "name": "LzNonceOutOfOrder",
+      "meaning": "The delivered nonce does not match the expected next nonce for this pathway.",
+      "class": "transient",
+      "cause": "The delivered nonce is not the next expected nonce on this pathway.",
+      "remediation": "Deliver pending messages in nonce order; retry after the earlier ones land."
+    },
+    {
+      "code": 124,
+      "name": "LzRemoteNotTrusted",
+      "meaning": "No trusted bridge source is registered for this (src_eid, sender) pathway.",
+      "class": "config",
+      "cause": "No trusted bridge source is registered for this (src_eid, sender) pathway.",
+      "remediation": "Admin: register the remote as a trusted pathway, or reject the message."
+    },
+    {
+      "code": 125,
+      "name": "LzChainNameNotConfigured",
+      "meaning": "No canonical registry chain name is configured for this LayerZero src_eid.",
+      "class": "config",
+      "cause": "No registry chain name is configured for this LayerZero `src_eid`.",
+      "remediation": "Admin: map the `src_eid` to its canonical chain name."
+    },
+    {
+      "code": 126,
+      "name": "ForeignAssetAlreadyMapped",
+      "meaning": "A foreign asset mapping already exists for this (chain, foreign_address) pair.",
+      "class": "state",
+      "cause": "A mapping already exists for this (chain, foreign_address).",
+      "remediation": "Update or remove the existing mapping instead of adding a new one."
+    },
+    {
+      "code": 127,
+      "name": "ForeignAssetNotMapped",
+      "meaning": "No foreign asset mapping exists for this (chain, foreign_address) pair.",
+      "class": "config",
+      "cause": "No mapping exists for this (chain, foreign_address).",
+      "remediation": "Admin: add the foreign asset mapping first."
+    },
+    {
+      "code": 128,
+      "name": "ForeignAssetMappingDisabled",
+      "meaning": "The foreign asset mapping exists but has been disabled by the admin.",
+      "class": "state",
+      "cause": "The foreign asset mapping exists but is disabled.",
+      "remediation": "Admin: re-enable the mapping if the asset should be accepted again."
+    },
+    {
+      "code": 129,
+      "name": "OperationAlreadyExists",
+      "meaning": "An operation with the same id already exists.",
+      "class": "caller",
+      "cause": "An operation with this id already exists.",
+      "remediation": "Use a new operation id, or act on the existing operation."
+    },
+    {
+      "code": 130,
+      "name": "InvalidOperationState",
+      "meaning": "The operation is not in a state that allows the requested transition.",
+      "class": "state",
+      "cause": "The operation's current state does not allow this transition.",
+      "remediation": "Read the operation's state and perform the transition it allows."
+    },
+    {
+      "code": 131,
+      "name": "DependencyNotMet",
+      "meaning": "A dependency operation has not been executed yet.",
+      "class": "transient",
+      "cause": "A dependency operation has not been executed yet.",
+      "remediation": "Execute the dependency first, then retry."
+    },
+    {
+      "code": 132,
+      "name": "ConfigVersionNotFound",
+      "meaning": "No configuration snapshot exists for the requested version.",
+      "class": "caller",
+      "cause": "No configuration snapshot exists for the requested version.",
+      "remediation": "List available config versions and pick an existing one."
+    },
+    {
+      "code": 133,
+      "name": "NotGuardian",
+      "meaning": "The caller is not a registered recovery guardian.",
+      "class": "caller",
+      "cause": "The caller is not a registered recovery guardian.",
+      "remediation": "Sign with a registered guardian address."
+    },
+    {
+      "code": 134,
+      "name": "RecoveryAlreadyPending",
+      "meaning": "A recovery is already pending for a different candidate admin.",
+      "class": "state",
+      "cause": "A recovery for a different candidate admin is already pending.",
+      "remediation": "Approve or cancel the pending recovery before starting another."
+    },
+    {
+      "code": 135,
+      "name": "RecoveryAlreadyApproved",
+      "meaning": "This guardian has already approved the pending recovery.",
+      "class": "caller",
+      "cause": "This guardian already approved the pending recovery.",
+      "remediation": "No action needed; wait for the remaining guardian approvals."
+    },
+    {
+      "code": 136,
+      "name": "RecoveryNotPending",
+      "meaning": "No recovery is currently pending.",
+      "class": "state",
+      "cause": "There is no pending recovery.",
+      "remediation": "Start a recovery before approving, cancelling or executing one."
+    },
+    {
+      "code": 137,
+      "name": "RecoveryDelayNotElapsed",
+      "meaning": "The recovery cancellation-window delay has not elapsed.",
+      "class": "transient",
+      "cause": "The recovery cancellation window has not elapsed.",
+      "remediation": "Wait until the delay has passed, then execute the recovery."
+    },
+    {
+      "code": 138,
+      "name": "NoActiveSubscription",
+      "meaning": "The consumer does not have an active subscription.",
+      "class": "state",
+      "cause": "The consumer has no active subscription.",
+      "remediation": "Subscribe (or renew) before calling subscription-gated endpoints."
+    },
+    {
+      "code": 139,
+      "name": "InvalidGuardianConfig",
+      "meaning": "The configured guardian set is invalid.",
+      "class": "caller",
+      "cause": "The guardian set configuration is invalid.",
+      "remediation": "Provide a non-empty guardian set with a threshold no larger than its size."
+    },
+    {
+      "code": 140,
+      "name": "InvalidSeverityThresholds",
+      "meaning": "The configured severity thresholds are invalid.",
+      "class": "caller",
+      "cause": "The severity thresholds are invalid (e.g. out of order).",
+      "remediation": "Supply thresholds in ascending order within their documented bounds."
+    },
+    {
+      "code": 141,
+      "name": "BatchEmpty",
+      "meaning": "The batch is empty.",
+      "class": "caller",
+      "cause": "The batch contains no items.",
+      "remediation": "Send at least one item."
+    },
+    {
+      "code": 142,
+      "name": "BatchTooLarge",
+      "meaning": "The batch exceeds the maximum allowed size.",
+      "class": "caller",
+      "cause": "The batch exceeds the maximum size.",
+      "remediation": "Split the batch into smaller batches."
+    },
+    {
+      "code": 143,
+      "name": "BatchNotFeePrioritized",
+      "meaning": "The batch is not ordered by priority fee.",
+      "class": "caller",
+      "cause": "The batch is not ordered by priority fee.",
+      "remediation": "Sort the batch by descending priority fee before submitting."
+    },
+    {
+      "code": 144,
+      "name": "GuardianSetNotConfigured",
+      "meaning": "No guardian set has been configured.",
+      "class": "config",
+      "cause": "No Wormhole guardian set has been configured.",
+      "remediation": "Admin: configure the guardian set."
+    },
+    {
+      "code": 145,
+      "name": "GuardianQuorumNotMet",
+      "meaning": "The guardian quorum was not met.",
+      "class": "caller",
+      "cause": "The VAA lacks signatures from a guardian quorum.",
+      "remediation": "Submit a VAA signed by a quorum of the current guardian set."
+    },
+    {
+      "code": 146,
+      "name": "InvalidGuardianSignatureSet",
+      "meaning": "The guardian signature set is invalid.",
+      "class": "caller",
+      "cause": "The guardian signatures are invalid, duplicated or unordered.",
+      "remediation": "Submit the VAA exactly as produced by the guardian network."
+    },
+    {
+      "code": 147,
+      "name": "InvalidVaaPayload",
+      "meaning": "The VAA payload is invalid.",
+      "class": "caller",
+      "cause": "The VAA payload does not decode to a price message.",
+      "remediation": "Check the emitter and payload format."
+    },
+    {
+      "code": 148,
+      "name": "VaaAlreadyProcessed",
+      "meaning": "The VAA has already been processed.",
+      "class": "caller",
+      "cause": "This VAA was already processed (replay).",
+      "remediation": "Do not resubmit processed VAAs."
+    },
+    {
+      "code": 149,
+      "name": "UnmappedWormholeChain",
+      "meaning": "The Wormhole chain id is not mapped to an oracle chain.",
+      "class": "config",
+      "cause": "The Wormhole chain id is not mapped to an oracle chain.",
+      "remediation": "Admin: add the chain mapping, or reject messages from that chain."
+    },
+    {
+      "code": 150,
+      "name": "RelayerBondInsufficient",
+      "meaning": "The relayer's performance bond is insufficient.",
+      "class": "state",
+      "cause": "The relayer's performance bond is below the required amount.",
+      "remediation": "Top up the relayer bond before relaying."
+    },
+    {
+      "code": 151,
+      "name": "RelayerFailureThresholdMiss",
+      "meaning": "The relayer failure threshold has not been reached.",
+      "class": "state",
+      "cause": "The relayer has not reached the failure threshold required for this action.",
+      "remediation": "Wait until the failure threshold is reached, or check the relayer's failure count."
+    },
+    {
+      "code": 152,
+      "name": "InvalidExternalProof",
+      "meaning": "The external submission proof failed validation.",
+      "class": "caller",
+      "cause": "The external submission proof failed validation.",
+      "remediation": "Regenerate the proof from the correct source data and resubmit."
+    },
+    {
+      "code": 153,
+      "name": "SlashFailed",
+      "meaning": "The source's stake could not be slashed.",
+      "class": "state",
+      "cause": "The source's stake could not be slashed (e.g. nothing staked).",
+      "remediation": "Check the source's stake and the stake token configuration."
+    },
+    {
+      "code": 154,
+      "name": "LowSourceDiversity",
+      "meaning": "The active source set is below the configured effective-independence threshold.",
+      "class": "state",
+      "cause": "The active sources fall below the effective-independence threshold (#399).",
+      "remediation": "Onboard sources on independent infra, upstream and owners, or review the diversity thresholds."
+    },
+    {
+      "code": 155,
+      "name": "InvalidDiversityThresholds",
+      "meaning": "The supplied diversity thresholds are invalid (e.g. max HHI > 10000).",
+      "class": "caller",
+      "cause": "The diversity thresholds are invalid (e.g. max HHI above 10000).",
+      "remediation": "Use `min_effective_sources` >= 1 and `max_hhi_per_axis` <= 10000."
+    },
+    {
+      "code": 159,
+      "name": "RenewalAuthorizationReplay",
+      "meaning": "A renewal authorization was replayed after it had already been consumed.",
+      "class": "caller",
+      "cause": "This renewal authorization was already consumed.",
+      "remediation": "Create a new authorization for the next period."
+    },
+    {
+      "code": 160,
+      "name": "RenewalAuthorizationMissing",
+      "meaning": "No single-use renewal authorization exists for the requested period.",
+      "class": "state",
+      "cause": "No single-use renewal authorization exists for this period.",
+      "remediation": "Authorize the renewal for the period before it is attempted."
+    },
+    {
+      "code": 161,
+      "name": "AutoRenewalNotEnabled",
+      "meaning": "The consumer has no standing auto-renewal authorization.",
+      "class": "state",
+      "cause": "The consumer has no standing auto-renewal authorization.",
+      "remediation": "Enable auto-renewal first."
+    },
+    {
+      "code": 162,
+      "name": "AutoRenewalCancelled",
+      "meaning": "The subscription was cancelled or superseded, so it cannot renew.",
+      "class": "state",
+      "cause": "The subscription was cancelled or superseded and cannot renew.",
+      "remediation": "Subscribe again; cancellation is permanent."
+    },
+    {
+      "code": 165,
+      "name": "TwapInsufficientObservations",
+      "meaning": "The TWAP window holds fewer distinct observations than the floor.",
+      "class": "transient",
+      "cause": "The TWAP window has fewer distinct observations than the minimum.",
+      "remediation": "Use a longer window, or retry after more prices are published."
+    },
+    {
+      "code": 166,
+      "name": "ParamOutOfBounds",
+      "meaning": "Parameter write outside the registered bounds (#544).",
+      "class": "caller",
+      "cause": "The parameter value is outside its registered bounds (#544).",
+      "remediation": "Choose a value within the bounds reported by the parameter registry."
+    },
+    {
+      "code": 167,
+      "name": "ParamNotRegistered",
+      "meaning": "Parameter is not present in the registry (#544).",
+      "class": "caller",
+      "cause": "The parameter is not in the registry (#544).",
+      "remediation": "Check the parameter name against the registry."
+    },
+    {
+      "code": 168,
+      "name": "SimulationRequired",
+      "meaning": "Critical proposal lacks a worst-case simulation (#545).",
+      "class": "caller",
+      "cause": "A critical proposal has no worst-case simulation attached (#545).",
+      "remediation": "Run and attach the worst-case simulation before submitting."
+    },
+    {
+      "code": 169,
+      "name": "ProposalHarmful",
+      "meaning": "Proposal simulation flagged harmful impact (#545).",
+      "class": "caller",
+      "cause": "The proposal's simulation flagged harmful impact (#545).",
+      "remediation": "Revise the proposal so the simulation passes."
+    },
+    {
+      "code": 172,
+      "name": "StorageTierDowngradeNotReady",
+      "meaning": "A persistent -> temporary tier downgrade was attempted without the required multi-party approval and timelock having completed.",
+      "class": "transient",
+      "cause": "A persistent-to-temporary downgrade lacks completed approval or timelock.",
+      "remediation": "Collect the required approvals and wait out the timelock, then retry."
+    },
+    {
+      "code": 173,
+      "name": "UnknownStorageTier",
+      "meaning": "The requested storage tier value is not a known discriminant.",
+      "class": "caller",
+      "cause": "The storage tier value is not a known tier.",
+      "remediation": "Pass `Temporary` or `Persistent`."
+    },
+    {
+      "code": 174,
+      "name": "StorageTierMigrationFailed",
+      "meaning": "A history-tier migration could not be completed.",
+      "class": "state",
+      "cause": "A history-tier migration could not be completed.",
+      "remediation": "Check the asset's history entries, then rerun the migration."
+    },
+    {
+      "code": 179,
+      "name": "AutoRenewalAllowanceExceeded",
+      "meaning": "The consumer's pre-approved allowance would be exceeded by this renewal.",
+      "class": "state",
+      "cause": "The renewal would exceed the consumer's pre-approved allowance.",
+      "remediation": "Raise the allowance or renew manually."
+    },
+    {
+      "code": 180,
+      "name": "RoundNotFound",
+      "meaning": "The requested round is not the asset's current round.",
+      "class": "caller",
+      "cause": "The round is not the asset's current round.",
+      "remediation": "Read the current round id and submit to it."
+    },
+    {
+      "code": 181,
+      "name": "RoundExpired",
+      "meaning": "The round's deadline has passed; it can no longer accept observations.",
+      "class": "transient",
+      "cause": "The round's deadline has passed.",
+      "remediation": "Submit to the next round."
+    },
+    {
+      "code": 182,
+      "name": "RoundEvidenceReplay",
+      "meaning": "The same observation was already used to satisfy an earlier round's quorum.",
+      "class": "caller",
+      "cause": "This observation already satisfied an earlier round's quorum.",
+      "remediation": "Submit a fresh observation for the current round."
+    },
+    {
+      "code": 183,
+      "name": "RoundEquivocation",
+      "meaning": "The participant equivocated inside a round and was penalized.",
+      "class": "caller",
+      "cause": "The participant sent conflicting observations in one round and was penalized.",
+      "remediation": "Send exactly one observation per round."
+    },
+    {
+      "code": 184,
+      "name": "DerivedFeedZeroDenominator",
+      "meaning": "A derived feed was requested with a zero denominator.",
+      "class": "state",
+      "cause": "The derived feed's denominator price is zero.",
+      "remediation": "Wait for a valid denominator price, or check the pair definition."
+    },
+    {
+      "code": 185,
+      "name": "InvalidBoundOrdering",
+      "meaning": "The soft/hard bound ordering supplied for an asset is invalid (#484).",
+      "class": "caller",
+      "cause": "Soft/hard bounds are not ordered hard_min <= soft_min <= soft_max <= hard_max (#484).",
+      "remediation": "Supply correctly ordered bounds."
+    },
+    {
+      "code": 186,
+      "name": "InvalidDeferralPolicy",
+      "meaning": "The supplied deferral policy is outside its documented bounds (#485).",
+      "class": "caller",
+      "cause": "The deferral policy is outside its documented bounds (#485).",
+      "remediation": "Use quorum, window and deferral values within the documented limits."
+    },
+    {
+      "code": 187,
+      "name": "InvalidCorrectionReason",
+      "meaning": "`correct_price` was called with an empty or oversized reason (#486).",
+      "class": "caller",
+      "cause": "`correct_price` got an empty or oversized reason (#486).",
+      "remediation": "Give a non-empty reason within the length cap."
+    },
+    {
+      "code": 188,
+      "name": "CorrectionLimitReached",
+      "meaning": "The per-asset correction count cap has been reached (#486).",
+      "class": "state",
+      "cause": "The asset has reached its correction cap (#486).",
+      "remediation": "No further corrections are possible for this asset; publish a new aggregate instead."
+    },
+    {
+      "code": 189,
+      "name": "AggregateRejectedByBounds",
+      "meaning": "The value supplied lies outside the asset's hard bounds (#484, #486).",
+      "class": "caller",
+      "cause": "The value is outside the asset's hard bounds (#484, #486).",
+      "remediation": "Submit a value within the hard bounds, or have the admin review them."
+    },
+    {
+      "code": 190,
+      "name": "CorrectionWindowExpired",
+      "meaning": "The aggregate being corrected is older than the correction window (#486).",
+      "class": "state",
+      "cause": "The aggregate is older than the correction window (#486).",
+      "remediation": "Corrections are only allowed within the window; publish a new aggregate instead."
+    },
+    {
+      "code": 191,
+      "name": "RevisionNotFound",
+      "meaning": "The requested revision index does not exist in the chain (#486).",
+      "class": "caller",
+      "cause": "The revision index does not exist (#486).",
+      "remediation": "Read the revision chain and use an existing index."
+    },
+    {
+      "code": 192,
+      "name": "ConfigMissing",
+      "meaning": "A required configuration value has not been set.",
+      "class": "config",
+      "cause": "A required configuration entry is missing (e.g. evicted from storage).",
+      "remediation": "Admin: restore the configuration (re-run the relevant setter); the contract fails closed until then."
+    },
+    {
+      "code": 193,
+      "name": "RelayerBondLocked",
+      "meaning": "Outstanding failure reports prevent the relayer bond from being locked.",
+      "class": "state",
+      "cause": "Outstanding failure reports block this relayer bond operation.",
+      "remediation": "Resolve the outstanding failure reports first."
+    },
+    {
+      "code": 194,
+      "name": "InvalidPageCursor",
+      "meaning": "A pagination cursor does not identify an item in the current registry.",
+      "class": "caller",
+      "cause": "The supplied asset cursor is no longer present in the registry.",
+      "remediation": "Restart asset pagination with a `None` cursor."
+    },
+    {
+      "code": 195,
+      "name": "UnknownDerivedPair",
+      "meaning": "One (or more) of the requested pair/triplet is unknown or has no price.",
+      "class": "caller",
+      "cause": "A requested pair or triplet is unknown or has no price.",
+      "remediation": "Check that every asset in the pair is registered and priced."
+    },
+    {
+      "code": 196,
+      "name": "DerivedFeedCycle",
+      "meaning": "The requested derivation would form a cycle in the derivation graph.",
+      "class": "caller",
+      "cause": "The derivation would form a cycle.",
+      "remediation": "Define the derived feed without circular references."
+    },
+    {
+      "code": 197,
+      "name": "DerivedFeedDepthExceeded",
+      "meaning": "The derivation graph depth bound would be exceeded.",
+      "class": "caller",
+      "cause": "The derivation graph is deeper than allowed.",
+      "remediation": "Derive from closer base feeds to stay within the depth bound."
+    },
+    {
+      "code": 198,
+      "name": "AssetDisabled",
+      "meaning": "The asset is currently disabled and cannot accept new submissions or aggregations. Historical prices remain queryable.",
+      "class": "state",
+      "cause": "The asset is disabled; history stays readable.",
+      "remediation": "Admin: call `enable_asset` to resume submissions."
+    },
+    {
+      "code": 199,
+      "name": "SourceEvidenceMissing",
+      "meaning": "A source enrollment is missing one of its four required evidence values.",
+      "class": "caller",
+      "cause": "A source enrollment lacks one of its four required evidence values.",
+      "remediation": "Provide all four evidence values when enrolling."
+    },
+    {
+      "code": 200,
+      "name": "InvalidRiskTier",
+      "meaning": "The supplied risk tier discriminant is not one of the defined tiers.",
+      "class": "caller",
+      "cause": "The risk tier value is not a defined tier.",
+      "remediation": "Pass one of the defined risk tiers."
+    },
+    {
+      "code": 201,
+      "name": "InvalidSanityRelation",
+      "meaning": "A sanity relation names an asset that is not registered, or repeats an asset in a way the relation kind cannot express (#488).",
+      "class": "caller",
+      "cause": "A sanity relation names an unregistered asset or repeats one invalidly (#488).",
+      "remediation": "Register the assets and define each relation with distinct assets."
+    },
+    {
+      "code": 202,
+      "name": "InvalidSanityTolerance",
+      "meaning": "A sanity tolerance is `0` or above `MAX_TOLERANCE_BPS` (#488).",
+      "class": "caller",
+      "cause": "The sanity tolerance is 0 or above the maximum (#488).",
+      "remediation": "Use a tolerance between 1 and `MAX_TOLERANCE_BPS`."
+    },
+    {
+      "code": 203,
+      "name": "InvalidFreshnessWindow",
+      "meaning": "The freshness window is `0` or above `MAX_FRESHNESS_WINDOW_SECS` (#489).",
+      "class": "caller",
+      "cause": "The freshness window is 0 or above the maximum (#489).",
+      "remediation": "Use a window between 1 and `MAX_FRESHNESS_WINDOW_SECS` (0 clears a setting where allowed)."
+    },
+    {
+      "code": 204,
+      "name": "InvalidScorecardConfig",
+      "meaning": "A scorecard window/configuration value is outside its documented bounds (#490).",
+      "class": "caller",
+      "cause": "A scorecard setting is outside its documented bounds (#490).",
+      "remediation": "Use values within the documented scorecard bounds."
+    },
+    {
+      "code": 205,
+      "name": "InvalidSanityRatio",
+      "meaning": "The supplied ratio for a peg relation has a zero or negative denominator (#488).",
+      "class": "caller",
+      "cause": "A peg relation's ratio has a zero or negative denominator (#488).",
+      "remediation": "Use a positive denominator."
+    },
+    {
+      "code": 206,
+      "name": "DeadManDisabled",
+      "meaning": "A heartbeat was submitted while the dead-man switch is not armed.",
+      "class": "state",
+      "cause": "A heartbeat was sent while the dead-man switch is not armed.",
+      "remediation": "Arm the dead-man switch before sending heartbeats."
+    },
+    {
+      "code": 207,
+      "name": "NotDegraded",
+      "meaning": "The dead-man switch is not currently in the degraded state, so there is nothing to recover from.",
+      "class": "state",
+      "cause": "Recovery was requested but the dead-man switch is not degraded.",
+      "remediation": "No action needed."
+    },
+    {
+      "code": 208,
+      "name": "OracleDegraded",
+      "meaning": "The contract is in the dead-man degraded state: submissions are rejected and reads serve no value until the recovery path clears it.",
+      "class": "state",
+      "cause": "The dead-man switch tripped: submissions are rejected and reads return nothing.",
+      "remediation": "Guardian: run the dead-man recovery path once the operator is back."
+    },
+    {
+      "code": 209,
+      "name": "IdentityRevoked",
+      "meaning": "The source address or identity fingerprint was offboarded and may not be registered again (#402).",
+      "class": "caller",
+      "cause": "The source address or identity was offboarded and cannot be re-registered (#402).",
+      "remediation": "Onboard a new, unrevoked identity."
+    },
+    {
+      "code": 210,
+      "name": "TextTooLong",
+      "meaning": "A `String` parameter exceeds its documented byte cap (#506).",
+      "class": "caller",
+      "cause": "A string argument exceeds its byte cap (#506).",
+      "remediation": "Shorten the string to within the documented cap."
+    },
+    {
+      "code": 211,
+      "name": "InvalidTextContent",
+      "meaning": "A `String` parameter is empty, whitespace-padded, or contains a byte outside the canonical printable-ASCII form (#506).",
+      "class": "caller",
+      "cause": "A string is empty, padded with whitespace, or has non-printable-ASCII bytes (#506).",
+      "remediation": "Send trimmed, non-empty printable ASCII."
+    },
+    {
+      "code": 212,
+      "name": "PayloadTooLarge",
+      "meaning": "A `Bytes` parameter exceeds its documented byte cap (#506).",
+      "class": "caller",
+      "cause": "A bytes argument exceeds its byte cap (#506).",
+      "remediation": "Send a smaller payload."
+    },
+    {
+      "code": 213,
+      "name": "InvalidBasketWeights",
+      "meaning": "A basket's weights do not sum to `BASKET_WEIGHT_SCALE`.",
+      "class": "caller",
+      "cause": "Basket weights do not sum to `BASKET_WEIGHT_SCALE`.",
+      "remediation": "Make the weights sum exactly to `BASKET_WEIGHT_SCALE`."
+    },
+    {
+      "code": 214,
+      "name": "InvalidBasketComposition",
+      "meaning": "A basket's constituent list is empty, oversized, or repeats an asset.",
+      "class": "caller",
+      "cause": "The basket's constituents are empty, too many, or repeated.",
+      "remediation": "Use a non-empty list of distinct constituents within the size limit."
+    },
+    {
+      "code": 215,
+      "name": "RecursiveBasket",
+      "meaning": "A basket names itself as a constituent, directly or transitively.",
+      "class": "caller",
+      "cause": "The basket contains itself, directly or through another basket.",
+      "remediation": "Remove the self-reference."
+    },
+    {
+      "code": 216,
+      "name": "BasketConstituentStale",
+      "meaning": "A constituent has no price, or one older than the staleness bound, under the `Reject` policy.",
+      "class": "transient",
+      "cause": "A constituent has no price or a stale one, and the policy is `Reject`.",
+      "remediation": "Retry after the constituent updates, or change the staleness policy."
+    },
+    {
+      "code": 217,
+      "name": "BasketNotFound",
+      "meaning": "No basket is configured at `basket`.",
+      "class": "caller",
+      "cause": "No basket is configured at this address.",
+      "remediation": "Check the basket address, or create the basket first."
+    },
+    {
+      "code": 218,
+      "name": "InvalidBreakerDeadband",
+      "meaning": "The breaker's clear threshold is not strictly below its trip threshold.",
+      "class": "caller",
+      "cause": "The breaker's clear threshold is not below its trip threshold.",
+      "remediation": "Set `clear_bps` strictly below `trip_bps`."
+    },
+    {
+      "code": 219,
+      "name": "InvalidBreakerPolicy",
+      "meaning": "The settle window or open-timeout is zero.",
+      "class": "caller",
+      "cause": "The breaker's settle window or open timeout is zero.",
+      "remediation": "Use non-zero `settle_ledgers` and `max_open_ledgers`."
+    },
+    {
+      "code": 220,
+      "name": "InvalidAdaptiveQuorum",
+      "meaning": "The adaptive-quorum configuration violates its documented bounds.",
+      "class": "caller",
+      "cause": "The adaptive-quorum configuration violates its bounds.",
+      "remediation": "Use values within the documented adaptive-quorum bounds."
+    },
+    {
+      "code": 221,
+      "name": "InsufficientVolatilitySamples",
+      "meaning": "Too few volatility observations to classify the regime.",
+      "class": "transient",
+      "cause": "Too few volatility samples to classify the regime.",
+      "remediation": "Retry after more prices have been published."
+    },
+    {
+      "code": 222,
+      "name": "EmergencyExpired",
+      "meaning": "No active emergency council, or its mandate has expired.",
+      "class": "state",
+      "cause": "There is no active emergency council, or its mandate expired.",
+      "remediation": "Governance: appoint or renew the emergency council."
+    },
+    {
+      "code": 223,
+      "name": "EmergencyActionForbidden",
+      "meaning": "The action is outside the emergency-only set, or mutates governance.",
+      "class": "caller",
+      "cause": "The action is not emergency-only, or would change governance.",
+      "remediation": "Use normal governance for this action."
+    },
+    {
+      "code": 224,
+      "name": "NoPendingEmergency",
+      "meaning": "There is no emergency action awaiting ratification.",
+      "class": "state",
+      "cause": "No emergency action is awaiting ratification.",
+      "remediation": "No action needed."
+    },
+    {
+      "code": 225,
+      "name": "EmergencyRatificationExpired",
+      "meaning": "The ratification deadline for the pending emergency action has passed.",
+      "class": "state",
+      "cause": "The ratification deadline for the emergency action has passed.",
+      "remediation": "The action lapsed; propose it again through normal governance."
+    },
+    {
+      "code": 226,
+      "name": "InvalidInput",
+      "meaning": "An input argument is malformed or out of range.",
+      "class": "caller",
+      "cause": "An argument is malformed or out of range.",
+      "remediation": "Check the arguments against the endpoint's documented ranges."
     }
   ]
 }

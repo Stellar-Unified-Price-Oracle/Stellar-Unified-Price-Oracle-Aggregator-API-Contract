@@ -45,6 +45,7 @@ __pycache__/
 !.env.example
 
 # IDE
+.vscode/
 .idea/
 *.iml
 *.swp
@@ -61,7 +62,6 @@ Thumbs.db
 # Soroban / Stellar CLI
 .soroban/
 *.stellar
-temp_auto_push.bat
 
 # Logs
 *.log
@@ -126,5 +126,3 @@ cargo_out.txt
 
 # Contributor dev environment (#541)
 .venv/
-.gitignore
-branch_structure.json

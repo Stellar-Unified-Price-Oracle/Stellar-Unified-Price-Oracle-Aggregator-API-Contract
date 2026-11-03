@@ -33,13 +33,3 @@ soroban-sdk = { version = "=26.0.1", features = ["testutils"] }
 proptest = { version = "=1.11.0", default-features = false, features = ["std"] }
 ed25519-dalek = { version = "=2.2.0", features = ["rand_core"] }
 
-# Example consumers that run against the shared deterministic fixtures in CI.
-[[example]]
-name = "consumer_basic"
-path = "examples/consumer_basic.rs"
-required-features = ["fixtures"]
-
-[[example]]
-name = "consumer_history"
-path = "examples/consumer_history.rs"
-required-features = ["fixtures"]

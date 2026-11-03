@@ -76,7 +76,11 @@ pub const MIN_RETENTION_LEDGERS: u32 = 1;
 /// been explicitly set by an admin.
 pub fn get_retention_policy(env: &Env) -> DataRetentionPolicy {
     let key = DataKey::RetentionPolicy;
-    if let Some(policy) = env.storage().persistent().get::<_, DataRetentionPolicy>(&key) {
+    if let Some(policy) = env
+        .storage()
+        .persistent()
+        .get::<_, DataRetentionPolicy>(&key)
+    {
         env.storage()
             .persistent()
             .extend_ttl(&key, LEDGER_THRESHOLD, LEDGER_BUMP);
@@ -201,11 +205,7 @@ pub fn bump_correction_chain(env: &Env, asset: &Address) {
 /// Returns the number of entries whose TTLs were bumped.
 pub fn apply_retention_to_audit_log(env: &Env, max_entries: u32) -> u32 {
     let count_key = DataKey::AuditEntryCount;
-    let total: u32 = env
-        .storage()
-        .persistent()
-        .get(&count_key)
-        .unwrap_or(0);
+    let total: u32 = env.storage().persistent().get(&count_key).unwrap_or(0);
 
     let retention = audit_retention_ledgers(env);
     let bump_to = retention.max(LEDGER_BUMP);

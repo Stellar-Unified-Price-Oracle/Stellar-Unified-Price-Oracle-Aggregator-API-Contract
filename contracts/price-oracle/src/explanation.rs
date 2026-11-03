@@ -62,6 +62,9 @@ pub const MAX_RETENTION: u32 = 64;
 
 /// Current retention (ring size) for every explanation log.
 pub fn get_retention(env: &Env) -> u32 {
+    if !crate::feature_flags::on(env, crate::feature_flags::ANOMALY_RETENTION) {
+        return DEFAULT_RETENTION;
+    }
     env.storage()
         .persistent()
         .get(&DataKey::AnomalyRetention)
@@ -78,6 +81,7 @@ pub fn set_retention(env: &Env, retention: u32) {
         panic_with_error!(env, ErrorCode::InvalidConfiguration);
     }
     let key = DataKey::AnomalyRetention;
+    crate::feature_flags::mark(env, crate::feature_flags::ANOMALY_RETENTION);
     env.storage().persistent().set(&key, &retention);
     env.storage()
         .persistent()

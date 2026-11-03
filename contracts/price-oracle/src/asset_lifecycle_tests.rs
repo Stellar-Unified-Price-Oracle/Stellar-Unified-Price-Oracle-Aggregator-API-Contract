@@ -1,6 +1,9 @@
 #![cfg(test)]
 
-use soroban_sdk::{Address, Env, String};
+use soroban_sdk::{
+    testutils::{Address as _, Ledger},
+    Address, Env,
+};
 
 use crate::test_helpers::*;
 
@@ -11,13 +14,14 @@ use crate::test_helpers::*;
 #[test]
 fn test_disable_asset() {
     let e = Env::default();
+    ledger_default(&e, 100, 1234567890);
     let (client, _) = setup_contract(&e);
 
     let asset = register_test_asset(&e, &client);
-    assert!(!client.is_asset_disabled(asset.clone()));
+    assert!(!client.is_asset_disabled(&asset));
 
     client.disable_asset(&asset);
-    assert!(client.is_asset_disabled(asset.clone()));
+    assert!(client.is_asset_disabled(&asset));
 
     let disabled_at = client.get_asset_disabled_at(&asset);
     assert!(disabled_at > 0);
@@ -26,6 +30,7 @@ fn test_disable_asset() {
 #[test]
 fn test_disable_unregistered_asset() {
     let e = Env::default();
+    ledger_default(&e, 100, 1234567890);
     let (client, _) = setup_contract(&e);
 
     let asset = Address::generate(&e);
@@ -36,26 +41,28 @@ fn test_disable_unregistered_asset() {
 #[test]
 fn test_enable_asset() {
     let e = Env::default();
+    ledger_default(&e, 100, 1234567890);
     let (client, _) = setup_contract(&e);
 
     let asset = register_test_asset(&e, &client);
     client.disable_asset(&asset);
-    assert!(client.is_asset_disabled(asset.clone()));
+    assert!(client.is_asset_disabled(&asset));
 
     client.enable_asset(&asset);
-    assert!(!client.is_asset_disabled(asset.clone()));
+    assert!(!client.is_asset_disabled(&asset));
 }
 
 #[test]
 fn test_cannot_submit_price_to_disabled_asset() {
     let e = Env::default();
+    ledger_default(&e, 100, 1234567890);
     let (client, _) = setup_contract(&e);
 
     let source = register_test_source(&e, &client, "S1");
     let asset = register_test_asset(&e, &client);
 
     // Submit to active asset should work
-    client.submit_price(
+    client.submit_price_with_nonce(
         &source,
         &asset,
         &1000000000000000000i128,
@@ -67,7 +74,7 @@ fn test_cannot_submit_price_to_disabled_asset() {
     client.disable_asset(&asset);
 
     // Submit to disabled asset should fail with AssetDisabled (error code 190)
-    let result = client.try_submit_price(
+    let result = client.try_submit_price_with_nonce(
         &source,
         &asset,
         &1000000000000000000i128,
@@ -81,13 +88,16 @@ fn test_cannot_submit_price_to_disabled_asset() {
 #[test]
 fn test_cannot_get_price_for_disabled_asset() {
     let e = Env::default();
+    ledger_default(&e, 100, 1234567890);
     let (client, _) = setup_contract(&e);
+    // One source is enough to publish in this test.
+    client.set_min_sources_required(&1u32);
 
     let source = register_test_source(&e, &client, "S1");
     let asset = register_test_asset(&e, &client);
 
     // Submit a price to the active asset
-    client.submit_price(
+    client.submit_price_with_nonce(
         &source,
         &asset,
         &1000000000000000000i128,
@@ -110,13 +120,14 @@ fn test_cannot_get_price_for_disabled_asset() {
 #[test]
 fn test_cannot_get_source_price_for_disabled_asset() {
     let e = Env::default();
+    ledger_default(&e, 100, 1234567890);
     let (client, _) = setup_contract(&e);
 
     let source = register_test_source(&e, &client, "S1");
     let asset = register_test_asset(&e, &client);
 
     // Submit a price
-    client.submit_price(
+    client.submit_price_with_nonce(
         &source,
         &asset,
         &1000000000000000000i128,
@@ -139,6 +150,7 @@ fn test_cannot_get_source_price_for_disabled_asset() {
 #[test]
 fn test_cannot_get_all_prices_for_disabled_asset() {
     let e = Env::default();
+    ledger_default(&e, 100, 1234567890);
     let (client, _) = setup_contract(&e);
 
     let source1 = register_test_source(&e, &client, "S1");
@@ -146,14 +158,14 @@ fn test_cannot_get_all_prices_for_disabled_asset() {
     let asset = register_test_asset(&e, &client);
 
     // Submit prices from two sources
-    client.submit_price(
+    client.submit_price_with_nonce(
         &source1,
         &asset,
         &1000000000000000000i128,
         &1234567890u64,
         &1u64,
     );
-    client.submit_price(
+    client.submit_price_with_nonce(
         &source2,
         &asset,
         &1000000000000000000i128,
@@ -176,27 +188,29 @@ fn test_cannot_get_all_prices_for_disabled_asset() {
 #[test]
 fn test_disabled_asset_remains_in_registry() {
     let e = Env::default();
+    ledger_default(&e, 100, 1234567890);
     let (client, _) = setup_contract(&e);
 
     let asset = register_test_asset(&e, &client);
-    assert!(client.is_asset_registered(asset.clone()));
+    assert!(client.is_asset_registered(&asset));
 
     client.disable_asset(&asset);
 
     // Asset should still be registered even though disabled
-    assert!(client.is_asset_registered(asset.clone()));
+    assert!(client.is_asset_registered(&asset));
 }
 
 #[test]
 fn test_can_query_historical_price_for_disabled_asset() {
     let e = Env::default();
+    ledger_default(&e, 100, 1234567890);
     let (client, _) = setup_contract(&e);
 
     let source = register_test_source(&e, &client, "S1");
     let asset = register_test_asset(&e, &client);
 
     // Submit a price
-    client.submit_price(
+    client.submit_price_with_nonce(
         &source,
         &asset,
         &1000000000000000000i128,
@@ -206,7 +220,7 @@ fn test_can_query_historical_price_for_disabled_asset() {
 
     // Force a block advance so we get history
     for _ in 0..10 {
-        e.ledger().with_mut(|mut state| {
+        e.ledger().with_mut(|state| {
             state.sequence_number = state.sequence_number.wrapping_add(1);
         });
     }
@@ -222,13 +236,14 @@ fn test_can_query_historical_price_for_disabled_asset() {
 #[test]
 fn test_disable_and_reenable_allows_submissions() {
     let e = Env::default();
+    ledger_default(&e, 100, 1234567890);
     let (client, _) = setup_contract(&e);
 
     let source = register_test_source(&e, &client, "S1");
     let asset = register_test_asset(&e, &client);
 
     // Submit price to active asset
-    client.submit_price(
+    client.submit_price_with_nonce(
         &source,
         &asset,
         &1000000000000000000i128,
@@ -240,7 +255,7 @@ fn test_disable_and_reenable_allows_submissions() {
     client.disable_asset(&asset);
 
     // Try to submit should fail
-    let result = client.try_submit_price(
+    let result = client.try_submit_price_with_nonce(
         &source,
         &asset,
         &1000000000000000000i128,
@@ -253,7 +268,7 @@ fn test_disable_and_reenable_allows_submissions() {
     client.enable_asset(&asset);
 
     // Submit should now work
-    let result = client.try_submit_price(
+    let result = client.try_submit_price_with_nonce(
         &source,
         &asset,
         &1000000000000000000i128,
@@ -266,36 +281,38 @@ fn test_disable_and_reenable_allows_submissions() {
 #[test]
 fn test_multiple_assets_independent_disable_state() {
     let e = Env::default();
+    ledger_default(&e, 100, 1234567890);
     let (client, _) = setup_contract(&e);
+    client.set_min_sources_required(&1u32);
 
     let source = register_test_source(&e, &client, "S1");
     let asset1 = register_test_asset(&e, &client);
     let asset2 = register_test_asset(&e, &client);
 
     // Submit to both
-    client.submit_price(
+    client.submit_price_with_nonce(
         &source,
         &asset1,
         &1000000000000000000i128,
         &1234567890u64,
         &1u64,
     );
-    client.submit_price(
+    client.submit_price_with_nonce(
         &source,
         &asset2,
         &2000000000000000000i128,
         &1234567890u64,
-        &1u64,
+        &2u64,
     );
 
     // Disable only asset1
     client.disable_asset(&asset1);
 
     // asset1 should be disabled
-    assert!(client.is_asset_disabled(asset1.clone()));
+    assert!(client.is_asset_disabled(&asset1));
 
     // asset2 should still be active
-    assert!(!client.is_asset_disabled(asset2.clone()));
+    assert!(!client.is_asset_disabled(&asset2));
 
     // Can get price for asset2
     let price2 = client.get_price(&asset2, &0u64);
@@ -309,6 +326,7 @@ fn test_multiple_assets_independent_disable_state() {
 #[test]
 fn test_unregister_asset_vs_disable_asset() {
     let e = Env::default();
+    ledger_default(&e, 100, 1234567890);
     let (client, _) = setup_contract(&e);
 
     let asset1 = register_test_asset(&e, &client);
@@ -321,17 +339,18 @@ fn test_unregister_asset_vs_disable_asset() {
     client.unregister_asset(&asset2);
 
     // asset1 is still registered but disabled
-    assert!(client.is_asset_registered(asset1.clone()));
-    assert!(client.is_asset_disabled(asset1.clone()));
+    assert!(client.is_asset_registered(&asset1));
+    assert!(client.is_asset_disabled(&asset1));
 
     // asset2 is not registered
-    assert!(!client.is_asset_registered(asset2.clone()));
+    assert!(!client.is_asset_registered(&asset2));
 }
 
 #[test]
 fn test_disable_asset_unauthorized() {
     let e = Env::default();
-    let (client, admin) = setup_contract(&e);
+    ledger_default(&e, 100, 1234567890);
+    let (client, _admin) = setup_contract(&e);
 
     let asset = register_test_asset(&e, &client);
 
@@ -346,7 +365,8 @@ fn test_disable_asset_unauthorized() {
 #[test]
 fn test_enable_asset_unauthorized() {
     let e = Env::default();
-    let (client, admin) = setup_contract(&e);
+    ledger_default(&e, 100, 1234567890);
+    let (client, _admin) = setup_contract(&e);
 
     let asset = register_test_asset(&e, &client);
     client.disable_asset(&asset);

@@ -79,7 +79,9 @@ pub struct FreshnessFilteredEvent {
 /// configured anywhere, in which case every submission counts.
 pub fn window_for(env: &Env, asset: &Address) -> (u64, bool) {
     let key = DataKey::AssetFreshnessWindow(asset.clone());
-    if env.storage().persistent().has(&key) {
+    if crate::feature_flags::on(env, crate::feature_flags::FRESHNESS_WINDOW)
+        && env.storage().persistent().has(&key)
+    {
         env.storage()
             .persistent()
             .extend_ttl(&key, LEDGER_THRESHOLD, LEDGER_BUMP);
@@ -103,6 +105,9 @@ pub fn window_for(env: &Env, asset: &Address) -> (u64, bool) {
 
 /// The global default window, `0` when unset.
 pub fn default_window(env: &Env) -> u64 {
+    if !crate::feature_flags::on(env, crate::feature_flags::FRESHNESS_WINDOW) {
+        return 0;
+    }
     env.storage()
         .persistent()
         .get(&DataKey::DefaultFreshnessWindow)
@@ -113,6 +118,7 @@ pub fn default_window(env: &Env) -> u64 {
 pub fn set_default_window(env: &Env, secs: u64) {
     get_admin(env).require_auth();
     validate(env, secs);
+    crate::feature_flags::mark(env, crate::feature_flags::FRESHNESS_WINDOW);
     let key = DataKey::DefaultFreshnessWindow;
     if secs == 0 {
         env.storage().persistent().remove(&key);
@@ -134,6 +140,7 @@ pub fn set_asset_window(env: &Env, asset: Address, secs: u64) {
     get_admin(env).require_auth();
     check_registered_asset(env, &asset);
     validate(env, secs);
+    crate::feature_flags::mark(env, crate::feature_flags::FRESHNESS_WINDOW);
     let key = DataKey::AssetFreshnessWindow(asset.clone());
     if secs == 0 {
         env.storage().persistent().remove(&key);

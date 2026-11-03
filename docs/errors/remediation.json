@@ -418,5 +418,555 @@
     "class": "caller",
     "cause": "Malformed ZK public signals.",
     "remediation": "Match the public signal layout expected by the circuit."
+  },
+  "SignatureExpired": {
+    "class": "caller",
+    "cause": "The signed price proof's `expiration_ledger` is in the past.",
+    "remediation": "Re-sign the proof with a later `expiration_ledger` and resubmit promptly."
+  },
+  "InvalidNonce": {
+    "class": "caller",
+    "cause": "The nonce is not greater than the source's last accepted nonce.",
+    "remediation": "Use a strictly increasing nonce; read the last accepted one before signing, or use `submit_price` to assign it automatically."
+  },
+  "SigningKeyNotRegistered": {
+    "class": "config",
+    "cause": "The source has no Ed25519 key registered for signed submissions.",
+    "remediation": "Register the source's signing key before sending signed submissions."
+  },
+  "NotificationConfigInvalid": {
+    "class": "caller",
+    "cause": "A notification `channel` or `target` exceeds its maximum length.",
+    "remediation": "Shorten the channel/target strings to within the documented limits (#243)."
+  },
+  "ExportLimitExceeded": {
+    "class": "caller",
+    "cause": "The export `limit` is 0 or above the configured maximum.",
+    "remediation": "Request between 1 and the configured maximum entries, paging if needed."
+  },
+  "ExportNotFound": {
+    "class": "state",
+    "cause": "No export snapshot exists for the asset/range.",
+    "remediation": "Create the export first, or check the asset and range arguments."
+  },
+  "InvalidPriority": {
+    "class": "caller",
+    "cause": "The priority value is not a valid `OperationPriority`.",
+    "remediation": "Pass one of the defined `OperationPriority` values."
+  },
+  "PriorityTimelockNotReady": {
+    "class": "transient",
+    "cause": "The operation's priority-specific timelock has not elapsed.",
+    "remediation": "Wait until the timelock delay has passed, then execute again."
+  },
+  "InvalidProof": {
+    "class": "caller",
+    "cause": "The external proof failed format validation (#296).",
+    "remediation": "Rebuild the proof in the documented format and resubmit."
+  },
+  "ProofTypeMismatch": {
+    "class": "caller",
+    "cause": "The proof type does not match the asset's required proof type (#296).",
+    "remediation": "Submit the proof type configured for this asset."
+  },
+  "TooManyCallbacks": {
+    "class": "state",
+    "cause": "The asset already has the maximum number of price callbacks (#297).",
+    "remediation": "Unregister an unused callback before adding another."
+  },
+  "CallbackNotFound": {
+    "class": "caller",
+    "cause": "No callback is registered for this (consumer, asset) pair (#297).",
+    "remediation": "Check the consumer and asset; list callbacks with `get_price_callbacks`."
+  },
+  "PriceFrozen": {
+    "class": "state",
+    "cause": "The asset's price is frozen by the admin (#223).",
+    "remediation": "Wait for the admin to call `unfreeze_price`; submissions resume afterwards."
+  },
+  "PriceNotFrozen": {
+    "class": "state",
+    "cause": "`unfreeze_price` was called on an asset that is not frozen (#223).",
+    "remediation": "No action needed; check `is_price_frozen` before unfreezing."
+  },
+  "AxelarGatewayNotConfigured": {
+    "class": "config",
+    "cause": "The Axelar Gateway address has not been set.",
+    "remediation": "Admin: configure the Axelar Gateway contract address."
+  },
+  "AxelarCommandAlreadyExecuted": {
+    "class": "caller",
+    "cause": "This Axelar `command_id` was already executed (replay).",
+    "remediation": "Do not resubmit executed commands; each `command_id` is single-use."
+  },
+  "AxelarSourceNotTrusted": {
+    "class": "config",
+    "cause": "No trusted bridge source is registered for this (source_chain, source_address).",
+    "remediation": "Admin: register the sender as a trusted bridge source, or reject the message."
+  },
+  "LzEndpointNotConfigured": {
+    "class": "config",
+    "cause": "The LayerZero Endpoint address has not been set.",
+    "remediation": "Admin: configure the LayerZero Endpoint contract address."
+  },
+  "LzNonceOutOfOrder": {
+    "class": "transient",
+    "cause": "The delivered nonce is not the next expected nonce on this pathway.",
+    "remediation": "Deliver pending messages in nonce order; retry after the earlier ones land."
+  },
+  "LzRemoteNotTrusted": {
+    "class": "config",
+    "cause": "No trusted bridge source is registered for this (src_eid, sender) pathway.",
+    "remediation": "Admin: register the remote as a trusted pathway, or reject the message."
+  },
+  "LzChainNameNotConfigured": {
+    "class": "config",
+    "cause": "No registry chain name is configured for this LayerZero `src_eid`.",
+    "remediation": "Admin: map the `src_eid` to its canonical chain name."
+  },
+  "ForeignAssetAlreadyMapped": {
+    "class": "state",
+    "cause": "A mapping already exists for this (chain, foreign_address).",
+    "remediation": "Update or remove the existing mapping instead of adding a new one."
+  },
+  "ForeignAssetNotMapped": {
+    "class": "config",
+    "cause": "No mapping exists for this (chain, foreign_address).",
+    "remediation": "Admin: add the foreign asset mapping first."
+  },
+  "ForeignAssetMappingDisabled": {
+    "class": "state",
+    "cause": "The foreign asset mapping exists but is disabled.",
+    "remediation": "Admin: re-enable the mapping if the asset should be accepted again."
+  },
+  "OperationAlreadyExists": {
+    "class": "caller",
+    "cause": "An operation with this id already exists.",
+    "remediation": "Use a new operation id, or act on the existing operation."
+  },
+  "InvalidOperationState": {
+    "class": "state",
+    "cause": "The operation's current state does not allow this transition.",
+    "remediation": "Read the operation's state and perform the transition it allows."
+  },
+  "DependencyNotMet": {
+    "class": "transient",
+    "cause": "A dependency operation has not been executed yet.",
+    "remediation": "Execute the dependency first, then retry."
+  },
+  "ConfigVersionNotFound": {
+    "class": "caller",
+    "cause": "No configuration snapshot exists for the requested version.",
+    "remediation": "List available config versions and pick an existing one."
+  },
+  "NotGuardian": {
+    "class": "caller",
+    "cause": "The caller is not a registered recovery guardian.",
+    "remediation": "Sign with a registered guardian address."
+  },
+  "RecoveryAlreadyPending": {
+    "class": "state",
+    "cause": "A recovery for a different candidate admin is already pending.",
+    "remediation": "Approve or cancel the pending recovery before starting another."
+  },
+  "RecoveryAlreadyApproved": {
+    "class": "caller",
+    "cause": "This guardian already approved the pending recovery.",
+    "remediation": "No action needed; wait for the remaining guardian approvals."
+  },
+  "RecoveryNotPending": {
+    "class": "state",
+    "cause": "There is no pending recovery.",
+    "remediation": "Start a recovery before approving, cancelling or executing one."
+  },
+  "RecoveryDelayNotElapsed": {
+    "class": "transient",
+    "cause": "The recovery cancellation window has not elapsed.",
+    "remediation": "Wait until the delay has passed, then execute the recovery."
+  },
+  "NoActiveSubscription": {
+    "class": "state",
+    "cause": "The consumer has no active subscription.",
+    "remediation": "Subscribe (or renew) before calling subscription-gated endpoints."
+  },
+  "InvalidGuardianConfig": {
+    "class": "caller",
+    "cause": "The guardian set configuration is invalid.",
+    "remediation": "Provide a non-empty guardian set with a threshold no larger than its size."
+  },
+  "InvalidSeverityThresholds": {
+    "class": "caller",
+    "cause": "The severity thresholds are invalid (e.g. out of order).",
+    "remediation": "Supply thresholds in ascending order within their documented bounds."
+  },
+  "BatchEmpty": {
+    "class": "caller",
+    "cause": "The batch contains no items.",
+    "remediation": "Send at least one item."
+  },
+  "BatchTooLarge": {
+    "class": "caller",
+    "cause": "The batch exceeds the maximum size.",
+    "remediation": "Split the batch into smaller batches."
+  },
+  "BatchNotFeePrioritized": {
+    "class": "caller",
+    "cause": "The batch is not ordered by priority fee.",
+    "remediation": "Sort the batch by descending priority fee before submitting."
+  },
+  "GuardianSetNotConfigured": {
+    "class": "config",
+    "cause": "No Wormhole guardian set has been configured.",
+    "remediation": "Admin: configure the guardian set."
+  },
+  "GuardianQuorumNotMet": {
+    "class": "caller",
+    "cause": "The VAA lacks signatures from a guardian quorum.",
+    "remediation": "Submit a VAA signed by a quorum of the current guardian set."
+  },
+  "InvalidGuardianSignatureSet": {
+    "class": "caller",
+    "cause": "The guardian signatures are invalid, duplicated or unordered.",
+    "remediation": "Submit the VAA exactly as produced by the guardian network."
+  },
+  "InvalidVaaPayload": {
+    "class": "caller",
+    "cause": "The VAA payload does not decode to a price message.",
+    "remediation": "Check the emitter and payload format."
+  },
+  "VaaAlreadyProcessed": {
+    "class": "caller",
+    "cause": "This VAA was already processed (replay).",
+    "remediation": "Do not resubmit processed VAAs."
+  },
+  "UnmappedWormholeChain": {
+    "class": "config",
+    "cause": "The Wormhole chain id is not mapped to an oracle chain.",
+    "remediation": "Admin: add the chain mapping, or reject messages from that chain."
+  },
+  "RelayerBondInsufficient": {
+    "class": "state",
+    "cause": "The relayer's performance bond is below the required amount.",
+    "remediation": "Top up the relayer bond before relaying."
+  },
+  "RelayerFailureThresholdMiss": {
+    "class": "state",
+    "cause": "The relayer has not reached the failure threshold required for this action.",
+    "remediation": "Wait until the failure threshold is reached, or check the relayer's failure count."
+  },
+  "InvalidExternalProof": {
+    "class": "caller",
+    "cause": "The external submission proof failed validation.",
+    "remediation": "Regenerate the proof from the correct source data and resubmit."
+  },
+  "SlashFailed": {
+    "class": "state",
+    "cause": "The source's stake could not be slashed (e.g. nothing staked).",
+    "remediation": "Check the source's stake and the stake token configuration."
+  },
+  "LowSourceDiversity": {
+    "class": "state",
+    "cause": "The active sources fall below the effective-independence threshold (#399).",
+    "remediation": "Onboard sources on independent infra, upstream and owners, or review the diversity thresholds."
+  },
+  "InvalidDiversityThresholds": {
+    "class": "caller",
+    "cause": "The diversity thresholds are invalid (e.g. max HHI above 10000).",
+    "remediation": "Use `min_effective_sources` >= 1 and `max_hhi_per_axis` <= 10000."
+  },
+  "RenewalAuthorizationReplay": {
+    "class": "caller",
+    "cause": "This renewal authorization was already consumed.",
+    "remediation": "Create a new authorization for the next period."
+  },
+  "RenewalAuthorizationMissing": {
+    "class": "state",
+    "cause": "No single-use renewal authorization exists for this period.",
+    "remediation": "Authorize the renewal for the period before it is attempted."
+  },
+  "AutoRenewalNotEnabled": {
+    "class": "state",
+    "cause": "The consumer has no standing auto-renewal authorization.",
+    "remediation": "Enable auto-renewal first."
+  },
+  "AutoRenewalCancelled": {
+    "class": "state",
+    "cause": "The subscription was cancelled or superseded and cannot renew.",
+    "remediation": "Subscribe again; cancellation is permanent."
+  },
+  "TwapInsufficientObservations": {
+    "class": "transient",
+    "cause": "The TWAP window has fewer distinct observations than the minimum.",
+    "remediation": "Use a longer window, or retry after more prices are published."
+  },
+  "ParamOutOfBounds": {
+    "class": "caller",
+    "cause": "The parameter value is outside its registered bounds (#544).",
+    "remediation": "Choose a value within the bounds reported by the parameter registry."
+  },
+  "ParamNotRegistered": {
+    "class": "caller",
+    "cause": "The parameter is not in the registry (#544).",
+    "remediation": "Check the parameter name against the registry."
+  },
+  "SimulationRequired": {
+    "class": "caller",
+    "cause": "A critical proposal has no worst-case simulation attached (#545).",
+    "remediation": "Run and attach the worst-case simulation before submitting."
+  },
+  "ProposalHarmful": {
+    "class": "caller",
+    "cause": "The proposal's simulation flagged harmful impact (#545).",
+    "remediation": "Revise the proposal so the simulation passes."
+  },
+  "StorageTierDowngradeNotReady": {
+    "class": "transient",
+    "cause": "A persistent-to-temporary downgrade lacks completed approval or timelock.",
+    "remediation": "Collect the required approvals and wait out the timelock, then retry."
+  },
+  "UnknownStorageTier": {
+    "class": "caller",
+    "cause": "The storage tier value is not a known tier.",
+    "remediation": "Pass `Temporary` or `Persistent`."
+  },
+  "StorageTierMigrationFailed": {
+    "class": "state",
+    "cause": "A history-tier migration could not be completed.",
+    "remediation": "Check the asset's history entries, then rerun the migration."
+  },
+  "AutoRenewalAllowanceExceeded": {
+    "class": "state",
+    "cause": "The renewal would exceed the consumer's pre-approved allowance.",
+    "remediation": "Raise the allowance or renew manually."
+  },
+  "RoundNotFound": {
+    "class": "caller",
+    "cause": "The round is not the asset's current round.",
+    "remediation": "Read the current round id and submit to it."
+  },
+  "RoundExpired": {
+    "class": "transient",
+    "cause": "The round's deadline has passed.",
+    "remediation": "Submit to the next round."
+  },
+  "RoundEvidenceReplay": {
+    "class": "caller",
+    "cause": "This observation already satisfied an earlier round's quorum.",
+    "remediation": "Submit a fresh observation for the current round."
+  },
+  "RoundEquivocation": {
+    "class": "caller",
+    "cause": "The participant sent conflicting observations in one round and was penalized.",
+    "remediation": "Send exactly one observation per round."
+  },
+  "DerivedFeedZeroDenominator": {
+    "class": "state",
+    "cause": "The derived feed's denominator price is zero.",
+    "remediation": "Wait for a valid denominator price, or check the pair definition."
+  },
+  "InvalidBoundOrdering": {
+    "class": "caller",
+    "cause": "Soft/hard bounds are not ordered hard_min <= soft_min <= soft_max <= hard_max (#484).",
+    "remediation": "Supply correctly ordered bounds."
+  },
+  "InvalidDeferralPolicy": {
+    "class": "caller",
+    "cause": "The deferral policy is outside its documented bounds (#485).",
+    "remediation": "Use quorum, window and deferral values within the documented limits."
+  },
+  "InvalidCorrectionReason": {
+    "class": "caller",
+    "cause": "`correct_price` got an empty or oversized reason (#486).",
+    "remediation": "Give a non-empty reason within the length cap."
+  },
+  "CorrectionLimitReached": {
+    "class": "state",
+    "cause": "The asset has reached its correction cap (#486).",
+    "remediation": "No further corrections are possible for this asset; publish a new aggregate instead."
+  },
+  "AggregateRejectedByBounds": {
+    "class": "caller",
+    "cause": "The value is outside the asset's hard bounds (#484, #486).",
+    "remediation": "Submit a value within the hard bounds, or have the admin review them."
+  },
+  "CorrectionWindowExpired": {
+    "class": "state",
+    "cause": "The aggregate is older than the correction window (#486).",
+    "remediation": "Corrections are only allowed within the window; publish a new aggregate instead."
+  },
+  "RevisionNotFound": {
+    "class": "caller",
+    "cause": "The revision index does not exist (#486).",
+    "remediation": "Read the revision chain and use an existing index."
+  },
+  "ConfigMissing": {
+    "class": "config",
+    "cause": "A required configuration entry is missing (e.g. evicted from storage).",
+    "remediation": "Admin: restore the configuration (re-run the relevant setter); the contract fails closed until then."
+  },
+  "RelayerBondLocked": {
+    "class": "state",
+    "cause": "Outstanding failure reports block this relayer bond operation.",
+    "remediation": "Resolve the outstanding failure reports first."
+  },
+  "UnknownDerivedPair": {
+    "class": "caller",
+    "cause": "A requested pair or triplet is unknown or has no price.",
+    "remediation": "Check that every asset in the pair is registered and priced."
+  },
+  "DerivedFeedCycle": {
+    "class": "caller",
+    "cause": "The derivation would form a cycle.",
+    "remediation": "Define the derived feed without circular references."
+  },
+  "DerivedFeedDepthExceeded": {
+    "class": "caller",
+    "cause": "The derivation graph is deeper than allowed.",
+    "remediation": "Derive from closer base feeds to stay within the depth bound."
+  },
+  "AssetDisabled": {
+    "class": "state",
+    "cause": "The asset is disabled; history stays readable.",
+    "remediation": "Admin: call `enable_asset` to resume submissions."
+  },
+  "SourceEvidenceMissing": {
+    "class": "caller",
+    "cause": "A source enrollment lacks one of its four required evidence values.",
+    "remediation": "Provide all four evidence values when enrolling."
+  },
+  "InvalidRiskTier": {
+    "class": "caller",
+    "cause": "The risk tier value is not a defined tier.",
+    "remediation": "Pass one of the defined risk tiers."
+  },
+  "InvalidSanityRelation": {
+    "class": "caller",
+    "cause": "A sanity relation names an unregistered asset or repeats one invalidly (#488).",
+    "remediation": "Register the assets and define each relation with distinct assets."
+  },
+  "InvalidSanityTolerance": {
+    "class": "caller",
+    "cause": "The sanity tolerance is 0 or above the maximum (#488).",
+    "remediation": "Use a tolerance between 1 and `MAX_TOLERANCE_BPS`."
+  },
+  "InvalidFreshnessWindow": {
+    "class": "caller",
+    "cause": "The freshness window is 0 or above the maximum (#489).",
+    "remediation": "Use a window between 1 and `MAX_FRESHNESS_WINDOW_SECS` (0 clears a setting where allowed)."
+  },
+  "InvalidScorecardConfig": {
+    "class": "caller",
+    "cause": "A scorecard setting is outside its documented bounds (#490).",
+    "remediation": "Use values within the documented scorecard bounds."
+  },
+  "InvalidSanityRatio": {
+    "class": "caller",
+    "cause": "A peg relation's ratio has a zero or negative denominator (#488).",
+    "remediation": "Use a positive denominator."
+  },
+  "DeadManDisabled": {
+    "class": "state",
+    "cause": "A heartbeat was sent while the dead-man switch is not armed.",
+    "remediation": "Arm the dead-man switch before sending heartbeats."
+  },
+  "NotDegraded": {
+    "class": "state",
+    "cause": "Recovery was requested but the dead-man switch is not degraded.",
+    "remediation": "No action needed."
+  },
+  "OracleDegraded": {
+    "class": "state",
+    "cause": "The dead-man switch tripped: submissions are rejected and reads return nothing.",
+    "remediation": "Guardian: run the dead-man recovery path once the operator is back."
+  },
+  "IdentityRevoked": {
+    "class": "caller",
+    "cause": "The source address or identity was offboarded and cannot be re-registered (#402).",
+    "remediation": "Onboard a new, unrevoked identity."
+  },
+  "TextTooLong": {
+    "class": "caller",
+    "cause": "A string argument exceeds its byte cap (#506).",
+    "remediation": "Shorten the string to within the documented cap."
+  },
+  "InvalidTextContent": {
+    "class": "caller",
+    "cause": "A string is empty, padded with whitespace, or has non-printable-ASCII bytes (#506).",
+    "remediation": "Send trimmed, non-empty printable ASCII."
+  },
+  "PayloadTooLarge": {
+    "class": "caller",
+    "cause": "A bytes argument exceeds its byte cap (#506).",
+    "remediation": "Send a smaller payload."
+  },
+  "InvalidBasketWeights": {
+    "class": "caller",
+    "cause": "Basket weights do not sum to `BASKET_WEIGHT_SCALE`.",
+    "remediation": "Make the weights sum exactly to `BASKET_WEIGHT_SCALE`."
+  },
+  "InvalidBasketComposition": {
+    "class": "caller",
+    "cause": "The basket's constituents are empty, too many, or repeated.",
+    "remediation": "Use a non-empty list of distinct constituents within the size limit."
+  },
+  "RecursiveBasket": {
+    "class": "caller",
+    "cause": "The basket contains itself, directly or through another basket.",
+    "remediation": "Remove the self-reference."
+  },
+  "BasketConstituentStale": {
+    "class": "transient",
+    "cause": "A constituent has no price or a stale one, and the policy is `Reject`.",
+    "remediation": "Retry after the constituent updates, or change the staleness policy."
+  },
+  "BasketNotFound": {
+    "class": "caller",
+    "cause": "No basket is configured at this address.",
+    "remediation": "Check the basket address, or create the basket first."
+  },
+  "InvalidBreakerDeadband": {
+    "class": "caller",
+    "cause": "The breaker's clear threshold is not below its trip threshold.",
+    "remediation": "Set `clear_bps` strictly below `trip_bps`."
+  },
+  "InvalidBreakerPolicy": {
+    "class": "caller",
+    "cause": "The breaker's settle window or open timeout is zero.",
+    "remediation": "Use non-zero `settle_ledgers` and `max_open_ledgers`."
+  },
+  "InvalidAdaptiveQuorum": {
+    "class": "caller",
+    "cause": "The adaptive-quorum configuration violates its bounds.",
+    "remediation": "Use values within the documented adaptive-quorum bounds."
+  },
+  "InsufficientVolatilitySamples": {
+    "class": "transient",
+    "cause": "Too few volatility samples to classify the regime.",
+    "remediation": "Retry after more prices have been published."
+  },
+  "EmergencyExpired": {
+    "class": "state",
+    "cause": "There is no active emergency council, or its mandate expired.",
+    "remediation": "Governance: appoint or renew the emergency council."
+  },
+  "EmergencyActionForbidden": {
+    "class": "caller",
+    "cause": "The action is not emergency-only, or would change governance.",
+    "remediation": "Use normal governance for this action."
+  },
+  "NoPendingEmergency": {
+    "class": "state",
+    "cause": "No emergency action is awaiting ratification.",
+    "remediation": "No action needed."
+  },
+  "EmergencyRatificationExpired": {
+    "class": "state",
+    "cause": "The ratification deadline for the emergency action has passed.",
+    "remediation": "The action lapsed; propose it again through normal governance."
+  },
+  "InvalidInput": {
+    "class": "caller",
+    "cause": "An argument is malformed or out of range.",
+    "remediation": "Check the arguments against the endpoint's documented ranges."
   }
 }

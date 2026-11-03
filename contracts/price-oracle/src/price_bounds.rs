@@ -90,6 +90,9 @@ pub fn set_bounds(env: &Env, asset: Address, tier: BoundsTier) {
 
 /// The global publication-path guards, read once per aggregation pass.
 pub fn guards(env: &Env) -> PublicationGuards {
+    if !crate::feature_flags::on(env, crate::feature_flags::PUBLICATION_GUARDS) {
+        return PublicationGuards::default();
+    }
     env.storage()
         .persistent()
         .get(&DataKey::PublicationGuards)
@@ -139,6 +142,7 @@ pub fn set_scorecards_enabled(env: &Env, enabled: bool) {
 fn update_guards(env: &Env, f: impl FnOnce(&mut PublicationGuards)) {
     let key = DataKey::PublicationGuards;
     let mut g = guards(env);
+    crate::feature_flags::mark(env, crate::feature_flags::PUBLICATION_GUARDS);
     f(&mut g);
     env.storage().persistent().set(&key, &g);
     env.storage()

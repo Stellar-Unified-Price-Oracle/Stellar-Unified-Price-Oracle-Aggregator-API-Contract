@@ -37,6 +37,9 @@ const KEY: Symbol = symbol_short!("INFL_CAP");
 
 /// Current cap in basis points.
 pub fn get_cap_bps(env: &Env) -> u32 {
+    if !crate::feature_flags::on(env, crate::feature_flags::INFLUENCE_CAP) {
+        return DEFAULT_CAP_BPS;
+    }
     env.storage()
         .persistent()
         .get(&KEY)
@@ -49,6 +52,7 @@ pub fn set_cap_bps(env: &Env, cap_bps: u32) {
     if !(MIN_CAP_BPS..=BPS).contains(&cap_bps) {
         panic_with_error!(env, ErrorCode::InvalidConfiguration);
     }
+    crate::feature_flags::mark(env, crate::feature_flags::INFLUENCE_CAP);
     env.storage().persistent().set(&KEY, &cap_bps);
     env.storage()
         .persistent()

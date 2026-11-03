@@ -92,6 +92,7 @@ pub fn set_scoring_window(env: &Env, window: u32) {
         panic_with_error!(env, ErrorCode::InvalidConfiguration);
     }
 
+    crate::feature_flags::mark(env, crate::feature_flags::CONTRIB_SCORING_WINDOW);
     env.storage()
         .persistent()
         .set(&DataKey::ContribScoringWindow, &window);
@@ -104,6 +105,9 @@ pub fn set_scoring_window(env: &Env, window: u32) {
 
 /// Return the currently configured scoring window.
 pub fn get_scoring_window(env: &Env) -> u32 {
+    if !crate::feature_flags::on(env, crate::feature_flags::CONTRIB_SCORING_WINDOW) {
+        return DEFAULT_SCORING_WINDOW;
+    }
     env.storage()
         .persistent()
         .get::<DataKey, u32>(&DataKey::ContribScoringWindow)
@@ -145,6 +149,17 @@ pub fn update_contribution_quality(
         .storage()
         .persistent()
         .get::<DataKey, ContribQualityRecord>(&key);
+
+    // Score each submission once. Every accepted submission re-aggregates the
+    // asset, so without this a source's single submission was re-scored by
+    // every other source's submission in the same round, inflating
+    // `rounds_counted` and rewriting this entry each time.
+    if existing
+        .as_ref()
+        .is_some_and(|r| r.last_updated_ledger >= submission_ledger)
+    {
+        return;
+    }
 
     let consistency =
         compute_consistency_score(accuracy, existing.as_ref().map(|r| r.avg_accuracy_score));
