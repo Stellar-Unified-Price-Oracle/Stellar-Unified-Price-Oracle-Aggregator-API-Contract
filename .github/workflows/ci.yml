@@ -191,12 +191,15 @@ jobs:
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
-      # Kani is not published on crates.io; the official action installs a
-      # matching verifier + toolchain pair. It manages the toolchain itself, so
-      # rust-toolchain.toml must not override it.
-      - uses: model-checking/kani-github-action@v1
-        with:
-          args: --tests --harness
+      # The kani-verifier crate is only a launcher; `cargo kani setup` downloads
+      # the matching verifier bundle and its pinned nightly. Installed directly
+      # instead of via model-checking/kani-github-action, which always runs a
+      # verification of its own and cannot be told to only install.
+      - uses: dtolnay/rust-toolchain@1.91.0
+      - name: Install Kani
+        run: |
+          cargo install --locked kani-verifier --version 0.68.0
+          cargo kani setup
       - uses: Swatinem/rust-cache@v2
       # The proofs run under their own bounded domain; the budget is enforced by
       # the script so a proof regression fails fast rather than hanging CI.
@@ -258,8 +261,8 @@ jobs:
           targets: wasm32v1-none
       - name: Install cargo-audit and cargo-geiger
         run: |
-          cargo install cargo-audit --locked
-          cargo install cargo-geiger --locked
+          cargo install cargo-audit --locked --version 0.22.2
+          cargo install cargo-geiger --locked --version 0.13.0
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"

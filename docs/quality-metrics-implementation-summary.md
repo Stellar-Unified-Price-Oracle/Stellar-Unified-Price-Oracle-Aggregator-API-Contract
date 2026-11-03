@@ -190,7 +190,7 @@ cat services/revision_metrics/quality_metrics.py
 cat services/revision_metrics/test/test_quality_metrics.py
 ```
 
-**To run the tests (once fixtures are fixed):**
+**To run the tests:**
 ```bash
 cd /workspaces/Stellar-Unified-Price-Oracle-Aggregator-API-Contract
 .venv/bin/python -m pytest services/revision_metrics/test/test_quality_metrics.py -v
@@ -206,11 +206,11 @@ grep -r "api.key" services/revision_metrics/ docs/ | grep -v ".pyc"
 
 ## Links to Evidence
 
-1. **Quality Metrics Schema:** [docs/quality-metrics-schema.md](/workspaces/Stellar-Unified-Price-Oracle-Aggregator-API-Contract/docs/quality-metrics-schema.md)
-2. **Implementation Summary:** [docs/comprehensive-metrics-implementation.md](/workspaces/Stellar-Unified-Price-Oracle-Aggregator-API-Contract/docs/comprehensive-metrics-implementation.md)
-3. **Metrics Module:** [services/revision_metrics/quality_metrics.py](/workspaces/Stellar-Unified-Price-Oracle-Aggregator-API-Contract/services/revision_metrics/quality_metrics.py)
-4. **Test Suite:** [services/revision_metrics/test/test_quality_metrics.py](/workspaces/Stellar-Unified-Price-Oracle-Aggregator-API-Contract/services/revision_metrics/test/test_quality_metrics.py)
-5. **Existing Correction-Rate Docs:** [docs/price-revision-metrics.md](/workspaces/Stellar-Unified-Price-Oracle-Aggregator-API-Contract/docs/price-revision-metrics.md)
+1. **Quality Metrics Schema:** [docs/quality-metrics-schema.md](quality-metrics-schema.md)
+2. **Implementation Summary:** [docs/comprehensive-metrics-implementation.md](comprehensive-metrics-implementation.md)
+3. **Metrics Module:** [services/revision_metrics/quality_metrics.py](../services/revision_metrics/quality_metrics.py)
+4. **Test Suite:** [services/revision_metrics/test/test_quality_metrics.py](../services/revision_metrics/test/test_quality_metrics.py)
+5. **Existing Correction-Rate Docs:** [docs/price-revision-metrics.md](price-revision-metrics.md)
 
 ---
 

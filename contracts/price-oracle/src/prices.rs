@@ -421,19 +421,9 @@ pub fn submit_prices(env: &Env, source: Address, asset_prices: Vec<(Address, i12
 }
 
 fn count_contributing_sources(env: &Env, asset: &Address, current_ledger: u32) -> u32 {
-    let min_interval = {
-        let key = DataKey::AssetMinSubmissionInterval(asset.clone());
-        if crate::feature_flags::on(env, crate::feature_flags::ASSET_MIN_SUBMISSION_INTERVAL)
-            && env.storage().persistent().has(&key)
-        {
-            env.storage()
-                .persistent()
-                .extend_ttl(&key, LEDGER_THRESHOLD, LEDGER_BUMP);
-            env.storage().persistent().get(&key).unwrap_or(0)
-        } else {
-            get_min_submission_interval(env)
-        }
-    };
+    // No endpoint writes a per-asset `AssetMinSubmissionInterval`, so the
+    // contract-wide interval is the only one in effect.
+    let min_interval = get_min_submission_interval(env);
 
     let oracle_sources: OracleSources = read_oracle_sources(env);
     let total_sources = oracle_sources.sources.len();
@@ -639,19 +629,9 @@ fn aggregate_asset_mode(
     // from quorum, and reported so a consumer can see *why* an asset is thin.
     let mut stale_sources: u32 = 0;
 
-    let min_interval = {
-        let key = DataKey::AssetMinSubmissionInterval(asset.clone());
-        if crate::feature_flags::on(env, crate::feature_flags::ASSET_MIN_SUBMISSION_INTERVAL)
-            && env.storage().persistent().has(&key)
-        {
-            env.storage()
-                .persistent()
-                .extend_ttl(&key, LEDGER_THRESHOLD, LEDGER_BUMP);
-            env.storage().persistent().get(&key).unwrap_or(0)
-        } else {
-            get_min_submission_interval(env)
-        }
-    };
+    // No endpoint writes a per-asset `AssetMinSubmissionInterval`, so the
+    // contract-wide interval is the only one in effect.
+    let min_interval = get_min_submission_interval(env);
     let current_ledger_for_agg = env.ledger().sequence();
     let selected_count = selected_sources.len();
     // #483/#484/#485: one guard read decides whether any of the optional

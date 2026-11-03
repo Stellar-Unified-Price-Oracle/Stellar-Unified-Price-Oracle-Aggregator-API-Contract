@@ -15,6 +15,9 @@ jobs:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@1.91.0
       - uses: Swatinem/rust-cache@v2
+      # The test binary embeds the release WASM via include_bytes!.
+      - name: Build contract WASM
+        run: make build
       - name: Generate dashboard
         run: |
           set -o pipefail

@@ -39,9 +39,12 @@ fi
 echo "Verifying bounded proofs for the aggregation math (budget ${BUDGET}s)…"
 start=$(date +%s)
 set +e
-# shellcheck disable=SC2086
-timeout "${BUDGET}" cargo kani -p price-oracle --tests --harness "${HARNESSES:-}" 2>/dev/null \
-  || timeout "${BUDGET}" cargo kani -p price-oracle --harness "${HARNESSES:-}"
+# `--harness` needs a value; pass one per requested harness, none for "all".
+harness_args=()
+for h in ${HARNESSES}; do
+  harness_args+=(--harness "${h}")
+done
+timeout "${BUDGET}" cargo kani -p price-oracle --tests "${harness_args[@]}"
 status=$?
 set -e
 elapsed=$(( $(date +%s) - start ))

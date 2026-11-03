@@ -326,6 +326,19 @@ fn test_submit_price_median_even() {
 }
 
 #[test]
+fn test_confidence_bps_is_capped_at_100_percent() {
+    // Found by fuzz_storage_layer: mixed-sign prices give stddev > mean, which
+    // used to return more than 10 000 bps.
+    let e = Env::default();
+    let prices = soroban_sdk::vec![&e, -1000i128, 1000i128, 2000i128];
+    assert_eq!(crate::storage::compute_confidence_bps(&prices), 10_000);
+
+    // A ratio far beyond u32 must saturate, not wrap to a small value.
+    let wide = soroban_sdk::vec![&e, 1i128, 1i128, i64::MAX as i128];
+    assert_eq!(crate::storage::compute_confidence_bps(&wide), 10_000);
+}
+
+#[test]
 fn test_get_price_with_confidence_tracks_source_dispersion() {
     let e = Env::default();
     ledger_default(&e, 100, 1234567890);

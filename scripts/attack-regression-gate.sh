@@ -38,6 +38,10 @@ if [[ "${pins}" -lt 1 ]]; then
 fi
 echo "Running ${pins} attack-regression pins (budget ${BUDGET}s)…"
 
+# The test binary embeds the release WASM via include_bytes!, so it must exist
+# before the tests compile. Built outside the budget: it is setup, not the corpus.
+cargo build -p price-oracle --target wasm32v1-none --release --locked
+
 start=$(date +%s)
 set +e
 timeout "${BUDGET}" cargo test -p price-oracle --lib "${FILTER}" -- --nocapture

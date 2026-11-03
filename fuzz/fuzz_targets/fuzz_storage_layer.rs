@@ -91,7 +91,8 @@ fuzz_target!(|data: &[u8]| {
         let asset = Address::generate(&env);
         let source = Address::generate(&env);
         let price = prices[0];
-        let timestamp = prices[1].unsigned_abs() as u64;
+        // `n` can be 1, so fall back to the only price rather than index past it.
+        let timestamp = prices.get(1).unwrap_or(&prices[0]).unsigned_abs() as u64;
         let volume = vols[0];
         let decimals = 18u32;
         let last_updated = 7u32;

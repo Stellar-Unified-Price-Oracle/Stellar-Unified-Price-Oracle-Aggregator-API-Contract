@@ -28,6 +28,10 @@ DEFAULT_EXCLUDE_DIRS = ("target", "node_modules", ".git", "vendor", "fuzz")
 #: Files whose name marks them as test code (`unwrap` there is not a finding).
 TEST_FILE_SUFFIXES = ("_tests.rs", "_test.rs", "test.rs", "tests.rs")
 
+#: Modules whose name does not say "test" but that lib.rs only compiles under
+#: `#[cfg(test)]` or `#[cfg(kani)]`, so they never reach the deployed WASM.
+NON_PRODUCTION_FILES = ("prop_tests.rs", "kani_proofs.rs", "event_schema_snapshot.rs")
+
 
 @dataclass(frozen=True)
 class Rule:
@@ -81,7 +85,7 @@ RULES: Tuple[Rule, ...] = (
 
 def is_test_path(path: str) -> bool:
     name = Path(path).name
-    return name.endswith(TEST_FILE_SUFFIXES) or name == "prop_tests.rs"
+    return name.endswith(TEST_FILE_SUFFIXES) or name in NON_PRODUCTION_FILES
 
 
 def iter_source_files(

@@ -29,6 +29,20 @@ from services.revision_metrics.quality_metrics import (
 )
 from services.common.events import AggregationEvent, SubmissionEvent
 
+_TOPICS = {"PriceAggregated": "price_aggregated", "PriceSubmitted": "price_submitted"}
+
+
+def _event(flat: dict) -> str:
+    """Wraps a flat test event in the canonical envelope (services/common/events.py)."""
+    data = {k: v for k, v in flat.items() if k not in ("event_name", "timestamp", "ledger")}
+    return json.dumps({
+        "ledger": flat["ledger"],
+        "timestamp": flat["timestamp"],
+        "contract_id": "CONTRACT_A",
+        "topic": _TOPICS[flat["event_name"]],
+        "data": data,
+    })
+
 
 @pytest.fixture
 def fresh_events():
@@ -76,7 +90,7 @@ def stale_events():
     """Fixture: Price is stale (beyond resolution window)."""
     now = int(time.time())
     return [
-        json.dumps({
+        _event({
             "event_name": "PriceAggregated",
             "asset": "ASSET_A",
             "price": 100_000_000,
@@ -84,7 +98,7 @@ def stale_events():
             "timestamp": now - 300,  # 5 minutes old
             "ledger": 1000,
         }),
-        json.dumps({
+        _event({
             "event_name": "PriceSubmitted",
             "asset": "ASSET_A",
             "source": "SOURCE_1",
@@ -100,7 +114,7 @@ def critical_events():
     """Fixture: Price is critical (exceeds max staleness)."""
     now = int(time.time())
     return [
-        json.dumps({
+        _event({
             "event_name": "PriceAggregated",
             "asset": "ASSET_A",
             "price": 100_000_000,
@@ -108,7 +122,7 @@ def critical_events():
             "timestamp": now - 4000,  # Well over 1 hour
             "ledger": 1000,
         }),
-        json.dumps({
+        _event({
             "event_name": "PriceSubmitted",
             "asset": "ASSET_A",
             "source": "SOURCE_1",
@@ -127,7 +141,7 @@ def disagreement_events():
     # Multiple aggregations at median price
     for i in range(5):
         ts = now - (i * 100)
-        events.append(json.dumps({
+        events.append(_event({
             "event_name": "PriceAggregated",
             "asset": "ASSET_A",
             "price": 100_000_000,  # Median
@@ -136,7 +150,7 @@ def disagreement_events():
             "ledger": 1000 - i,
         }))
         # Source 1: submits at median
-        events.append(json.dumps({
+        events.append(_event({
             "event_name": "PriceSubmitted",
             "asset": "ASSET_A",
             "source": "SOURCE_1",
@@ -145,7 +159,7 @@ def disagreement_events():
             "ledger": 999 - i,
         }))
         # Source 2: submits significantly higher
-        events.append(json.dumps({
+        events.append(_event({
             "event_name": "PriceSubmitted",
             "asset": "ASSET_A",
             "source": "SOURCE_2",
@@ -164,7 +178,7 @@ def missing_data_events():
     # Source 1: submits regularly
     for i in range(20):
         ts = now - (i * 60)
-        events.append(json.dumps({
+        events.append(_event({
             "event_name": "PriceSubmitted",
             "asset": "ASSET_A",
             "source": "SOURCE_1",
@@ -176,7 +190,7 @@ def missing_data_events():
     # Source 2: only 2 submissions in the same window
     for i in [0, 1]:
         ts = now - (i * 600)
-        events.append(json.dumps({
+        events.append(_event({
             "event_name": "PriceSubmitted",
             "asset": "ASSET_A",
             "source": "SOURCE_2",
@@ -188,7 +202,7 @@ def missing_data_events():
     # Aggregations for context
     for i in range(5):
         ts = now - (i * 300)
-        events.append(json.dumps({
+        events.append(_event({
             "event_name": "PriceAggregated",
             "asset": "ASSET_A",
             "price": 100_250_000,
@@ -215,7 +229,7 @@ def test_freshness_fresh_asset(fresh_events):
 
 def test_freshness_stale_asset(stale_events):
     """Asset beyond resolution window is classified as Stale."""
-    batch = compute_quality_metrics("\n".join(stale_events))
+    batch = compute_quality_metrics("\n".join(stale_events), now=int(time.time()))
     
     metrics = batch.freshness_metrics["ASSET_A"]
     assert metrics.staleness_class == StalenessClass.STALE
@@ -224,7 +238,7 @@ def test_freshness_stale_asset(stale_events):
 
 def test_freshness_critical_asset(critical_events):
     """Asset beyond max staleness is classified as Critical."""
-    batch = compute_quality_metrics("\n".join(critical_events))
+    batch = compute_quality_metrics("\n".join(critical_events), now=int(time.time()))
     
     metrics = batch.freshness_metrics["ASSET_A"]
     assert metrics.staleness_class == StalenessClass.CRITICAL
@@ -248,7 +262,7 @@ def test_freshness_reconciliation_reports_time_distribution():
     # Create alternating fresh and stale periods
     for i in range(10):
         ts = now - (i * 500)  # 500-second intervals
-        events.append(json.dumps({
+        events.append(_event({
             "event_name": "PriceAggregated",
             "asset": "ASSET_A",
             "price": 100_000_000,
@@ -256,7 +270,7 @@ def test_freshness_reconciliation_reports_time_distribution():
             "timestamp": ts,
             "ledger": 1000 - i,
         }))
-        events.append(json.dumps({
+        events.append(_event({
             "event_name": "PriceSubmitted",
             "asset": "ASSET_A",
             "source": "SOURCE_1",
@@ -339,7 +353,9 @@ def test_missing_data_tracking_consecutive_misses(missing_data_events):
     batch = compute_quality_metrics("\n".join(missing_data_events))
     
     metrics = batch.missing_data_metrics[("SOURCE_2", "ASSET_A")]
-    assert metrics.consecutive_miss_streak > 10
+    # The stream covers 20 minutes and SOURCE_2 submits only at its start
+    # +10 min and its end, so its longest run of missed 60s slots is about 10.
+    assert metrics.consecutive_miss_streak >= 9
 
 
 def test_missing_data_reconciliation_counts_match():
@@ -350,7 +366,7 @@ def test_missing_data_reconciliation_counts_match():
     # Exactly 5 submissions in a 300-second window
     for i in range(5):
         ts = now - (i * 60)
-        events.append(json.dumps({
+        events.append(_event({
             "event_name": "PriceSubmitted",
             "asset": "ASSET_A",
             "source": "SOURCE_1",
@@ -378,7 +394,7 @@ def test_quality_metrics_batch_completeness():
     """Full batch contains all three metric categories."""
     now = int(time.time())
     events = [
-        json.dumps({
+        _event({
             "event_name": "PriceAggregated",
             "asset": "ASSET_A",
             "price": 100_000_000,
@@ -386,7 +402,7 @@ def test_quality_metrics_batch_completeness():
             "timestamp": now - 30,
             "ledger": 1000,
         }),
-        json.dumps({
+        _event({
             "event_name": "PriceSubmitted",
             "asset": "ASSET_A",
             "source": "SOURCE_1",
@@ -408,7 +424,7 @@ def test_quality_metrics_json_serialization():
     """Quality metrics batch is JSON-serializable and preserves structure."""
     now = int(time.time())
     events = [
-        json.dumps({
+        _event({
             "event_name": "PriceAggregated",
             "asset": "ASSET_A",
             "price": 100_000_000,
@@ -416,7 +432,7 @@ def test_quality_metrics_json_serialization():
             "timestamp": now - 30,
             "ledger": 1000,
         }),
-        json.dumps({
+        _event({
             "event_name": "PriceSubmitted",
             "asset": "ASSET_A",
             "source": "SOURCE_1",
@@ -457,7 +473,7 @@ def test_quality_metrics_multiple_assets():
     for asset in ["ASSET_A", "ASSET_B"]:
         for i in range(2):
             ts = now - (i * 100)
-            events.append(json.dumps({
+            events.append(_event({
                 "event_name": "PriceAggregated",
                 "asset": asset,
                 "price": 100_000_000,
@@ -465,7 +481,7 @@ def test_quality_metrics_multiple_assets():
                 "timestamp": ts,
                 "ledger": 1000 - i,
             }))
-            events.append(json.dumps({
+            events.append(_event({
                 "event_name": "PriceSubmitted",
                 "asset": asset,
                 "source": "SOURCE_1",
@@ -489,7 +505,7 @@ def test_freshness_thresholds_custom_resolution():
     """Custom resolution threshold affects staleness classification."""
     now = int(time.time())
     events = [
-        json.dumps({
+        _event({
             "event_name": "PriceAggregated",
             "asset": "ASSET_A",
             "price": 100_000_000,
@@ -497,7 +513,7 @@ def test_freshness_thresholds_custom_resolution():
             "timestamp": now - 120,  # 2 minutes old
             "ledger": 1000,
         }),
-        json.dumps({
+        _event({
             "event_name": "PriceSubmitted",
             "asset": "ASSET_A",
             "source": "SOURCE_1",
@@ -511,7 +527,8 @@ def test_freshness_thresholds_custom_resolution():
     thresholds_lenient = FreshnessThresholds(resolution_secs=300)
     batch_lenient = compute_quality_metrics(
         "\n".join(events),
-        freshness_thresholds=thresholds_lenient
+        freshness_thresholds=thresholds_lenient,
+        now=now,
     )
     assert batch_lenient.freshness_metrics["ASSET_A"].staleness_class == StalenessClass.FRESH
     
@@ -519,7 +536,8 @@ def test_freshness_thresholds_custom_resolution():
     thresholds_strict = FreshnessThresholds(resolution_secs=30)
     batch_strict = compute_quality_metrics(
         "\n".join(events),
-        freshness_thresholds=thresholds_strict
+        freshness_thresholds=thresholds_strict,
+        now=now,
     )
     assert batch_strict.freshness_metrics["ASSET_A"].staleness_class == StalenessClass.STALE
 
@@ -532,7 +550,7 @@ def test_disagreement_thresholds_custom_deviation():
     # Create submissions with 500 bps (5%) disagreement
     for i in range(3):
         ts = now - (i * 100)
-        events.append(json.dumps({
+        events.append(_event({
             "event_name": "PriceAggregated",
             "asset": "ASSET_A",
             "price": 100_000_000,
@@ -540,7 +558,7 @@ def test_disagreement_thresholds_custom_deviation():
             "timestamp": ts,
             "ledger": 1000 - i,
         }))
-        events.append(json.dumps({
+        events.append(_event({
             "event_name": "PriceSubmitted",
             "asset": "ASSET_A",
             "source": "SOURCE_1",
@@ -550,7 +568,11 @@ def test_disagreement_thresholds_custom_deviation():
         }))
     
     # With high threshold (1000 bps = 10%), should be Normal
-    thresholds_lenient = DisagreementThresholds(max_deviation_bps=1000)
+    thresholds_lenient = DisagreementThresholds(
+        max_deviation_bps=1000,
+        warning_deviation_bps=1000,
+        critical_deviation_bps=2000,
+    )
     batch_lenient = compute_quality_metrics(
         "\n".join(events),
         disagreement_thresholds=thresholds_lenient

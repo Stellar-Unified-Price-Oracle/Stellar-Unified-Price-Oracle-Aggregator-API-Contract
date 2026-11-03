@@ -7749,6 +7749,10 @@ mod bft_tests;
 #[cfg(test)]
 mod gas_budget_tests;
 #[cfg(test)]
+mod hermetic_harness;
+#[cfg(test)]
+mod hermetic_integration_tests;
+#[cfg(test)]
 mod load_v2_tests;
 
 #[cfg(test)]

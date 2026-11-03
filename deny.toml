@@ -17,7 +17,14 @@ unmaintained = "workspace"
 yanked = "warn"
 # Acknowledged advisories that we have evaluated and accept.
 # Format: { id = "RUSTSEC-YYYY-NNNN", reason = "..." }
-ignore = []
+ignore = [
+    # crypto-bigint 0.5.5 arrives only via soroban-sdk -> soroban-env-host
+    # (k256 / p256). The fix is in 0.7.6, a semver-breaking line the host's
+    # elliptic-curve 0.13 cannot take, so it clears when soroban-sdk upgrades.
+    # The host crates run only in local tests: on-chain, signature checks run
+    # in the network's own host, never in this contract's WASM.
+    { id = "RUSTSEC-2026-0387", reason = "transitive via soroban-env-host; test-only; fixed upstream by an SDK bump" },
+]
 
 # ---------------------------------------------------------------------------
 # License checking

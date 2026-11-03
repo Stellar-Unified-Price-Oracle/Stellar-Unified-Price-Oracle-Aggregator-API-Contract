@@ -270,7 +270,7 @@ fn integer_sqrt(value: i128) -> i128 {
     lo
 }
 
-pub fn compute_stddev(prices: &soroban_sdk::Vec<i128>) -> u32 {
+pub fn compute_stddev(prices: &soroban_sdk::Vec<i128>) -> u128 {
     let n = prices.len();
     if n == 0 {
         return 0;
@@ -284,9 +284,15 @@ pub fn compute_stddev(prices: &soroban_sdk::Vec<i128>) -> u32 {
     }
 
     let variance = sum_sq / (n as i128);
-    integer_sqrt(variance).max(0) as u32
+    // u128, not u32: prices carry up to 18 decimals, so a u32 would wrap.
+    integer_sqrt(variance).max(0) as u128
 }
 
+/// Source dispersion as stddev / mean, in basis points, capped at 10 000.
+///
+/// The cap matters: with wide or mixed-sign prices the raw ratio exceeds 100%,
+/// and without it the `u32` cast could wrap a huge ratio into a small number
+/// that reads as high agreement.
 pub fn compute_confidence_bps(prices: &soroban_sdk::Vec<i128>) -> u32 {
     let n = prices.len();
     if n == 0 {
@@ -298,8 +304,9 @@ pub fn compute_confidence_bps(prices: &soroban_sdk::Vec<i128>) -> u32 {
         return 0;
     }
 
-    let stddev = compute_stddev(prices) as u128;
-    ((stddev.saturating_mul(10000u128)) / (mean as u128)) as u32
+    let stddev = compute_stddev(prices);
+    let bps = stddev.saturating_mul(10000u128) / (mean as u128);
+    bps.min(10_000) as u32
 }
 
 pub fn compute_trimmed_mean(prices: &soroban_sdk::Vec<i128>, trim_percent: u32) -> i128 {

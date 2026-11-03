@@ -94,6 +94,13 @@ mutants_ok() {
   case "$1" in 0|2|3) return 0 ;; *) return 1 ;; esac
 }
 
+# no_mutants_in_scope <exit code> <run log> -> success when cargo-mutants ran
+# cleanly and reported that the filter left nothing to test. Only a clean exit
+# with that message counts; any other missing-results case still fails.
+no_mutants_in_scope() {
+  [[ "$1" == 0 && -f "$2" ]] && grep -qE "No mutants (to filter|found)" "$2"
+}
+
 score_passes() {
   awk -v s="$1" -v t="$2" 'BEGIN { exit !(s + 0 >= t + 0) }'
 }
@@ -165,8 +172,11 @@ generate_per_module() {
     mkdir -p "$out"
     echo "::group::mutating $file"
     # shellcheck disable=SC2086
-    rc=0
-    cargo mutants --no-shuffle -o "$out" --file "$SRC/$file" ${MUTANTS_ARGS:-} || rc=$?
+    set +e
+    cargo mutants --no-shuffle -o "$out" --file "$SRC/$file" ${MUTANTS_ARGS:-} 2>&1 \
+      | tee "$out/run.log"
+    rc=${PIPESTATUS[0]}
+    set -e
     echo "$rc" > "$out/exit-code"
     echo "::endgroup::"
   done < <(per_module_files)
@@ -189,6 +199,11 @@ report_per_module() {
       echo "| ${file%.rs} | $file | - | $threshold | cargo-mutants failed (exit $rc) |"
       echo "::error::cargo-mutants failed for $file (exit $rc); see mutants.out/log/baseline.log"
       failed=1
+      continue
+    fi
+    if [[ ! -f "$json" ]] && no_mutants_in_scope "$rc" "mutants-per-module/${file%.rs}/run.log"; then
+      # `--in-diff` left nothing to mutate: the PR does not touch this module.
+      echo "| ${file%.rs} | $file | - | $threshold | no mutants in scope |"
       continue
     fi
     if [[ ! -f "$json" ]]; then
@@ -311,6 +326,16 @@ JSON
   done
   check "config: auth/aggregation/storage modules guarded" "0" "$missing"
 
+  # 6b. An empty --in-diff scope passes only on a clean exit that says so.
+  printf ' INFO No mutants to filter\n' > "$tmp/empty.log"
+  printf 'error: build failed\n' > "$tmp/broken.log"
+  check "scope: clean exit, no mutants -> in scope check passes" "0" \
+    "$(no_mutants_in_scope 0 "$tmp/empty.log"; echo $?)"
+  check "scope: failed exit is never 'no mutants'" "1" \
+    "$(no_mutants_in_scope 4 "$tmp/empty.log"; echo $?)"
+  check "scope: clean exit without the message still fails" "1" \
+    "$(no_mutants_in_scope 0 "$tmp/broken.log"; echo $?)"
+
   # 7. Waivers are counted, and only real entries count.
   printf '# only comments\n\n' > "$tmp/w0.txt"
   check "waivers: comment-only file counts zero" "0" \
@@ -348,8 +373,16 @@ run_class() {
   local out="mutants-${class}"
   # cargo-mutants exits 2 when mutants are missed; the gate decides below.
   local rc=0
+  mkdir -p "$out"
+  set +e
   # shellcheck disable=SC2086
-  cargo mutants --no-shuffle -o "$out" "$@" ${MUTANTS_ARGS:-} || rc=$?
+  cargo mutants --no-shuffle -o "$out" "$@" ${MUTANTS_ARGS:-} 2>&1 | tee "$out/run.log"
+  rc=${PIPESTATUS[0]}
+  set -e
+  if [[ ! -f "$out/mutants.out/outcomes.json" ]] && no_mutants_in_scope "$rc" "$out/run.log"; then
+    echo "### Mutation score — $class: no mutants in scope (the diff does not touch it)"
+    return
+  fi
   if ! mutants_ok "$rc"; then
     echo "::error::cargo-mutants failed for $class (exit $rc); see $out/mutants.out/log/baseline.log"
     status=1

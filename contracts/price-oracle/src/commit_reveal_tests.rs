@@ -521,3 +521,26 @@ fn test_last_ledger_reveal_grants_no_advantage() {
     client.reveal_price(&source, &asset, &100i128, &salt_bytes(&e, 9), &round);
     assert_eq!(client.get_source_price(&asset, &source).price, 100i128);
 }
+
+#[test]
+fn test_standalone_commit_reveal_toggle_gates_direct_submission() {
+    let e = Env::default();
+    e.mock_all_auths();
+    let (client, _) = setup_contract(&e);
+    let source = register_test_source(&e, &client, "S1");
+    let asset = register_test_asset(&e, &client);
+
+    assert!(!client.get_commit_reveal_enabled());
+
+    client.set_commit_reveal_enabled(&true);
+    let res = client.try_submit_price(&source, &asset, &100i128, &0u64);
+    assert_eq!(
+        res,
+        Err(Ok(crate::errors::ErrorCode::CommitRevealRequired.into()))
+    );
+
+    client.set_commit_reveal_enabled(&false);
+    assert!(!client.get_commit_reveal_enabled());
+    client.submit_price(&source, &asset, &100i128, &0u64);
+    assert_eq!(client.get_source_price(&asset, &source).price, 100i128);
+}

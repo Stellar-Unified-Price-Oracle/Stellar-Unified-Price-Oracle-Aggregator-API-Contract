@@ -87,6 +87,11 @@ log "artifact dir: $ARTIFACT_DIR"
 # them so a stale snapshot from a previous run cannot make this one look green.
 rm -rf test_snapshots
 
+# The test binary embeds the release WASM via include_bytes!.
+log "building contract WASM"
+cargo build -p price-oracle --target wasm32v1-none --release --locked \
+  > "$ARTIFACT_DIR/build.log" 2>&1 || fail "WASM build failed — see $ARTIFACT_DIR/build.log"
+
 status=0
 run_index=0
 
@@ -141,6 +146,7 @@ if (( RUN_ONCE == 0 )); then
     if [[ ! -s "$ARTIFACT_DIR/outcomes-${i}.txt" ]]; then
       log "run ${i} produced no per-test outcome lines — cannot compare"
       status=1
+      i=$((i + 1))
       continue
     fi
 

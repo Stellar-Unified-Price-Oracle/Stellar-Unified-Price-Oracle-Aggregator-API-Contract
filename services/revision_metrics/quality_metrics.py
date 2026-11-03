@@ -451,13 +451,12 @@ def compute_disagreement_metrics(
     # Compute deviations
     deviations_bps: List[int] = []
     for sub in recent_subs:
-        # Find the aggregate price at or before the submission time
-        agg_price = None
-        for a in agg:
-            if a.timestamp <= sub.timestamp:
-                agg_price = a.price
-            else:
-                break
+        # Compare against the aggregate this submission fed: the first one at
+        # or after it. Fall back to the latest earlier one when the stream ends
+        # before that aggregate was published.
+        agg_price = next((a.price for a in agg if a.timestamp >= sub.timestamp), None)
+        if agg_price is None:
+            agg_price = agg[-1].price
 
         if agg_price and agg_price != 0:
             dev_bps = int(abs(sub.price - agg_price) * 10_000 / abs(agg_price))
@@ -502,8 +501,14 @@ def compute_missing_data_metrics(
     submissions: Sequence[SubmissionEvent],
     thresholds: MissingDataThresholds,
     now: int,
+    stream_start: Optional[int] = None,
 ) -> MissingDataMetrics:
-    """Computes missing-data metrics for one (source, asset) pair."""
+    """Computes missing-data metrics for one (source, asset) pair.
+
+    ``stream_start`` is the earliest timestamp the event stream covers. The
+    window is clipped to it: an export that covers one minute cannot show 24
+    hours of missed submissions.
+    """
     source_subs = sorted(
         [
             s
@@ -514,9 +519,13 @@ def compute_missing_data_metrics(
     )
 
     window_start = now - thresholds.window_secs
+    if stream_start is not None:
+        window_start = max(window_start, stream_start)
     recent_subs = [s for s in source_subs if s.timestamp >= window_start]
 
-    expected = thresholds.window_secs // thresholds.submission_interval_secs
+    # Slots in [window_start, now], both ends included, capped at the full window.
+    span = min(thresholds.window_secs, now - window_start + thresholds.submission_interval_secs)
+    expected = span // thresholds.submission_interval_secs
     actual = len(recent_subs)
     missing = max(0, expected - actual)
     missing_pct = 100.0 * missing / expected if expected else 0.0
@@ -592,7 +601,12 @@ def compute_quality_metrics(
     missing_data_thresholds = missing_data_thresholds or MissingDataThresholds()
 
     # Parse events
-    if isinstance(events, (str, bytes)) or hasattr(events, "__fspath__"):
+    if isinstance(events, bytes):
+        events = events.decode("utf-8")
+    if isinstance(events, str) and events.lstrip().startswith("{"):
+        # Inline JSONL text rather than a path.
+        rows = [json.loads(line) for line in events.splitlines() if line.strip()]
+    elif isinstance(events, str) or hasattr(events, "__fspath__"):
         with open(events, "r", encoding="utf-8") as handle:  # type: ignore[arg-type]
             rows = [json.loads(line) for line in handle if line.strip()]
     else:
@@ -637,9 +651,13 @@ def compute_quality_metrics(
             if metrics:
                 disagreement_metrics[(asset, source)] = metrics
 
+    stream_start = min(
+        min((a.timestamp for a in aggregations), default=now),
+        min((s.timestamp for s in submissions), default=now),
+    )
     missing_data_metrics = {
         (source, asset): compute_missing_data_metrics(
-            source, asset, submissions, missing_data_thresholds, now
+            source, asset, submissions, missing_data_thresholds, now, stream_start
         )
         for source in sources
         for asset in assets

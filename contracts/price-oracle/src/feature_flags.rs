@@ -41,7 +41,7 @@ pub const SOURCE_BOND: u64 = 1 << 16;
 pub const ASSET_POLICY: u64 = 1 << 17;
 pub const ASSET_DEFERRAL: u64 = 1 << 18;
 pub const ASSET_DISABLED: u64 = 1 << 19;
-pub const ASSET_MIN_SUBMISSION_INTERVAL: u64 = 1 << 20;
+// 1 << 20 was ASSET_MIN_SUBMISSION_INTERVAL; reserved so no other flag reuses it.
 pub const STORAGE_TIER: u64 = 1 << 21;
 pub const SOURCE_LIFECYCLE: u64 = 1 << 22;
 pub const DQ_PIPELINE: u64 = 1 << 23;
