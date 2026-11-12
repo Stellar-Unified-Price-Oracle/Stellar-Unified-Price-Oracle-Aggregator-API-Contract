@@ -40,12 +40,9 @@ __pycache__/
 .pytest_cache/
 
 # Environment / secrets
-.env
-.env.*
 !.env.example
 
 # IDE
-.vscode/
 .idea/
 *.iml
 *.swp
@@ -126,3 +123,4 @@ cargo_out.txt
 
 # Contributor dev environment (#541)
 .venv/
+config.bat

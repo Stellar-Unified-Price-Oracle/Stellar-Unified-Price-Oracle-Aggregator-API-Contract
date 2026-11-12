@@ -1,7 +1,7 @@
 {
   "private": true,
   "scripts": {
-    "build:contract": "cargo build -p price-oracle --target wasm32v1-none --release",
+    "build:contract": "node init && cargo build -p price-oracle --target wasm32v1-none --release",
     "test:contract": "cargo test -p price-oracle --lib",
     "lint:contract": "cargo clippy -p price-oracle -- -D warnings && cargo fmt --manifest-path contracts/price-oracle/Cargo.toml -- --check",
     "prepush": "npm run build:contract && npm run test:contract",
