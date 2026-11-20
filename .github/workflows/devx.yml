@@ -23,6 +23,60 @@ jobs:
         working-directory: interface
         run: npm pack --dry-run
 
+  # #843: lint, typecheck and test the JS/TS packages. Only runs when one of
+  # the JS/TS paths changes (or the workflow itself), so Rust-only PRs stay fast.
+  js-ts:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        package: [sdk/typescript, interface, explorer]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Install dependencies
+        working-directory: ${{ matrix.package }}
+        run: |
+          if [ -f package-lock.json ]; then npm ci; else npm install --no-audit --no-fund; fi
+      - name: Lint (eslint)
+        working-directory: ${{ matrix.package }}
+        run: npm run lint --if-present
+      - name: Typecheck (tsc --noEmit)
+        working-directory: ${{ matrix.package }}
+        run: npm run typecheck --if-present
+      - name: Test
+        working-directory: ${{ matrix.package }}
+        run: npm test --if-present
+
+  # #843: lint, typecheck and test the JS/TS packages. Only runs when one of
+  # the JS/TS paths changes (or the workflow itself), so Rust-only PRs stay fast.
+  js-ts:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        package: [sdk/typescript, interface, explorer]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Install dependencies
+        working-directory: ${{ matrix.package }}
+        run: |
+          if [ -f package-lock.json ]; then npm ci; else npm install --no-audit --no-fund; fi
+      - name: Lint (eslint)
+        working-directory: ${{ matrix.package }}
+        run: npm run lint --if-present
+      - name: Typecheck (tsc --noEmit)
+        working-directory: ${{ matrix.package }}
+        run: npm run typecheck --if-present
+      - name: Test
+        working-directory: ${{ matrix.package }}
+        run: npm test --if-present
+
   templates:
     runs-on: ubuntu-latest
     strategy:
