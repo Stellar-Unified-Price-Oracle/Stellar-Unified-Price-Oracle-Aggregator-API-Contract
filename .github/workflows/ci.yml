@@ -22,6 +22,33 @@ jobs:
       - name: Supply-chain malware scan
         run: ./scripts/supply-chain-scan.sh
 
+  # #837: build the release WASM exactly once per workflow and share it with
+  # every job that needs it, instead of each job paying for its own build.
+  build-wasm:
+    needs: malware-scan
+    name: Build release WASM (shared artifact)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@1.91.0
+        with:
+          targets: wasm32v1-none
+      - name: Cache dependencies
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: build-wasm-${{ hashFiles('Cargo.lock') }}
+      - name: Build release WASM
+        run: make build
+      - name: Upload release WASM
+        uses: actions/upload-artifact@v4
+        with:
+          name: price-oracle-wasm
+          path: target/wasm32v1-none/release/price_oracle.wasm
+          if-no-files-found: error
+          retention-days: 7
+
   contract:
     needs: malware-scan
     runs-on: ubuntu-latest
@@ -169,7 +196,7 @@ jobs:
           path: docs/abi.json
 
   attack-regression:
-    needs: malware-scan
+    needs: [malware-scan, build-wasm]
     # #511 — the attack-regression corpus runs as its own job so it can be given
     # an explicit wall-clock budget separate from the rest of the suite.
     name: Attack-regression corpus (time-budgeted)
@@ -179,6 +206,8 @@ jobs:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@1.91.0
       - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ hashFiles('Cargo.lock') }}
       - name: Run the corpus within budget
         run: make attack-gate
 
@@ -484,7 +513,7 @@ jobs:
   # across repeated runs. Runs on every PR so integration coverage no longer
   # depends on a shared testnet.
   hermetic-integration:
-    needs: malware-scan
+    needs: [malware-scan, build-wasm]
     name: Hermetic integration harness
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -497,6 +526,8 @@ jobs:
           components: rustfmt, clippy
       - name: Cache dependencies
         uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ hashFiles('Cargo.lock') }}
       - name: Run harness (twice, verifying determinism)
         run: ./scripts/hermetic-integration.sh
       - name: Publish summary
