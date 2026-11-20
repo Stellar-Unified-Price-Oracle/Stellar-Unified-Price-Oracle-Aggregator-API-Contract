@@ -1991,7 +1991,8 @@ pub fn lastprice(env: &Env, asset: Asset) -> Option<PriceData> {
     if result.price <= 0 {
         return None;
     }
-    // #67: use per-asset resolution (falls back to contract-wide)
+    // #67: use per-asset resolution (falls back to contract-wide).
+    // #821: this window is the staleness bound — a stale aggregate is never served.
     let resolution = get_asset_resolution(env, addr.clone());
     if resolution > 0 {
         let ledger_time = env.ledger().timestamp();
