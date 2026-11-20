@@ -1,0 +1,51 @@
+# #825 — cargo-nextest configuration.
+#
+# The contract suite is ~1,900 tests in a single test binary. Running all of it
+# on every push is too slow for the <5 minute PR feedback target, so the suite
+# is split into three tiers selected by test-name filters:
+#
+#   fast     — default profile. Everything except the security and slow tiers.
+#              Runs on every push and in the pre-push hook.
+#   security — security-critical suites (auth, reentrancy, invariants, fuzz
+#              regressions, adversarial gas/attack gates). Runs on every PR.
+#   slow     — long-running suites (load, soak, benchmarks, interleaving,
+#              determinism, upgrade matrix). Runs nightly.
+#
+# Tier membership is expressed with `default-filter` + `test-groups` so a test
+# can belong to more than one tier without being duplicated in the source.
+# `cargo nextest run --profile <tier>` is the only entry point; see
+# docs/nextest-tiers.md.
+
+[profile.fast]
+default-filter = "not (test(security_) | test(attack_) | test(reentrancy) | test(invariant) | test(load_) | test(soak) | test(bench) | test(interleaving) | test(determinism) | test(version_matrix) | test(gas_budget_tests))"
+retries = 0
+fail-fast = true
+
+[profile.security]
+default-filter = "test(security_) | test(attack_) | test(reentrancy) | test(invariant) | test(auth) | test(gas_budget_tests) | test(adversarial)"
+retries = 0
+fail-fast = false
+
+[profile.slow]
+default-filter = "test(load_) | test(soak) | test(bench) | test(interleaving) | test(determinism) | test(version_matrix) | test(source_count_bench)"
+retries = 0
+fail-fast = false
+# Long suites are the ones that benefit from sharding across runners.
+test-threads = "num-cpus"
+
+[profile.default]
+retries = 0
+fail-fast = true
+
+# Sharding: `cargo nextest run --partition count:N/1` (or `hash:N/M`) splits the
+# selected tests across N CI runners. The CI workflow uses `count:` so every
+# shard gets an even share of the tier.
+[profile.fast-ci]
+inherits = "fast"
+fail-fast = false
+
+[profile.security-ci]
+inherits = "security"
+
+[profile.slow-ci]
+inherits = "slow"

@@ -4,6 +4,9 @@
 #   all     - build and test
 #   build   - compile the contract to WASM
 #   test    - run all tests
+#   test-fast     - nextest fast tier, pre-push / push (#825)
+#   test-security - nextest security tier, PRs (#825)
+#   test-slow     - nextest slow tier, nightly (#825)
 #   lint    - run clippy
 #   fmt     - format code
 #   check   - check formatting without modifying files
@@ -41,7 +44,7 @@
         check-pins reproducible-build security rpc-gate indexer-trust \
         tx-review-gate redaction-gate trust-boundary source-count-bench \
         endpoint-budgets retention-bench burst-capacity malware-scan \
-        attack-gate fuzz-gate kani-gate
+        attack-gate fuzz-gate kani-gate test-fast test-security test-slow
 
 all: build test
 
@@ -103,6 +106,17 @@ ops-check:
 
 test:
 	cargo test -p price-oracle --lib
+
+# #825 — tiered nextest runs. `fast` is the pre-push / push tier, `security`
+# runs on PRs, `slow` runs nightly. See docs/nextest-tiers.md.
+test-fast:
+	cargo nextest run -p price-oracle --lib --profile fast
+
+test-security:
+	cargo nextest run -p price-oracle --lib --profile security
+
+test-slow:
+	cargo nextest run -p price-oracle --lib --profile slow
 
 # Adversarial gas-budget regression gates (docs/gas-budget.md)
 gas-gate:
