@@ -23,6 +23,10 @@ jobs:
       - uses: taiki-e/install-action@v2
         with:
           tool: cargo-mutants
+      # #827: the mutant test command is the nextest fast tier.
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: nextest
       # Tests embed the built WASM (include_bytes!); without it the unmutated
       # baseline does not compile and nothing is tested. mutants.toml sets
       # copy_target so the build reaches cargo-mutants' scratch copy.
@@ -63,6 +67,10 @@ jobs:
       - uses: taiki-e/install-action@v2
         with:
           tool: cargo-mutants
+      # #827: the mutant test command is the nextest fast tier.
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: nextest
       # Tests embed the built WASM (include_bytes!); without it the unmutated
       # baseline does not compile and nothing is tested. mutants.toml sets
       # copy_target so the build reaches cargo-mutants' scratch copy.
@@ -79,8 +87,7 @@ jobs:
         env:
           GENERAL_THRESHOLD: "80"
           MUTANTS_ARGS: --shard ${{ matrix.shard }}/4 ${{ env.DIFF_ARGS }}
-        run: ./scripts/mutation-gate.sh general
-      - uses: actions/upload-artifact@v4
+        run: ./scripts/mutation-gate.sh general      - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: mutants-general-${{ matrix.shard }}
