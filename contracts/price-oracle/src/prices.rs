@@ -31,6 +31,33 @@ use crate::types::{
 // Issue #290 — record submission against schedule (liveness check)
 use crate::scheduling;
 
+/// Shared timestamp sanity validator for every submission path.
+///
+/// Normalises `timestamp` down to the oracle resolution grid (a no-op when the
+/// resolution is `0`), then rejects timestamps that are too far in the future
+/// (beyond the configured timestamp threshold) or too far in the past (older
+/// than the threshold relative to ledger time).
+///
+/// Returns the normalised timestamp; panics with [`ErrorCode::InvalidTimestamp`]
+/// when the value is outside the accepted window.
+pub fn validate_submission_timestamp(env: &Env, timestamp: u64) -> u64 {
+    let resolution = crate::admin::get_resolution(env) as u64;
+    let normalised = if resolution > 1 {
+        timestamp - (timestamp % resolution)
+    } else {
+        timestamp
+    };
+
+    let ledger_time = env.ledger().timestamp();
+    let threshold = get_timestamp_threshold(env);
+    if normalised > ledger_time.saturating_add(threshold)
+        || normalised.saturating_add(threshold) < ledger_time
+    {
+        panic_with_error!(env, ErrorCode::InvalidTimestamp);
+    }
+    normalised
+}
+
 fn build_candidate_aggregate(
     env: &Env,
     asset: &Address,
@@ -1353,11 +1380,9 @@ pub fn submit_price(
 
     let ledger_time = env.ledger().timestamp();
     validate_price_submission(env, &asset, &source, price, timestamp, get_decimals(env));
-    let threshold = get_timestamp_threshold(env);
-    if timestamp > ledger_time.saturating_add(threshold) {
-        crate::sources::record_invalid_submission(env, source.clone());
-        panic_with_error!(env, ErrorCode::InvalidTimestamp);
-    }
+    let timestamp = match crate::prices::validate_submission_timestamp(env, timestamp) {
+        ts => ts,
+    };
 
     // A delayed (out-of-order) submission must never silently replace a newer
     // price from the same source: reject it loudly instead.
