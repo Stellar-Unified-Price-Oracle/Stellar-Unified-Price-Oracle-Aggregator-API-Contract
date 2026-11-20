@@ -18,6 +18,12 @@ the price.
 > 2026-10-22 and the cleanup, read
 > [docs/security/malware-incident-2026-10.md](docs/security/malware-incident-2026-10.md).
 
+## Architecture
+
+See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the system diagram
+(contracts, off-chain services, data flow for a price update and for a
+governance change), module structure, storage layout and event catalogue.
+
 ## Features
 
 - **Median aggregation** across N permissioned sources, with a configurable
