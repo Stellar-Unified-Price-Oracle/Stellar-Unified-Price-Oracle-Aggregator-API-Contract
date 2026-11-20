@@ -17,6 +17,8 @@ jobs:
         run: python3 scripts/devx/gen_interface.py --check
         env:
           BASE_REF: ${{ github.event_name == 'pull_request' && format('origin/{0}', github.base_ref) || 'HEAD~1' }}
+      - name: API reference is current
+        run: python3 scripts/devx/gen_api_reference.py --check
       - name: Deprecation window + deprecated usage lint
         run: python3 scripts/devx/lint_deprecated.py
       - name: Interface package packs

@@ -19,6 +19,10 @@ const { interface: iface, errorByCode, versions } = require("@stellar-unified-pr
 
 `python3 scripts/devx/gen_interface.py` regenerates `interface/interface.json`. CI runs it with `--check`.
 
+`python3 scripts/devx/gen_api_reference.py` regenerates the [API reference](api-reference.md) from
+`interface/interface.json`. CI runs it with `--check`, so the committed reference must always match the
+generated output.
+
 ## Semver rules (enforced in CI)
 
 | Change | Required bump (≥1.0) | Required bump (0.x) |
