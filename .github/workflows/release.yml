@@ -14,3 +14,28 @@ jobs:
       - uses: actions/checkout@v4
       - name: Verify go/no-go evidence checklist
         run: scripts/check-release-evidence.sh docs/mainnet-release-checklist.md
+
+  # SEP-55 build verification (#834): publish the canonical, reproducible WASM
+  # plus the exact build inputs so explorers (and anyone else) can rebuild the
+  # deployed contract from source and mark it as verified.
+  build-verification:
+    name: SEP-55 contract build verification
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@1.91.0
+        with:
+          targets: wasm32v1-none
+      - name: Cache dependencies
+        uses: Swatinem/rust-cache@v2
+      - name: Reproducible build + digest
+        run: ./scripts/reproducible-build.sh
+      - name: Assemble SEP-55 verification bundle
+        run: ./scripts/sep55-build-verification.sh
+      - name: Upload SEP-55 verification bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: sep55-build-verification
+          path: build-artifacts/sep55/
+          if-no-files-found: error
