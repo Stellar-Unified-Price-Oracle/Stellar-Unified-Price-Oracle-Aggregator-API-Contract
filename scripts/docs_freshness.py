@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Docs freshness gate (#540): dead links, broken snippets, stale interfaces.
 
-    python3 scripts/docs_freshness.py            # links (local), snippets, interface, nav
+    python3 scripts/docs_freshness.py            # links (local), snippets, interface, nav, status
     python3 scripts/docs_freshness.py --external # also HEAD-check http(s) links
 
 Failure classes and how to fix each are in docs/docs-freshness.md.
@@ -147,6 +147,50 @@ def check_interface(md: Path, endpoints: set[str], version: str) -> list[str]:
 
 
 SUMMARY_RE = re.compile(r"^#\s+(.+?)\s*$", re.M)
+STATUS_RE = re.compile(r"^<!--\s*status:\s*(shipped|experimental|not deployed)\s*-->\s*$", re.M)
+STATUS_VALUES = ("shipped", "experimental", "not deployed")
+# Docs that describe the repo itself rather than a contract feature.
+STATUS_EXEMPT = {"SUMMARY.md", "README.md", "TEMPLATE.md"}
+
+
+def module_status(lib_rs: Path = LIB_RS) -> dict[str, str]:
+    """#852: map each contract module to its deployment status.
+
+    A module is `shipped` when `lib.rs` declares it unconditionally, and
+    `experimental` when it is only declared behind a `#[cfg(feature = ...)]`
+    gate. Modules that are not declared at all are `not deployed`.
+    """
+    status: dict[str, str] = {}
+    gated = False
+    for line in lib_rs.read_text(encoding="utf-8").splitlines():
+        stripped = line.strip()
+        if stripped.startswith("#[cfg("):
+            gated = True
+            continue
+        m = re.match(r"^(?:pub )?mod ([a-z_][a-z0-9_]*);", stripped)
+        if m:
+            status[m.group(1)] = "experimental" if gated else "shipped"
+            gated = False
+        elif stripped and not stripped.startswith("//"):
+            gated = False
+    return status
+
+
+def check_status(md: Path, modules: dict[str, str]) -> list[str]:
+    """#852: every feature doc must declare its status badge on line 1."""
+    if md.name in STATUS_EXEMPT:
+        return []
+    rel = md.relative_to(ROOT)
+    text = md.read_text(encoding="utf-8")
+    m = STATUS_RE.search(text)
+    if not m:
+        return [f"{rel}: missing status badge (one of: {', '.join(STATUS_VALUES)})"]
+    declared = m.group(1)
+    stem = md.stem.replace("-", "_")
+    expected = modules.get(stem)
+    if expected is not None and expected != declared:
+        return [f"{rel}: status `{declared}` but module `{stem}` is `{expected}`"]
+    return []
 
 
 def check_nav(docs: Path = ROOT / "docs") -> list[str]:
@@ -176,11 +220,13 @@ def run(files: list[Path], external: bool) -> list[str]:
     allow = load_allowlist()
     endpoints = contract_endpoints()
     version = contract_version()
+    modules = module_status()
     errors: list[str] = []
     for md in files:
         errors += check_links(md, allow, external)
         errors += check_snippets(md)
         errors += check_interface(md, endpoints, version)
+        errors += check_status(md, modules)
     if not files or any("docs" in f.parts for f in files):
         errors += check_nav()
     return errors
