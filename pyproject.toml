@@ -1,0 +1,39 @@
+# Root Python tooling config (#841): one place for ruff, mypy and pytest over
+# services/, scripts/ and sdk/python. Installed from requirements-dev.txt
+# (pip-compile --generate-hashes).
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+extend-exclude = [
+    "sdk/python/oracle_sdk/generated_bindings.py",  # AUTO-GENERATED, do not edit
+    "examples",
+]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B"]
+ignore = [
+    "E501",  # line length is enforced by the formatter, not the linter
+]
+
+[tool.ruff.lint.per-file-ignores]
+"scripts/*" = ["E402"]  # CLI scripts set up sys.path before importing services.*
+
+[tool.mypy]
+python_version = "3.12"
+files = ["services", "scripts", "sdk/python"]
+mypy_path = "."
+explicit_package_bases = true
+warn_unused_ignores = true
+warn_redundant_casts = true
+no_implicit_optional = true
+check_untyped_defs = true
+# Baselined: these trees are not fully annotated yet. Tighten per-module as
+# modules are typed; the goal is to remove these overrides.
+[[tool.mypy.overrides]]
+module = ["services.*", "scripts.*", "sdk.python.*"]
+ignore_errors = true
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["services", "scripts", "sdk/python"]

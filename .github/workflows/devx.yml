@@ -46,3 +46,22 @@ jobs:
           python-version: "3.12"
       - working-directory: examples/python-bot
         run: pip install -r requirements.txt && pytest -q
+
+  # #841: one job for all Python — ruff, mypy and pytest over services/,
+  # scripts/ and sdk/python. Config lives in the root pyproject.toml; the
+  # toolchain is installed from the hashed lockfile.
+  python:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install pinned dev tooling
+        run: pip install --require-hashes -r requirements-dev.txt
+      - name: Ruff
+        run: ruff check services scripts sdk/python
+      - name: Mypy
+        run: mypy
+      - name: Pytest
+        run: python -m pytest -q
