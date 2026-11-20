@@ -406,7 +406,11 @@ mod issues_491_492_493_494_tests;
 // #689 — Upgrade authorization is bound to the approved release artifact: a
 // substituted WASM hash is refused before any mutation. See
 // docs/blue-green-upgrade.md.
-#[cfg(test)]
+//
+// #824 — These tests embed the prebuilt release WASM with `include_bytes!`, so
+// they only compile when the `wasm-artifact-tests` feature is enabled (after
+// `make build`). Plain `cargo test` on a clean checkout skips them.
+#[cfg(all(test, feature = "wasm-artifact-tests"))]
 mod upgrade_artifact_binding_tests;
 
 pub use types::{

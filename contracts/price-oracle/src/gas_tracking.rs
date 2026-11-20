@@ -244,6 +244,7 @@ fn bench_get_historical_price(e: &Env, client: &PriceOracleContractClient<'_>, n
     );
 }
 
+#[cfg(feature = "wasm-artifact-tests")]
 fn bench_upgrade(e: &Env, client: &PriceOracleContractClient<'_>) {
     // Upload a minimal valid WASM to the env so upgrade() can succeed.
     // The smallest valid Soroban WASM is an empty contract; use the same

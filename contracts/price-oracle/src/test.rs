@@ -568,25 +568,25 @@ fn test_has_historical_price_unregistered_asset() {
     assert!(!client.has_historical_price(&asset, &100u32));
 }
 
+#[cfg(feature = "wasm-artifact-tests")]
 fn load_wasm_hash(e: &Env) -> soroban_sdk::BytesN<32> {
     let wasm = include_bytes!("../../../target/wasm32v1-none/release/price_oracle.wasm");
     e.deployer()
         .upload_contract_wasm(Bytes::from_slice(e, wasm))
 }
 
+#[cfg(feature = "wasm-artifact-tests")]
 fn load_wasm_bytes() -> &'static [u8] {
     include_bytes!("../../../target/wasm32v1-none/release/price_oracle.wasm")
 }
 
+// #824 — The upgrade tests below embed the prebuilt release WASM, so they are
+// gated behind the `wasm-artifact-tests` feature and skipped on a clean
+// checkout. Build the artifact with `make build` and run:
+//   cargo test -p price-oracle --lib --features wasm-artifact-tests
+#[cfg(feature = "wasm-artifact-tests")]
 #[test]
 fn test_upgrade() {
-    // Included wasm upgrade test requires a pre-built artifact.
-    // Skip in environments where `target/wasm32v1-none/release/price_oracle.wasm` is missing.
-    #[cfg(feature = "skip_wasm_upgrade_tests")]
-    {
-        return;
-    }
-
     let e = Env::default();
     e.cost_estimate().disable_resource_limits();
     // Uploading and swapping the contract wasm is far more expensive than the
@@ -598,15 +598,9 @@ fn test_upgrade() {
     client.upgrade(&new_wasm_hash);
 }
 
+#[cfg(feature = "wasm-artifact-tests")]
 #[test]
 fn test_upgrade_unauthorized() {
-    // Included wasm upgrade test requires a pre-built artifact.
-    // Skip in environments where `target/wasm32v1-none/release/price_oracle.wasm` is missing.
-    #[cfg(feature = "skip_wasm_upgrade_tests")]
-    {
-        return;
-    }
-
     let e = Env::default();
     e.cost_estimate().disable_resource_limits();
     // Uploading and swapping the contract wasm is far more expensive than the
@@ -666,6 +660,7 @@ fn test_upgrade_wasm_without_expected_interface_handled() {
     assert!(client.get_description().len() > 0);
 }
 
+#[cfg(feature = "wasm-artifact-tests")]
 #[test]
 fn test_upgrade_from_non_admin_rejected() {
     let e = Env::default();
