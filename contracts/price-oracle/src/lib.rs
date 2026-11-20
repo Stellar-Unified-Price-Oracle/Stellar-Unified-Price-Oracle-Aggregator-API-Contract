@@ -85,6 +85,8 @@ mod explanation;
 mod export_history;
 mod fee_market;
 mod finality;
+// #819 — one rounding mode and one scaling helper for all price math.
+pub mod fixed;
 #[allow(dead_code)]
 mod flash_swing;
 mod freeze;
