@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Docs freshness gate (#540): dead links, broken snippets, stale interfaces.
 
-    python3 scripts/docs_freshness.py            # links (local), snippets, interface
+    python3 scripts/docs_freshness.py            # links (local), snippets, interface, nav
     python3 scripts/docs_freshness.py --external # also HEAD-check http(s) links
 
 Failure classes and how to fix each are in docs/docs-freshness.md.
@@ -146,6 +146,32 @@ def check_interface(md: Path, endpoints: set[str], version: str) -> list[str]:
     return errors
 
 
+SUMMARY_RE = re.compile(r"^#\s+(.+?)\s*$", re.M)
+
+
+def check_nav(docs: Path = ROOT / "docs") -> list[str]:
+    """#850: every docs page must be reachable from the mdBook nav.
+
+    The nav is `docs/SUMMARY.md`; a page is reachable when it is linked from it
+    (directly or through a nested section). Pages that are not markdown (JSON,
+    CSV, SQL, ...) are data, not pages, and are not required to be listed.
+    """
+    summary = docs / "SUMMARY.md"
+    if not summary.exists():
+        return [f"docs/SUMMARY.md: missing mdBook nav"]
+    listed = set()
+    for target in LINK_RE.findall(strip_code(summary.read_text(encoding="utf-8"))):
+        path = target.split("#", 1)[0]
+        if path and not path.startswith(("http://", "https://", "mailto:")):
+            listed.add((docs / path).resolve())
+    errors = []
+    for md in sorted(docs.rglob("*.md")):
+        if md.name == "SUMMARY.md" or md.resolve() in listed:
+            continue
+        errors.append(f"{md.relative_to(ROOT)}: orphan page, not listed in docs/SUMMARY.md")
+    return errors
+
+
 def run(files: list[Path], external: bool) -> list[str]:
     allow = load_allowlist()
     endpoints = contract_endpoints()
@@ -155,6 +181,8 @@ def run(files: list[Path], external: bool) -> list[str]:
         errors += check_links(md, allow, external)
         errors += check_snippets(md)
         errors += check_interface(md, endpoints, version)
+    if not files or any("docs" in f.parts for f in files):
+        errors += check_nav()
     return errors
 
 
