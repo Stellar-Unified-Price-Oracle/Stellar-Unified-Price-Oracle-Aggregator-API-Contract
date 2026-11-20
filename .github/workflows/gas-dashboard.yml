@@ -13,8 +13,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@1.91.0
-      - uses: Swatinem/rust-cache@v2
+      - uses: ./.github/actions/setup-rust
       - name: Generate dashboard
         run: |
           set -o pipefail

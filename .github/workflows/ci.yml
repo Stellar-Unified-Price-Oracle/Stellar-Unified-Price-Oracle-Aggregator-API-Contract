@@ -27,17 +27,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      # Pin to the exact version in rust-toolchain.toml. Installing via
-      # @stable leaves the pinned 1.91.0 override without rustfmt/clippy,
-      # which makes `make check` and `make lint` fail with "not installed
-      # for the toolchain '1.91.0'".
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@1.91.0
-        with:
-          targets: wasm32v1-none
-          components: rustfmt, clippy
-      - name: Cache dependencies
-        uses: Swatinem/rust-cache@v2
+      # Shared setup (#838): pinned toolchain + wasm target + cache.
+      - uses: ./.github/actions/setup-rust
       - name: Check formatting
         run: make check
       - name: Build
@@ -77,13 +68,7 @@ jobs:
             sdk: "26.0.1"
     steps:
       - uses: actions/checkout@v4
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@1.91.0
-        with:
-          targets: wasm32v1-none
-          components: rustfmt, clippy
-      - name: Cache dependencies
-        uses: Swatinem/rust-cache@v2
+      - uses: ./.github/actions/setup-rust
       # The contract manifest must already pin this SDK version; a mismatch
       # fails the job rather than silently testing a different SDK than the
       # matrix claims.
