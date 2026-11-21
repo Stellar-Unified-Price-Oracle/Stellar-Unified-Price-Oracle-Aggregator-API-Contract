@@ -12,15 +12,18 @@ jobs:
   dashboard:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: ./.github/actions/setup-rust
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: dtolnay/rust-toolchain@0e58746831d1ffcee8fcebf0aebabfaf3d5a88be # 1.91.0
+        with:
+          toolchain: 1.91.0
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
       - name: Generate dashboard
         run: |
           set -o pipefail
           cargo test -p price-oracle --lib gas_amplification -- --nocapture --test-threads=1 \
             | python3 scripts/gas_dashboard.py > gas-dashboard.md
           cat gas-dashboard.md >> "$GITHUB_STEP_SUMMARY"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: gas-dashboard
           path: gas-dashboard.md
