@@ -280,6 +280,9 @@ pub fn initialize(
         .persistent()
         .set(&DataKey::CfgResolution, &DEFAULT_RESOLUTION);
     env.storage()
+        .instance()
+        .set(&DataKey::CfgResolution, &DEFAULT_RESOLUTION);
+    env.storage()
         .persistent()
         .set(&DataKey::CfgDecimals, &decimals);
     env.storage()
@@ -535,6 +538,9 @@ pub fn set_resolution(env: &Env, new_resolution: u32) {
     env.storage()
         .persistent()
         .set(&DataKey::CfgResolution, &new_resolution);
+    env.storage()
+        .instance()
+        .set(&DataKey::CfgResolution, &new_resolution);
     ResolutionChangedEvent {
         value: new_resolution,
     }
@@ -543,6 +549,9 @@ pub fn set_resolution(env: &Env, new_resolution: u32) {
 }
 
 pub fn get_resolution(env: &Env) -> u32 {
+    if let Some(r) = env.storage().instance().get(&DataKey::CfgResolution) {
+        return r;
+    }
     let key = DataKey::CfgResolution;
     if env.storage().persistent().has(&key) {
         env.storage()

@@ -104,3 +104,64 @@ jobs:
             dist/versions.json
             dist/CHANGELOG.md
           fail_on_unmatched_files: true
+
+  # #872: Publish SDK packages (npm, PyPI, crates.io) with provenance / OIDC
+  publish-sdk-npm:
+    name: Publish TypeScript SDK to npm
+    needs: release
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write # provenance
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          registry-url: https://registry.npmjs.org
+      - name: Build and publish TypeScript SDK
+        working-directory: sdk/typescript
+        run: |
+          npm ci || npm install --no-audit --no-fund
+          npm run build
+          npm publish --provenance --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+  publish-sdk-pypi:
+    name: Publish Python SDK to PyPI
+    needs: release
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write # OIDC trusted publishing
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install build tool
+        run: pip install --upgrade build
+      - name: Build package
+        working-directory: sdk/python
+        run: python -m build
+      - name: Publish package distributions to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: sdk/python/dist/
+
+  publish-sdk-crates:
+    name: Publish Rust SDK to crates.io
+    needs: release
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Publish to crates.io
+        working-directory: sdk/rust
+        run: cargo publish --token "${{ secrets.CRATES_IO_TOKEN }}"

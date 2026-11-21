@@ -1,0 +1,16 @@
+{
+  "name": "quickstart-typescript-dapp",
+  "version": "0.1.0",
+  "description": "5-minute TypeScript dApp quickstart reading from Stellar SEP-40 price oracle",
+  "type": "module",
+  "scripts": {
+    "build": "tsc",
+    "test": "node --test test/*.test.js"
+  },
+  "dependencies": {
+    "@stellar/stellar-sdk": "^12.0.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.4.0"
+  }
+}
