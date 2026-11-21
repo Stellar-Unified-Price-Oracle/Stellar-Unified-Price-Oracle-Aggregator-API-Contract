@@ -16,7 +16,7 @@ A Soroban (Stellar smart contract) **price oracle aggregator** that collects pri
 ```
 .
 ├── .github/workflows/ci.yml    # CI: contract build, fmt, clippy, tests
-├── .husky/pre-push              # Pre-push hook: builds + tests contract
+├── .husky/pre-push              # Pre-push hook: fmt + clippy + nextest fast tier
 ├── AGENTS.md                    # This file
 ├── Cargo.toml                   # Workspace root
 ├── Cargo.lock

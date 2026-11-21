@@ -19,6 +19,86 @@ maintainers and on-call operators.
 - Keep edits surgical; avoid unrelated refactors in the same pull request.
 - Do not commit secrets, tokens, or production credentials.
 
+## ADR and size/cost budget for new on-chain features
+
+Any change that adds or materially alters on-chain behavior needs an
+Architecture Decision Record (ADR) **before** implementation, plus a size/cost
+budget in the pull request. This keeps storage, gas, and interface growth
+reviewable instead of discovered at audit time.
+
+### When an ADR is required
+
+An ADR is required when a change:
+
+- adds a new contract entry point, or changes an existing entry point's
+  signature or semantics;
+- adds or changes persistent/temporary storage keys, or grows stored value
+  sizes (new maps, vectors, or per-asset records);
+- changes aggregation, quorum, or price-selection logic;
+- adds a new on-chain data source, adapter, or cross-contract call;
+- changes governance, admin, or upgrade paths;
+- introduces a new event type or changes an existing event schema.
+
+An ADR is **not** required for bug fixes that restore documented behavior,
+comment/doc changes, off-chain tooling, or tests. When in doubt, open the ADR —
+a short one is cheap.
+
+### ADR template
+
+Copy this into `docs/adr/ADR-<nnn>-<short-title>.md` and link it from the pull
+request. Follow the existing ADRs in `docs/adr/` for tone and numbering.
+
+```markdown
+# ADR-<nnn>: <Title>
+
+- Status: Proposed | Accepted | Superseded by ADR-<nnn>
+- Date: YYYY-MM-DD
+- Issue: #<n>
+
+## Context
+What problem is being solved and why now. Link the issue and any prior ADRs.
+
+## Decision
+The change being made, stated precisely (entry points, storage keys, events,
+aggregation semantics).
+
+## Size and cost budget
+- New/changed entry points: <list>
+- New/changed storage keys and value sizes: <list, with bytes>
+- Estimated ledger entry growth per asset/source: <bytes>
+- Estimated CPU/memory instructions per call: <number or range>
+- Event volume per call: <count and size>
+- Interface/ABI impact: none | additive | breaking (with migration guide)
+
+## Alternatives considered
+Other options and why they were rejected.
+
+## Consequences
+Operational, security, and migration impact. What must be monitored after
+release.
+
+## Rollback
+How the change is reverted or disabled if it misbehaves.
+```
+
+### Size and cost budget
+
+Every on-chain PR must state its budget in the description using the fields
+above. A PR that exceeds its stated budget, or that omits one, is not merged
+until the ADR is updated. Budgets are reviewed against
+[docs/gas-budget.md](docs/gas-budget.md) and
+[docs/storage-tiers.md](docs/storage-tiers.md).
+
+### Analytics and reporting default to off-chain
+
+Analytics, reporting, dashboards, and historical aggregation are **off-chain by
+default**. Do not add on-chain storage or computation solely to serve
+analytics or reporting. On-chain work is limited to what consumers need to read
+prices and verify state; everything else belongs in the indexer and event
+streams (see [docs/indexer.md](docs/indexer.md) and
+[docs/event-streaming/README.md](docs/event-streaming/README.md)). An exception
+requires an ADR that justifies the on-chain cost.
+
 ## Operator handover and on-call readiness drill
 
 Operators must be able to hand off a shift, reach the escalation contacts, and

@@ -21,6 +21,13 @@ runs the same script on creation.
 `bash`, `curl`, `git`, a C linker (`cc`, for build scripts), `python3` ≥ 3.10
 with `venv`. `npm` is optional (only for the pre-push hook).
 
+## Pre-push hook
+
+`.husky/pre-push` runs only the fast tier: `cargo fmt --check`, `cargo clippy -D
+warnings`, and `cargo nextest run -p price-oracle --profile fast`. The WASM build
+and the full test suite run in CI, so a warm-cache push finishes in under two
+minutes. Run the full suite locally with `make test` when you need it.
+
 ## Determinism
 
 * Toolchain comes only from `rust-toolchain.toml`; the script aborts if the

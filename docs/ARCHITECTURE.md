@@ -4,6 +4,85 @@
 
 The Stellar Unified Price Oracle Aggregator is a decentralized price oracle smart contract built on Soroban (Stellar's smart contract platform). It collects price data from multiple permissioned oracle sources, aggregates them using a median calculation, and exposes both current and historical price data to consumer contracts via the SEP-40 standard interface.
 
+## System Diagram
+
+```mermaid
+flowchart LR
+    subgraph OffChain["Off-chain services"]
+        SRC["Oracle sources<br/>(price feeds)"]
+        BOT["Price submission bot<br/>(scripts/oracle-cli.sh)"]
+        IDX["Indexer<br/>(examples/indexer)"]
+        MON["Monitoring / alerts<br/>(docs/monitoring)"]
+    end
+
+    subgraph OnChain["Soroban contracts"]
+        ORACLE["price-oracle<br/>(aggregator, SEP-40)"]
+        MIN["minimal-oracle<br/>(reference consumer)"]
+        CONS["Consumer contracts<br/>(lending, perps, stablecoins)"]
+    end
+
+    GOV["Admin / governance<br/>(multisig + timelock)"]
+
+    SRC -->|"submit_price / submit_heartbeat"| ORACLE
+    BOT -->|"submit_price"| ORACLE
+    GOV -->|"admin config, source & asset lifecycle, upgrade"| ORACLE
+    ORACLE -->|"events"| IDX
+    ORACLE -->|"events"| MON
+    ORACLE -->|"lastprice / price / prices"| CONS
+    ORACLE -->|"lastprice"| MIN
+```
+
+## Price Update Data Flow
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant S as Oracle source
+    participant O as price-oracle
+    participant H as History (temporary)
+    participant C as Consumer contract
+
+    S->>O: submit_price(asset, price, timestamp)
+    O->>O: verify source active & asset registered
+    O->>O: validate price > 0, timestamp within threshold
+    O->>O: store Submission(asset, source)
+    O-->>S: PriceSubmittedEvent
+    O->>O: collect active source prices
+    alt sources >= min_sources_required
+        O->>O: compute median
+        O->>O: update Aggregate(asset)
+        O->>H: append PriceHistory(asset, ledger)
+        O-->>S: PriceAggregatedEvent
+    else not enough sources
+        O-->>S: SourcesInsufficientEvent
+    end
+    C->>O: lastprice(asset)
+    O-->>C: AggregatePrice (staleness-checked)
+```
+
+## Governance Change Data Flow
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant A as Admin / governance
+    participant O as price-oracle
+    participant I as Indexer / monitoring
+
+    A->>O: propose config change (off-chain review)
+    A->>O: set_min_sources_required / set_resolution / set_decimals ...
+    O->>O: require admin auth
+    O->>O: validate parameter (InvalidConfiguration on failure)
+    O->>O: persist new config value
+    O-->>I: config event
+    A->>O: add_source / activate_source / remove_source
+    O-->>I: SourceAddedEvent / SourceRemovedEvent
+    A->>O: register_asset / unregister_asset
+    O-->>I: AssetRegisteredEvent / AssetUnregisteredEvent
+    A->>O: upgrade(new_wasm_hash)
+    O-->>I: ContractUpgradedEvent
+```
+
 ## Module Structure
 
 ```

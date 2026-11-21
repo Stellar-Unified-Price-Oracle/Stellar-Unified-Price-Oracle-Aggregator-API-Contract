@@ -113,6 +113,26 @@ fn build_candidate_aggregate(
     }
 }
 
+/// Issue #817 — invariant guard: no aggregation path may publish an aggregate
+/// backed by fewer than `min_sources_required` distinct, active, fresh sources.
+///
+/// Every write of [`DataKey::Aggregate`] (submission aggregation, admin
+/// override, correction, recompute) must pass through this check. The
+/// `num_sources` carried by the aggregate is the number of distinct sources
+/// that contributed to it; `min_required` is the effective quorum for the
+/// asset (per-asset policy, falling back to the global setting).
+///
+/// # Panics
+///
+/// Panics with [`ErrorCode::InsufficientSources`] when `num_sources` is below
+/// the required quorum.
+pub fn assert_aggregate_quorum(env: &Env, asset: &Address, num_sources: u32) {
+    let min_required = crate::policy::effective_policy(env, asset).min_sources;
+    if num_sources < min_required {
+        panic_with_error!(env, ErrorCode::InsufficientSources);
+    }
+}
+
 fn read_bft_fault_tolerance(env: &Env) -> u32 {
     if !crate::feature_flags::on(env, crate::feature_flags::BFT) {
         return 0;
@@ -1971,7 +1991,8 @@ pub fn lastprice(env: &Env, asset: Asset) -> Option<PriceData> {
     if result.price <= 0 {
         return None;
     }
-    // #67: use per-asset resolution (falls back to contract-wide)
+    // #67: use per-asset resolution (falls back to contract-wide).
+    // #821: this window is the staleness bound — a stale aggregate is never served.
     let resolution = get_asset_resolution(env, addr.clone());
     if resolution > 0 {
         let ledger_time = env.ledger().timestamp();
