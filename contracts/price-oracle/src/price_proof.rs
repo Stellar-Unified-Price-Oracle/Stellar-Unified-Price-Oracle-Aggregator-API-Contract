@@ -23,7 +23,7 @@
 //! Cryptographic verification of the proof contents is intentionally deferred
 //! to off-chain consumers, as the Soroban VM cannot reach external services.
 
-use soroban_sdk::{panic_with_error, symbol_short, Address, Bytes, Env};
+use soroban_sdk::{panic_with_error, symbol_short, xdr::ToXdr, Address, Bytes, BytesN, Env};
 
 use crate::events::emit_admin_action;
 use crate::prices::submit_price;

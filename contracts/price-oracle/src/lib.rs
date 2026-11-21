@@ -3763,6 +3763,16 @@ impl PriceOracleContract {
     /// Returns `None` for non-Stellar asset variants, unregistered assets, or when
     /// the current aggregate is older than the configured resolution window.
     ///
+    /// # Staleness (#821)
+    ///
+    /// `lastprice` never serves stale data: once the newest aggregate is older than
+    /// the effective staleness window it returns `None` instead of the last known
+    /// price. The window is the per-asset resolution override set with
+    /// [`set_asset_resolution`](Self::set_asset_resolution) when non-zero, otherwise
+    /// the contract-wide [`resolution`](Self::resolution). A window of `0` disables
+    /// the check. The effective window is readable via
+    /// [`get_asset_resolution`](Self::get_asset_resolution).
+    ///
     /// # Arguments
     ///
     /// * `env` - The Soroban execution environment.
