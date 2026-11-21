@@ -44,23 +44,35 @@ A Soroban (Stellar smart contract) **price oracle aggregator** that collects pri
 │           └── prop_tests.rs    # 5 property-based tests
 ```
 
-### Source Code Map
+### Domains
 
-| File | Purpose |
-|---|---|
-| `lib.rs` | Contract struct, 27 public endpoints, SEP-40 interface. Imports helpers from sibling modules. |
-| `types.rs` | `DataKey` enum (storage keys), `ErrorCode` enum, data structs (`PriceEntry`, `AggregatePrice`, `PriceHistoryEntry`, `OracleSources`, `Asset`, `PriceData`) |
-| `storage.rs` | `get_admin`, `check_source`, `check_registered_asset`, median sorting/`compute_median`, `read_*`/`write_*` helpers |
-| `admin.rs` | Admin management functions |
-| `assets.rs` | Asset registration and management |
-| `errors.rs` | Error types and handling |
-| `events.rs` | 13 event types + 2 manual publish functions (`emit_initialized`, `emit_timestamp_threshold_changed`) |
-| `history.rs` | Price history management |
-| `prices.rs` | Price submission and aggregation |
-| `sources.rs` | Oracle source management |
-| `test.rs` | 71 unit tests covering admin, sources, assets, submissions, queries, history, SEP-40, auth, upgrades |
-| `test_helpers.rs` | Shared test utilities |
-| `prop_tests.rs` | 5 property-based tests |
+| Domain | Where | What lives there |
+|---|---|---|
+| **Contract — price oracle** | `contracts/price-oracle/src/` | The production aggregator: entrypoints (`lib.rs`), storage keys and types (`types.rs`), storage/median helpers (`storage.rs`), admin, assets, sources, price submission, history, events, errors, plus unit/property tests. |
+| **Contract — minimal oracle** | `contracts/minimal-oracle/src/` | The stripped-down reference contract used for onboarding and conformance checks. |
+| **Fuzzing** | `fuzz/src/` | `cargo-fuzz` targets for the aggregation and decoding paths. |
+| **Tooling / DevX** | `scripts/` | Build, gate, interface-generation and doc-freshness scripts (`scripts/devx/`). |
+| **Docs** | `docs/` | Design notes, ADRs (`docs/adr/`), runbooks, security reviews, error registry (`docs/errors/`), migrations, monitoring config. |
+| **CI & hooks** | `.github/`, `.husky/`, `Makefile` | Workflows, issue/PR templates, pre-commit/pre-push hooks, and the `make` targets that wrap the gates. |
+| **Config** | `config/` | Security allowlists, baselines, governance policy registry, audit findings. |
+
+### Inside the price-oracle domain
+
+Read the modules in this order; each one only depends on the ones above it:
+
+1. `types.rs` — `DataKey` (storage keys), `ErrorCode`, and the data structs.
+2. `storage.rs` — `read_*`/`write_*` helpers, `get_admin`, `check_source`,
+   `check_registered_asset`, and median computation.
+3. `events.rs` — event types and the manual publish helpers.
+4. `admin.rs`, `assets.rs`, `sources.rs`, `prices.rs`, `history.rs` — one module
+   per domain operation; each owns its auth checks and emits its events.
+5. `lib.rs` — the `#[contractimpl]` block that exposes the public endpoints and
+   the SEP-40 interface, delegating to the modules above.
+6. `test.rs`, `test_helpers.rs`, `prop_tests.rs` — tests, shared fixtures, and
+   property-based tests.
+
+Do not hard-code endpoint, event, or test counts in this file; the generator
+reports them from the source.
 
 ## What NOT to Push
 
