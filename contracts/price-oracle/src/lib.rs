@@ -8063,3 +8063,7 @@ mod version_matrix_tests;
 #[cfg(test)]
 #[allow(dead_code, unused_imports)]
 mod key_rotation_rehearsal_tests;
+
+pub(crate) mod history_ring_buffer;
+#[cfg(test)]
+mod history_ring_buffer_tests;

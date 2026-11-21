@@ -38,6 +38,10 @@ pub enum DataKey {
     Aggregate(Address),
     /// [`PriceHistoryEntry`] recorded at a specific ledger for an asset (temporary storage).
     PriceHistory(Address, u32),
+    /// Ring-buffer price history slot keyed by (asset, slot % capacity) (#877).
+    PriceHistorySlot(Address, u32),
+    /// Ring-buffer history metadata (head, count, capacity) (#877).
+    RingBufferMeta(Address),
     /// Ordered list of ledger numbers for which history exists for an asset.
     PriceHistoryLedgers(Address),
     /// The [`OracleSources`] registry (list of sources and their metadata).

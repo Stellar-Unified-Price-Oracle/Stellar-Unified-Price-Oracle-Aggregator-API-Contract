@@ -193,6 +193,8 @@ jobs:
           stellar --version
       - name: Generate ABI
         run: ./scripts/generate-abi.sh
+      - name: Check SDK bindings drift (#871)
+        run: python3 -m sdk.codegen.generate --check
       - name: Upload generated ABI
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:

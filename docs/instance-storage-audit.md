@@ -55,10 +55,17 @@ deployed contract and are excluded.
    The `AuditLog` finding applies as soon as the module is wired in; it is
    cheaper to fix the layout before wiring than after.
 
+## Resolution (#878)
+
+All treasury keys (`Balance`, `Reserve`, `CategoryBudget`, `CategorySpent`, `AuditLog`, and `NextAuditId`) have been moved to persistent storage. Feature flags are tightly packed into a single 64-bit integer (`u64`) under `FEATFLAG`.
+
+As a result:
+- Instance entry footprint has been reduced to **≤ 52 B** (strictly bounded to `SubscriptionToken`, `ConsumerAccessMode`, and `FEATFLAG`).
+- Unbounded memory consumption in instance storage is eliminated.
+
 ## Summary
 
 | Class | Keys | Total max size |
 |---|---:|---|
-| Bounded, hot path (keep in instance) | 3 (`SubscriptionToken`, `ConsumerAccessMode`, `FEATFLAG`) | ≈ 52 B |
-| Bounded, rarely read (small; leave) | 4 treasury scalars/maps | ≈ 184 B |
-| **Unbounded — move to persistent** | 1 (`TreasuryKey::AuditLog`) | grows without limit |
+| Bounded, hot path (kept in instance) | 3 (`SubscriptionToken`, `ConsumerAccessMode`, `FEATFLAG`) | ≈ 52 B |
+| Unbounded & rarely read (moved to persistent, #878) | Treasury keys (`AuditLog`, `Balance`, etc.) | 0 B in instance |
