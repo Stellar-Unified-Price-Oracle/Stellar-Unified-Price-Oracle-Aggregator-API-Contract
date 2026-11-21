@@ -18,6 +18,7 @@ Companion documents (referenced throughout, not duplicated):
 | [`cross-chain-replay-audit.md`](cross-chain-replay-audit.md) | Axelar/LayerZero/Wormhole relays |
 | [`decoder-forgery-audit.md`](decoder-forgery-audit.md) | Untrusted-byte decoders |
 | [`aggregation-semantics.md`](../aggregation-semantics.md) | Median/mean/trimmed/weighted/VWAP specification |
+| [`external-audit-scope.md`](external-audit-scope.md) | Scope of the focused external audit of the core contract (#816) |
 
 ## 1. Assets
 

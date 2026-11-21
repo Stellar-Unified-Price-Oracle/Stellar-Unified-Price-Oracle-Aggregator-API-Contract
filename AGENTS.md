@@ -13,14 +13,35 @@ A Soroban (Stellar smart contract) **price oracle aggregator** that collects pri
 
 ## Repository Structure
 
-The repository is organised by **domain**, not by file. Each domain owns one
-contract crate (or one tooling area) and the docs that describe it. File-level
-inventories and counts are deliberately not listed here — they drift. To get the
-current numbers, run the generator:
-
-```bash
-python3 scripts/devx/gen_repo_map.py          # prints the domain map + counts
-python3 scripts/devx/gen_repo_map.py --check  # fails if AGENTS.md is stale
+```
+.
+├── .github/workflows/ci.yml    # CI: contract build, fmt, clippy, tests
+├── .husky/pre-push              # Pre-push hook: fmt + clippy + nextest fast tier
+├── AGENTS.md                    # This file
+├── Cargo.toml                   # Workspace root
+├── Cargo.lock
+├── Makefile                     # build / test / lint / fmt / check / clean
+├── package.json                 # npm scripts + husky devDep
+├── package-lock.json
+├── rust-toolchain.toml          # Rust channel + wasm32v1-none target
+├── contracts/
+│   └── price-oracle/
+│       ├── .cargo/config.toml   # WASM link flags
+│       ├── Cargo.toml
+│       └── src/
+│           ├── lib.rs           # Contract struct + all 27 endpoints
+│           ├── types.rs         # DataKey, ErrorCode, all structs
+│           ├── storage.rs       # Storage helpers + median computation
+│           ├── admin.rs         # Admin management functions
+│           ├── assets.rs        # Asset registration and management
+│           ├── errors.rs        # Error types and handling
+│           ├── events.rs        # 13 event types + 2 emit helpers
+│           ├── history.rs       # Price history management
+│           ├── prices.rs        # Price submission and aggregation
+│           ├── sources.rs       # Oracle source management
+│           ├── test.rs          # 71 unit tests
+│           ├── test_helpers.rs  # Shared test utilities
+│           └── prop_tests.rs    # 5 property-based tests
 ```
 
 ### Domains
