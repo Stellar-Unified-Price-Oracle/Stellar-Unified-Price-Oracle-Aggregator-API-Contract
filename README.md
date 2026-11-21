@@ -17,7 +17,39 @@ price.
 > 2026-10-22 and the cleanup, read
 > [docs/security/malware-incident-2026-10.md](docs/security/malware-incident-2026-10.md).
 
-## Deployed contracts
+## Architecture
+
+See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the system diagram
+(contracts, off-chain services, data flow for a price update and for a
+governance change), module structure, storage layout and event catalogue.
+
+## Features
+
+- **Median aggregation** across N permissioned sources, with a configurable
+  minimum quorum (`min_sources_required`).
+- **SEP-40 consumer interface**: `lastprice`, `price`, `prices`, `assets`,
+  `decimals`, `resolution`, `base`.
+- **Price history** per asset with ranged and cursor-paginated reads and
+  optional gap interpolation.
+- **Source enrollment with evidence**: sources submit identity, endpoint
+  ownership, contact and reliability evidence before an admin activates them.
+- **Asset lifecycle**: register, temporarily disable, re-enable, delist.
+- **Admin-gated upgrades and configuration**, with events for every change.
+- **Client SDKs** (TypeScript, Python, Rust, Go) and runnable consumer
+  [examples](examples/).
+- **Security gates in CI**: unit, property, model-based and Kani-bounded tests,
+  attack-regression corpus, fuzzing, secret scanning and a supply-chain
+  malware scan.
+
+## How it works
+
+```
+ source A ─┐
+ source B ─┼─ submit_price ─▶ [ Price Oracle contract ] ─▶ median ─▶ AggregatePrice + history
+ source C ─┘   (source auth)        │                                     │
+                                    └── admin: sources, assets, config    └─▶ SEP-40 reads by
+                                                                               consumer contracts
+```
 
 | Network | Contract ID | Status |
 |---|---|---|

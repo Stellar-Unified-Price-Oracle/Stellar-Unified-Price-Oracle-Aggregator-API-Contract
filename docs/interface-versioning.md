@@ -19,9 +19,11 @@ const { interface: iface, errorByCode, versions } = require("@stellar-unified-pr
 
 `python3 scripts/devx/gen_interface.py` regenerates `interface/interface.json`. CI runs it with `--check`.
 
-`python3 scripts/devx/gen_api_reference.py` regenerates the [API reference](api-reference.md) from
-`interface/interface.json`. CI runs it with `--check`, so the committed reference must always match the
-generated output.
+## Single version source of truth
+
+`interface/package.json` holds the canonical version. `scripts/devx/check_versions.py --check`
+fails when `interface/versions.json`, the contract `Cargo.toml` versions, the root
+`package.json` or any SDK package under `sdk/` / `packages/` disagree with it.
 
 ## Semver rules (enforced in CI)
 
