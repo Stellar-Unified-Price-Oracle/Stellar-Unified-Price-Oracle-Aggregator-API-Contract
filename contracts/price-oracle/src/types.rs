@@ -429,6 +429,10 @@ pub enum DataKey {
     DexPool(Address, Address),
     /// Soroswap pool configuration for an asset pair.
     SoroswapPool(Address, Address),
+    /// Aquarius AMM adapter pool for an asset (#859).
+    AquariusPool(Address),
+    /// Phoenix AMM adapter pool for an asset (#859).
+    PhoenixPool(Address),
 
     /// Challenge entries keyed by ID (#235).
     Challenge(u32),

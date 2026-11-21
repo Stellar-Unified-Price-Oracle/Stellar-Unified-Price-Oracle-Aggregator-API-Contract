@@ -31,6 +31,9 @@ mod alerting;
 mod alerts;
 #[allow(dead_code, unused_imports)]
 mod amm;
+// #859 — Aquarius / Phoenix Soroban AMM price-source adapters.
+#[allow(dead_code, unused_imports)]
+mod amm_adapters;
 #[allow(dead_code, unused_imports)]
 mod asset_inactivity;
 #[allow(dead_code, unused_imports)]
