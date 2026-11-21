@@ -1,0 +1,19 @@
+[package]
+name = "sep40-guard"
+version = "0.1.0"
+edition = "2021"
+description = "no_std helper for SEP-40 oracle consumers: primary/secondary fallback with staleness and deviation guards"
+license = "MIT"
+repository = "https://github.com/Stellar-Unified-Price-Oracle/Stellar-Unified-Price-Oracle-Aggregator-API-Contract"
+keywords = ["stellar", "soroban", "sep-40", "oracle"]
+categories = ["no-std"]
+
+[lib]
+crate-type = ["rlib"]
+doctest = false
+
+[dependencies]
+soroban-sdk = { version = "=26.0.1" }
+
+[dev-dependencies]
+soroban-sdk = { version = "=26.0.1", features = ["testutils"] }

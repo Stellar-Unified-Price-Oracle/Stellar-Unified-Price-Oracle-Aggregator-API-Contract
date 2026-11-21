@@ -1,9 +1,14 @@
 [workspace]
-members = ["contracts/price-oracle", "contracts/minimal-oracle", "fuzz"]
+members = [
+    "contracts/price-oracle",
+    "contracts/minimal-oracle",
+    "crates/sep40-guard",
+    "fuzz",
+]
 # Exclude the fuzz crate from the default build and test targets.
 # It requires nightly + cargo-fuzz and must be invoked explicitly with
 # `cargo fuzz run <target>` from the workspace root.
-default-members = ["contracts/price-oracle", "contracts/minimal-oracle"]
+default-members = ["contracts/price-oracle", "contracts/minimal-oracle", "crates/sep40-guard"]
 resolver = "2"
 
 # Soroban protocol / SDK compatibility matrix (see docs/COMPATIBILITY.md).

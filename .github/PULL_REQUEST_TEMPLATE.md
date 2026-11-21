@@ -30,6 +30,7 @@
 
 ## Interface changes
 - [ ] Ran `scripts/devx/gen_interface.py` and `scripts/devx/gen_error_registry.py`
+- [ ] Ran `scripts/devx/gen_api_reference.py` (regenerates `docs/api-reference.md`)
 - [ ] Breaking change? Bumped `interface/package.json` and added a guide in `docs/migrations/`
 
 ## Mainnet release freeze
