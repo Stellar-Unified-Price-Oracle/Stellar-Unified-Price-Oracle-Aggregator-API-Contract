@@ -1,39 +1,53 @@
-# Root Python tooling config (#841): one place for ruff, mypy and pytest over
-# services/, scripts/ and sdk/python. Installed from requirements-dev.txt
-# (pip-compile --generate-hashes).
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
 
-[tool.ruff]
-target-version = "py312"
-line-length = 100
-extend-exclude = [
-    "sdk/python/oracle_sdk/generated_bindings.py",  # AUTO-GENERATED, do not edit
-    "examples",
+[project]
+name = "oracle-ops"
+version = "0.1.0"
+description = "Operator toolkit for the Stellar Unified Price Oracle: one install, one CLI, all off-chain operator tools."
+readme = "docs/operator-toolkit.md"
+requires-python = ">=3.10"
+license = { text = "Apache-2.0" }
+dependencies = []
+
+[project.optional-dependencies]
+# Only the services that ship an HTTP server need third-party packages.
+servers = ["aiohttp>=3.9"]
+
+[project.scripts]
+oracle-ops = "services.cli:main"
+
+[tool.setuptools]
+packages = [
+    "services",
+    "services.common",
+    "services.access_review",
+    "services.admin_recovery",
+    "services.anomaly_detection",
+    "services.audit_findings",
+    "services.backup",
+    "services.canary",
+    "services.capacity",
+    "services.ci_policy",
+    "services.dependency_advisory",
+    "services.disclosure",
+    "services.dr_gameday",
+    "services.evidence_redaction",
+    "services.incident_review",
+    "services.indexer",
+    "services.ingest_failover",
+    "services.operator_dashboard",
+    "services.pinned_deps",
+    "services.provenance",
+    "services.reliability_score",
+    "services.revision_metrics",
+    "services.rpc_guard",
+    "services.runbook",
+    "services.secret_scan",
+    "services.sla_monitor",
+    "services.soak",
+    "services.static_analysis",
+    "services.tx_review",
+    "services.volatility_forecast",
 ]
-
-[tool.ruff.lint]
-select = ["E", "F", "W", "I", "UP", "B"]
-ignore = [
-    "E501",  # line length is enforced by the formatter, not the linter
-]
-
-[tool.ruff.lint.per-file-ignores]
-"scripts/*" = ["E402"]  # CLI scripts set up sys.path before importing services.*
-
-[tool.mypy]
-python_version = "3.12"
-files = ["services", "scripts", "sdk/python"]
-mypy_path = "."
-explicit_package_bases = true
-warn_unused_ignores = true
-warn_redundant_casts = true
-no_implicit_optional = true
-check_untyped_defs = true
-# Baselined: these trees are not fully annotated yet. Tighten per-module as
-# modules are typed; the goal is to remove these overrides.
-[[tool.mypy.overrides]]
-module = ["services.*", "scripts.*", "sdk.python.*"]
-ignore_errors = true
-
-[tool.pytest.ini_options]
-pythonpath = ["."]
-testpaths = ["services", "scripts", "sdk/python"]
