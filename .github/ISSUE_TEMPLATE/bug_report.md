@@ -24,6 +24,10 @@ If the contract panicked, include the error code (e.g., `Error(Contract, #2)`).
 **Additional context**
 Anything else relevant.
 
+If the fix adds or changes on-chain behavior, it needs an ADR and a size/cost
+budget — see
+[CONTRIBUTING: ADR and size/cost budget for new on-chain features](../CONTRIBUTING.md#adr-and-size-cost-budget-for-new-on-chain-features).
+
 ---
 
 ## Integration reports (production consumers)

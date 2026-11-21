@@ -27,11 +27,62 @@
 - [ ] I have updated the README if needed
 - [ ] Events are emitted for state-changing operations
 - [ ] Authorization checks are in place for admin-only functions
+- [ ] WASM size delta, endpoint delta, `DataKey` variants and migration notes sections are filled in
 
 ## Interface changes
 - [ ] Ran `scripts/devx/gen_interface.py` and `scripts/devx/gen_error_registry.py`
 - [ ] Ran `scripts/devx/gen_api_reference.py` (regenerates `docs/api-reference.md`)
 - [ ] Breaking change? Bumped `interface/package.json` and added a guide in `docs/migrations/`
+
+## WASM size delta
+
+<!--
+Pre-filled by the WASM size CI gate. Do not edit the numbers by hand: if the
+gate has not run yet, leave the placeholders and re-run CI. The gate compares
+the `price_oracle.wasm` built from this PR against the same artifact built from
+the merge base on `main` and writes the table below into this section.
+-->
+
+| Artifact | Size (bytes) | Delta vs `main` |
+|----------|--------------|-----------------|
+| `price_oracle.wasm` | `<pre-filled by CI>` | `<pre-filled by CI>` |
+
+- [ ] Size delta reviewed (a positive delta is justified below, or the PR is size-neutral)
+- [ ] Still within the Soroban contract size limit
+
+Justification for a size increase (required if delta > 0):
+
+<!-- e.g. new endpoint, extra validation, larger error enum -->
+
+## Endpoint delta
+
+<!-- List every exported contract function added or removed. Write "none" if the ABI is unchanged. -->
+
+- Added endpoints:
+- Removed endpoints:
+- Changed signatures (name / params / return type):
+
+- [ ] `docs/abi.md` and `docs/abi.json` regenerated (`./scripts/generate-abi.sh`) if the ABI changed
+
+## Storage layout impact
+
+<!-- New or removed `DataKey` variants, and any change to the value type stored under an existing key. -->
+
+- New `DataKey` variants:
+- Removed `DataKey` variants:
+- Changed value types / storage tier (persistent vs temporary) for existing keys:
+
+- [ ] `docs/ARCHITECTURE.md` storage-key table updated if keys changed
+- [ ] No existing on-chain entries are orphaned or misread by this change
+
+## Migration notes
+
+<!-- Required for any storage-layout or interface change that affects deployed state. Write "none" if not applicable. -->
+
+- Affected deployments (testnet / mainnet):
+- Migration steps (script, governance proposal, or manual call sequence):
+- Rollback plan:
+- Migration guide added under `docs/migrations/` (link):
 
 ## Mainnet release freeze
 
