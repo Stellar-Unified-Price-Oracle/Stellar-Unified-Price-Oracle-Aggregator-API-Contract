@@ -1000,22 +1000,8 @@ fn aggregate_asset_mode(
                 );
             }
 
-            // Record gas usage for this aggregation run.
-            let before_cpu = crate::gas_metering::cpu_usage(env);
-            let before_mem = crate::gas_metering::mem_usage(env);
-            // NOTE: the measured delta here only captures the remainder of the
-            // aggregation function after this point; callers (e.g. submit_price)
-            // record end-to-end cost. Still store an aggregate-internal snapshot.
-            let after_cpu = crate::gas_metering::cpu_usage(env);
-            let after_mem = crate::gas_metering::mem_usage(env);
-            let cpu_delta = after_cpu.saturating_sub(before_cpu);
-            let mem_delta = after_mem.saturating_sub(before_mem);
-            crate::gas_metering::write_last_gas(
-                env,
-                soroban_sdk::String::from_str(env, "aggregate"),
-                cpu_delta,
-                mem_delta,
-            );
+            // #875: Gas telemetry is derived from execution events/receipts rather than
+            // writing persistent gas records on every aggregation.
 
             // ── #492 / #493 / #494: post-publication data-quality records ─────────
             // All three read `valid_prices` *after* the robust pre-filter, so the
@@ -1260,29 +1246,12 @@ pub(crate) fn do_aggregate(env: &Env, asset: &Address) {
 
 /// Records a successful submission for source performance bookkeeping.
 ///
-/// Increments both the global and per-source submission counters used by
-/// downstream reporting.
+/// #875: Minimised persistent write footprint. Non-essential counters
+/// (TotalSubmissionCount and SourceSubmissionCount) are derived by indexers
+/// from PriceSubmittedEvent to avoid ledger write-lock contention.
 pub(crate) fn record_successful_submission(env: &Env, source: Address) {
     // Track the submission for heartbeat-reactivation logic (#186).
     crate::sources::record_price_submitted(env, &source, env.ledger().sequence());
-
-    let total_key = DataKey::TotalSubmissionCount;
-    let total: u32 = env.storage().persistent().get(&total_key).unwrap_or(0);
-    env.storage()
-        .persistent()
-        .set(&total_key, &total.saturating_add(1));
-    env.storage()
-        .persistent()
-        .extend_ttl(&total_key, LEDGER_THRESHOLD, LEDGER_BUMP);
-
-    let src_key = DataKey::SourceSubmissionCount(source);
-    let count: u32 = env.storage().persistent().get(&src_key).unwrap_or(0);
-    env.storage()
-        .persistent()
-        .set(&src_key, &count.saturating_add(1));
-    env.storage()
-        .persistent()
-        .extend_ttl(&src_key, LEDGER_THRESHOLD, LEDGER_BUMP);
 }
 
 /// Guards a price submission against an asset whose circuit breaker has
@@ -1981,19 +1950,21 @@ pub fn lastprice(env: &Env, asset: Asset) -> Option<PriceData> {
         Asset::Stellar(a) => a,
         Asset::Other(_) => return None,
     };
-    let reg_key = DataKey::AssetRegistered(addr.clone());
-    if !env.storage().persistent().get(&reg_key).unwrap_or(false) {
-        return None;
-    }
-    let agg_key = DataKey::Aggregate(addr.clone());
+    // #876: Restructure storage access so lastprice makes exactly a single persistent read.
+    // DataKey::Aggregate(addr) exists only if the asset was registered and has a valid aggregate.
+    let agg_key = DataKey::Aggregate(addr);
     let result: AggregatePrice = env.storage().persistent().get(&agg_key)?;
     // #453: v2 migration writes a zero placeholder for unpriced assets; never serve it.
     if result.price <= 0 {
         return None;
     }
-    // #67: use per-asset resolution (falls back to contract-wide).
-    // #821: this window is the staleness bound — a stale aggregate is never served.
-    let resolution = get_asset_resolution(env, addr.clone());
+    // #876: Resolution is read from instance storage rather than persistent storage,
+    // keeping persistent footprint to exactly 1 key.
+    let resolution: u32 = env
+        .storage()
+        .instance()
+        .get(&DataKey::CfgResolution)
+        .unwrap_or(crate::types::DEFAULT_RESOLUTION);
     if resolution > 0 {
         let ledger_time = env.ledger().timestamp();
         if result.timestamp.saturating_add(resolution as u64) < ledger_time {
