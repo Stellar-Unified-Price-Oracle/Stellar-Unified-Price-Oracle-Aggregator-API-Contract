@@ -28,14 +28,16 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - name: Corpus size budget
         run: FUZZ_SKIP_REPLAY=1 ./scripts/fuzz-corpus-gate.sh
 
       # cargo-fuzz needs nightly; rust-toolchain.toml pins 1.91.0, so set an
       # explicit directory override for this job only.
-      - uses: dtolnay/rust-toolchain@nightly
-      - uses: Swatinem/rust-cache@v2
+      - uses: dtolnay/rust-toolchain@6a52aad76a94a5fbc50d567bb5be24419801c1fb # nightly
+        with:
+          toolchain: nightly
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
       - name: Install cargo-fuzz
         run: cargo install cargo-fuzz --locked --version "0.13.2"
       - name: Force nightly for this job
@@ -57,9 +59,11 @@ jobs:
       matrix:
         target: [fuzz_aggregation, fuzz_quickselect, fuzz_aggregation_invariants, fuzz_storage_layer]
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@nightly
-      - uses: Swatinem/rust-cache@v2
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: dtolnay/rust-toolchain@6a52aad76a94a5fbc50d567bb5be24419801c1fb # nightly
+        with:
+          toolchain: nightly
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
       - name: Install cargo-fuzz
         run: cargo install cargo-fuzz --locked --version "0.13.2"
       - name: Force nightly for this job
@@ -79,7 +83,7 @@ jobs:
       # regression seed. `-error_exitcode=1` above makes this step fail too.
       - name: Upload crash artifacts
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: fuzz-crash-${{ matrix.target }}
           path: |
@@ -90,7 +94,7 @@ jobs:
       # minimizes and commits it so a discovered path is never lost.
       - name: Upload refreshed corpus
         if: success()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: fuzz-corpus-${{ matrix.target }}
           path: fuzz/corpus/${{ matrix.target }}/

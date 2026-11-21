@@ -23,8 +23,8 @@ jobs:
     # Proves a deliberately divergent green is caught and rolled back.
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
           python-version: "3.12"
       - run: pip install pytest
@@ -35,8 +35,8 @@ jobs:
     # that its canary asset set is a subset of the previous stage (#606).
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
           python-version: "3.12"
       - run: pip install pytest
@@ -60,9 +60,10 @@ jobs:
       # `make ci-audit`; see docs/secretless-ci.md.
       id-token: write
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@1.91.0
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: dtolnay/rust-toolchain@0e58746831d1ffcee8fcebf0aebabfaf3d5a88be # 1.91.0
         with:
+          toolchain: 1.91.0
           targets: wasm32v1-none
       - name: Install Stellar CLI
         run: |
@@ -121,7 +122,7 @@ jobs:
             "${{ steps.deploy.outputs.green }}" config/canary-assets.txt canary-out
       - name: Retain divergence evidence
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: canary-record-${{ github.run_id }}
           path: canary-out/
@@ -134,7 +135,7 @@ jobs:
     runs-on: ubuntu-latest
     environment: production
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           name: canary-record-${{ github.run_id }}
           path: canary-out
@@ -147,7 +148,7 @@ jobs:
             canary-out/deployment-record.json > canary-out/promotion-record.json
         env:
           GH_TOKEN: ${{ github.token }}
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: promotion-record-${{ github.run_id }}
           path: canary-out/promotion-record.json
