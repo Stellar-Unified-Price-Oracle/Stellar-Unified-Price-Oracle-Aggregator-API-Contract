@@ -1,5 +1,9 @@
+import json
+from io import BytesIO
+
 import pytest
 
+from services.common import events as event_stream
 from services.indexer.explorer import route
 from services.indexer.indexer import GapError, Indexer, median
 
@@ -58,6 +62,24 @@ def test_restart_resumes_from_disk(tmp_path):
     assert idx.cursor == 2
     idx.ingest(stream())  # replay from the start after restart
     assert idx.mismatches() == [] and len(idx.history("XLM")) == 2
+
+
+def test_https_archive_backfills_persistent_store(monkeypatch, tmp_path):
+    payload = "".join(json.dumps(row) + "\n" for row in stream()).encode()
+    calls = []
+
+    def open_archive(url, timeout):
+        calls.append((url, timeout))
+        return BytesIO(payload)
+
+    monkeypatch.setattr(event_stream, "urlopen", open_archive)
+    idx = Indexer(str(tmp_path / "archive.db"))
+    archive = "https://archive.example/events.jsonl"
+
+    assert idx.ingest(archive) == len(stream())
+    assert idx.ingest(archive) == 0
+    assert idx.last_price("XLM")["price"] == 105
+    assert calls == [(archive, 30), (archive, 30)]
 
 
 def test_gap_detected_then_closed():

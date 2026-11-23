@@ -47,6 +47,23 @@ Events are keyed by `(ledger, event_index)`. Re-ingesting anything already
 stored is a no-op, so after a crash simply replay from any earlier point — the
 safest choice is always "from the last cursor minus a few ledgers".
 
+`--db` is a durable SQLite store. To rebuild it from an archive, pass a local
+or HTTPS-hosted JSONL export of the canonical event envelopes as the input.
+An archive must include the complete range from the contract's first ledger;
+include stable `event_index` values so replay keys remain consistent:
+
+```bash
+python3 -m services.indexer.indexer \
+  https://archive.example/oracle-events.jsonl \
+  --db oracle-index.db \
+  --contract-id C...
+```
+
+HTTPS input is streamed with a bounded read timeout; it is not downloaded into
+memory or written to a temporary file. Archive providers that use another
+format (including Parquet) must first export the envelopes described in
+[`event-streaming`](event-streaming/README.md).
+
 ## Memory ceiling and backpressure (#697)
 
 `services/indexer/backpressure.py` streams a sustained event feed into the

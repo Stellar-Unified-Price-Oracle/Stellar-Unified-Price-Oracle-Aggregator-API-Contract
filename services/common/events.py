@@ -11,9 +11,11 @@ export of the `oracle_events` table, or the table itself via Postgres).
 from __future__ import annotations
 
 import json
+from contextlib import closing
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Iterable, Iterator, Optional, Union
+from urllib.request import urlopen
 
 # Topics emitted by contracts/price-oracle/src/events.rs that these services
 # care about (see PriceSubmittedEvent / PriceAggregatedEvent).
@@ -70,16 +72,24 @@ class AggregationEvent:
 
 
 def _iter_raw(source: EventSource) -> Iterator[dict]:
-    """Yields raw envelope dicts from a JSONL file path or an in-memory iterable."""
+    """Yields raw envelope dicts from JSONL, an HTTPS archive, or an iterable."""
     if isinstance(source, (str, Path)):
-        with open(source, "r", encoding="utf-8") as f:
-            for line in f:
-                line = line.strip()
-                if line:
-                    yield json.loads(line)
+        if isinstance(source, str) and source.startswith("https://"):
+            with closing(urlopen(source, timeout=30)) as response:
+                lines = (line.decode("utf-8") for line in response)
+                yield from _iter_jsonl(lines)
+        else:
+            with open(source, "r", encoding="utf-8") as f:
+                yield from _iter_jsonl(f)
     else:
-        for row in source:
-            yield row
+        yield from source
+
+
+def _iter_jsonl(lines: Iterable[str]) -> Iterator[dict]:
+    for line in lines:
+        line = line.strip()
+        if line:
+            yield json.loads(line)
 
 
 def iter_envelopes(source: EventSource, topics: Optional[set] = None) -> Iterator[EventEnvelope]:
