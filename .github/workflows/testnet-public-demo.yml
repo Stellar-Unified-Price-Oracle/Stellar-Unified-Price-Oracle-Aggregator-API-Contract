@@ -1,0 +1,77 @@
+name: Public Testnet Demo
+
+on:
+  schedule:
+    - cron: "0 */6 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: write
+
+concurrency:
+  group: public-testnet-demo
+  cancel-in-progress: false
+
+jobs:
+  deploy-if-reset:
+    if: github.event_name == 'workflow_dispatch' || vars.ORACLE_TESTNET_ASSETS != ''
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@0e58746831d1ffcee8fcebf0aebabfaf3d5a88be # 1.91.0
+        with:
+          toolchain: 1.91.0
+          targets: wasm32v1-none
+      - name: Install Stellar CLI
+        run: |
+          set -euo pipefail
+          version="26.1.0"
+          curl -fsSL \
+            "https://github.com/stellar/stellar-cli/releases/download/v${version}/stellar-cli-${version}-x86_64-unknown-linux-gnu.tar.gz" \
+            | tar -xz -C /usr/local/bin
+          stellar --version
+      - name: Check existing testnet deployment
+        id: existing
+        env:
+          CONTRACT_ID: ${{ vars.ORACLE_TESTNET_CONTRACT_ID }}
+          ADMIN_SECRET: ${{ secrets.TESTNET_ADMIN_SECRET }}
+        run: |
+          set -euo pipefail
+          if [[ -z "$CONTRACT_ID" || -z "$ADMIN_SECRET" ]]; then
+            echo "valid=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          stellar keys add oracle-demo-admin --secret-key "$ADMIN_SECRET" >/dev/null
+          if stellar contract invoke --id "$CONTRACT_ID" --source oracle-demo-admin \
+            --network testnet -- get_admin >/dev/null 2>&1; then
+            echo "valid=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "valid=false" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Build contract
+        if: steps.existing.outputs.valid != 'true'
+        run: make build
+      - name: Deploy and register demo assets
+        id: deploy
+        if: steps.existing.outputs.valid != 'true'
+        env:
+          TESTNET_ADMIN_SECRET: ${{ secrets.TESTNET_ADMIN_SECRET }}
+          TESTNET_SOURCE_1_SECRET: ${{ secrets.TESTNET_SOURCE_1_SECRET }}
+          TESTNET_SOURCE_2_SECRET: ${{ secrets.TESTNET_SOURCE_2_SECRET }}
+          TESTNET_SOURCE_3_SECRET: ${{ secrets.TESTNET_SOURCE_3_SECRET }}
+          ORACLE_TESTNET_ASSETS: ${{ vars.ORACLE_TESTNET_ASSETS }}
+        run: ./scripts/deploy-testnet-demo.sh
+      - name: Publish contract ID for the explorer
+        if: steps.deploy.outputs.contract_id != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CONTRACT_ID: ${{ steps.deploy.outputs.contract_id }}
+        run: gh variable set ORACLE_TESTNET_CONTRACT_ID --body "$CONTRACT_ID"
+      - name: Refresh GitHub Pages explorer
+        if: steps.deploy.outputs.contract_id != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run explorer-pages.yml --ref main

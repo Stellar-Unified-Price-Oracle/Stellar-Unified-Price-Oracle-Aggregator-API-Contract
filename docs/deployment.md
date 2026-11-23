@@ -14,6 +14,28 @@ This document records the mainnet and testnet deployment configuration, contract
 
 > **Instructions:** Replace each `TBD` with the contract ID returned by `soroban contract deploy` after deployment. Record the ledger sequence number at the time of deployment for auditability.
 
+## Automated public testnet demo
+
+`.github/workflows/testnet-public-demo.yml` checks the configured deployment
+every six hours and bootstraps a replacement after a testnet reset. Configure
+these repository settings before enabling the scheduled workflow:
+
+- Actions secrets `TESTNET_ADMIN_SECRET`, `TESTNET_SOURCE_1_SECRET`,
+  `TESTNET_SOURCE_2_SECRET`, and `TESTNET_SOURCE_3_SECRET`. The three source
+  keys must belong to independent testnet accounts.
+- Actions variable `ORACLE_TESTNET_ASSETS`, a JSON array with at least four
+  entries, each containing an `address` and a `symbol`; include `XLM`, `USDC`,
+  `BTC`, and `ETH`. These must be testnet asset contract addresses accepted by
+  `register_asset`.
+
+The workflow provisions testnet XLM through Friendbot, deploys and initializes
+the contract with a three-source quorum, registers sources and assets, then
+updates `ORACLE_TESTNET_CONTRACT_ID` for the Pages explorer. Price-submission
+workers still need to run for those sources; see the
+[price-submission bot](price-submission-bot.md) for feed mapping and scheduling.
+A reset/redeployment restores the contract but does not restore off-chain
+worker processes or establish a 30-day feed history.
+
 ---
 
 ## Admin Addresses
