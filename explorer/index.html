@@ -63,6 +63,18 @@
         </section>
 
         <section class="panel wide">
+          <h2>Live Feed</h2>
+          <label>
+            Asset address
+            <input id="feedAsset" type="text" placeholder="CDS..." />
+          </label>
+          <div class="actions">
+            <button id="loadFeedBtn" class="primary" type="button">Load feed</button>
+          </div>
+          <pre id="feedOutput">Enter an asset address to inspect its latest feed.</pre>
+        </section>
+
+        <section class="panel wide">
           <h2>Response</h2>
           <pre id="responseOutput">{}</pre>
         </section>
@@ -78,6 +90,7 @@
       </main>
     </div>
 
+    <script src="./runtime-config.js"></script>
     <script src="./app.js"></script>
   </body>
 </html>

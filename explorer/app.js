@@ -158,7 +158,14 @@ const dom = {
   callBtn: document.getElementById('callBtn'),
   resetBtn: document.getElementById('resetBtn'),
   errorLookupBtn: document.getElementById('errorLookupBtn'),
+  feedAsset: document.getElementById('feedAsset'),
+  loadFeedBtn: document.getElementById('loadFeedBtn'),
+  feedOutput: document.getElementById('feedOutput'),
 };
+
+const explorerConfig = window.ORACLE_EXPLORER_CONFIG || {};
+dom.rpcUrl.value = explorerConfig.rpcUrl || dom.rpcUrl.value;
+dom.contractId.value = explorerConfig.contractId || dom.contractId.value;
 
 function populateMethods() {
   const options = Object.entries(METHOD_METADATA)
@@ -230,6 +237,72 @@ function serializeForDisplay(value) {
 
 function formatJson(value) {
   return JSON.stringify(serializeForDisplay(value), null, 2);
+}
+
+async function simulateView(server, contract, method, args = []) {
+  const tx = new StellarSdk.TransactionBuilder(new StellarSdk.Account('GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF', '0'), {
+    fee: '100',
+    networkPassphrase: dom.networkPassphrase.value.trim() || StellarSdk.Networks.TESTNET,
+  })
+    .addOperation(contract.call(method, ...args.map((arg) => StellarSdk.nativeToScVal(arg))))
+    .setTimeout(30)
+    .build();
+
+  const sim = await server.simulateTransaction(tx);
+  if (StellarSdk.SorobanRpc.Api.isSimulationError(sim)) {
+    throw new Error(sim.error || 'Simulation error');
+  }
+  return sim.result?.retval ? StellarSdk.scValToNative(sim.result.retval) : undefined;
+}
+
+async function loadLiveFeed() {
+  const contractId = dom.contractId.value.trim();
+  const assetAddress = dom.feedAsset.value.trim();
+  if (!contractId || !assetAddress) {
+    dom.feedOutput.textContent = 'Set a contract ID and asset address first.';
+    return;
+  }
+
+  dom.feedOutput.textContent = 'Loading live feed...';
+  try {
+    const asset = StellarSdk.Address.fromString(assetAddress);
+    const server = new StellarSdk.SorobanRpc.Server(
+      dom.rpcUrl.value.trim() || 'https://soroban-testnet.stellar.org',
+      { allowHttp: true },
+    );
+    const contract = new StellarSdk.Contract(contractId);
+    const [aggregate, sourcePrices, contractPaused, assetPaused] = await Promise.all([
+      simulateView(server, contract, 'get_price', [asset, 300]),
+      simulateView(server, contract, 'get_all_prices', [asset]),
+      simulateView(server, contract, 'is_paused'),
+      simulateView(server, contract, 'is_asset_paused', [asset]),
+    ]);
+    const timestamp = aggregate ? Number(aggregate.timestamp) : null;
+    const ageSeconds = timestamp === null ? null : Math.max(0, Math.floor(Date.now() / 1000 - timestamp));
+    const sources = (sourcePrices || []).map((entry) => ({
+      source: String(entry.source),
+      price: String(entry.price),
+      timestamp: Number(entry.timestamp),
+      age_seconds: Math.max(0, Math.floor(Date.now() / 1000 - Number(entry.timestamp))),
+    }));
+
+    dom.feedOutput.textContent = formatJson({
+      asset: assetAddress,
+      aggregate: aggregate ? {
+        price: String(aggregate.price),
+        timestamp,
+        age_seconds: ageSeconds,
+        freshness: ageSeconds <= 300 ? 'fresh' : 'stale',
+        source_count: Number(aggregate.num_sources),
+      } : null,
+      contributing_sources: sources,
+      paused: { contract: Boolean(contractPaused), asset: Boolean(assetPaused) },
+    });
+  } catch (error) {
+    dom.feedOutput.textContent = formatJson({
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
 }
 
 function errorLookup(code) {
@@ -339,6 +412,7 @@ dom.methodSelect.addEventListener('change', renderArgs);
 dom.modeSelect.addEventListener('change', renderArgs);
 dom.errorLookupBtn.addEventListener('click', () => errorLookup(dom.errorCodeInput.value));
 dom.callBtn.addEventListener('click', callContract);
+dom.loadFeedBtn.addEventListener('click', loadLiveFeed);
 dom.resetBtn.addEventListener('click', () => {
   dom.responseOutput.textContent = '{}';
   dom.errorLookupOutput.textContent = 'Enter an error code';
