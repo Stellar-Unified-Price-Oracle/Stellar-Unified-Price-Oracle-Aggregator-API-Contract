@@ -14,6 +14,11 @@ dependencies = []
 [project.optional-dependencies]
 # Only the services that ship an HTTP server need third-party packages.
 servers = ["aiohttp>=3.9"]
+telemetry = [
+    "opentelemetry-api>=1.26,<2",
+    "opentelemetry-sdk>=1.26,<2",
+    "opentelemetry-exporter-otlp-proto-http>=1.26,<2",
+]
 
 [project.scripts]
 oracle-ops = "services.cli:main"

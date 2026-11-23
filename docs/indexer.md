@@ -94,6 +94,24 @@ report = IngestPump(idx, max_buffered_events=1_000, max_buffered_bytes=1 << 20,
   ledger before batching. A ledger split across two batches would otherwise
   reuse indices, and its second half would be skipped as a replay.
 
+## Distributed tracing (#867)
+
+The Node RPC indexer creates spans for event polling and each decoded event.
+The event span records the contract, ledger round, and asset when available;
+its W3C `traceparent` is included with the emitted row. The Python indexer
+continues that trace when the envelope adapter carries `traceparent` through.
+Set `OTEL_EXPORTER_OTLP_ENDPOINT` on both processes to export spans:
+
+```bash
+docker compose -f compose.observability.yml up -d
+pip install '.[telemetry]'
+OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318/v1/traces \
+  python3 -m services.indexer.indexer events.jsonl --db oracle-index.db
+```
+
+Jaeger is available at http://localhost:16686. Without the environment
+variable, telemetry dependencies are not imported and indexing is unchanged.
+
 `services/indexer/test/test_backpressure.py` replays a sustained stream against
 a slowed store. It checks the event and byte ceilings, flat Python memory as the
 stream grows six-fold, and a store crash mid-stream followed by a resume that
