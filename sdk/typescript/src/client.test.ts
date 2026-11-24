@@ -281,6 +281,15 @@ describe('PriceOracleClient - TypeScript SDK', () => {
 
       expect(median).toBe(120n);
     });
+
+    it('should convert raw price to decimal and map error codes (#873)', async () => {
+      const { toDecimal, mapErrorCode } = await import('./client');
+      expect(toDecimal(150_000_000n, 8)).toBe(1.5);
+      const err = mapErrorCode(0);
+      expect(err.detail.name).toBe("NotAuthorized");
+      const err7 = mapErrorCode(7);
+      expect(err7.detail.name).toBe("InvalidPrice");
+    });
   });
 
   describe('Generated Type Bindings', () => {

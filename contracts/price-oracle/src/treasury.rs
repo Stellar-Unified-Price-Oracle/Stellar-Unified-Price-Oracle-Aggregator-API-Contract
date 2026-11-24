@@ -96,32 +96,32 @@ pub enum TreasuryError {
 
 fn read_balance(env: &Env) -> i128 {
     env.storage()
-        .instance()
+        .persistent()
         .get(&TreasuryKey::Balance)
         .unwrap_or(0)
 }
 
 fn write_balance(env: &Env, value: i128) {
-    env.storage().instance().set(&TreasuryKey::Balance, &value);
+    env.storage().persistent().set(&TreasuryKey::Balance, &value);
 }
 
 fn read_category_budget(env: &Env, category: BudgetCategory) -> i128 {
     env.storage()
-        .instance()
+        .persistent()
         .get(&TreasuryKey::CategoryBudget(category.as_symbol()))
         .unwrap_or(0)
 }
 
 fn read_category_spent(env: &Env, category: BudgetCategory) -> i128 {
     env.storage()
-        .instance()
+        .persistent()
         .get(&TreasuryKey::CategorySpent(category.as_symbol()))
         .unwrap_or(0)
 }
 
 fn write_category_spent(env: &Env, category: BudgetCategory, value: i128) {
     env.storage()
-        .instance()
+        .persistent()
         .set(&TreasuryKey::CategorySpent(category.as_symbol()), &value);
 }
 
@@ -130,7 +130,7 @@ fn write_category_spent(env: &Env, category: BudgetCategory, value: i128) {
 /// The caller is responsible for authenticating `admin` before invoking.
 pub fn set_category_budget(env: &Env, category: BudgetCategory, budget: i128) {
     env.storage()
-        .instance()
+        .persistent()
         .set(&TreasuryKey::CategoryBudget(category.as_symbol()), &budget);
 }
 
@@ -143,21 +143,21 @@ pub fn deposit(env: &Env, amount: i128) {
 fn append_audit(env: &Env, record: SpendRecord) {
     let mut log: Vec<SpendRecord> = env
         .storage()
-        .instance()
+        .persistent()
         .get(&TreasuryKey::AuditLog)
         .unwrap_or(Vec::new(env));
     log.push_back(record);
-    env.storage().instance().set(&TreasuryKey::AuditLog, &log);
+    env.storage().persistent().set(&TreasuryKey::AuditLog, &log);
 }
 
 fn next_audit_id(env: &Env) -> u64 {
     let id: u64 = env
         .storage()
-        .instance()
+        .persistent()
         .get(&TreasuryKey::NextAuditId)
         .unwrap_or(0);
     env.storage()
-        .instance()
+        .persistent()
         .set(&TreasuryKey::NextAuditId, &(id + 1));
     id
 }
@@ -236,7 +236,7 @@ fn evaluate_spend(env: &Env, request: &SpendRequest) -> SpendOutcome {
 /// Return the full audit log of spend attempts.
 pub fn audit_log(env: &Env) -> Vec<SpendRecord> {
     env.storage()
-        .instance()
+        .persistent()
         .get(&TreasuryKey::AuditLog)
         .unwrap_or(Vec::new(env))
 }

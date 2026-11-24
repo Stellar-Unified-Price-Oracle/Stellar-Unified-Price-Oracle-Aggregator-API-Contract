@@ -225,6 +225,31 @@ class TestOracleClientIntegration(unittest.TestCase):
         self.assertTrue(hasattr(client, "_invoke"))
         self.assertTrue(hasattr(client, "_view"))
 
+    def test_consumer_helpers(self):
+        from oracle_sdk.client import to_decimal, map_error_code, OracleError
+        # Decimal scaling helper (#873)
+        self.assertAlmostEqual(to_decimal(150_000_000, 8), 1.5)
+
+        # Typed error mapping helper (#873)
+        err = map_error_code(0)
+        self.assertIsInstance(err, OracleError)
+        self.assertEqual(err.code, 0)
+        self.assertEqual(err.name, "NotAuthorized")
+
+        err2 = map_error_code(7)
+        self.assertEqual(err2.name, "InvalidPrice")
+
+    @patch("oracle_sdk.client.SorobanServer")
+    def test_get_fresh_price_helper(self, mock_server):
+        client = OracleClient(self.config)
+        client.get_price = Mock(return_value=PriceEntry(price=100, timestamp=1000))
+
+        with patch("time.time", return_value=1050):
+            self.assertIsNotNone(client.get_fresh_price("EURUSD", 100))
+
+        with patch("time.time", return_value=1200):
+            self.assertIsNone(client.get_fresh_price("EURUSD", 100))
+
 
 if __name__ == "__main__":
     unittest.main()
