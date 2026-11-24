@@ -573,6 +573,13 @@ mod attack_regression_tests;
 #[allow(dead_code, unused_imports)]
 mod wasm_binary_size_tests;
 
+// #823 — Core suites (SEP-40 conformance + attack-regression pins) run against
+// the compiled release WASM, not only the native build. Gated behind the
+// `wasm-conformance` feature because it needs a pre-built artifact.
+// See docs/wasm-conformance.md.
+#[cfg(all(test, feature = "wasm-conformance"))]
+mod wasm_conformance_tests;
+
 #[cfg(test)]
 #[allow(dead_code, unused_imports)]
 mod issues_491_492_493_494_tests;
