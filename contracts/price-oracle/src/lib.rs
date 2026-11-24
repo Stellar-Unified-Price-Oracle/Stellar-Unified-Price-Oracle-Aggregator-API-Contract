@@ -1,11 +1,4 @@
 #![no_std]
-// The reputation/staking (#171), correlation (#172), tiered whitelisting (#173), and
-// alert-subscription (#174) modules compile and are fully implemented, but a previous
-// botched merge dropped their `#[contractimpl]` wiring in this file, so none of their
-// public functions are reachable from the deployed contract yet. Silencing dead_code
-// here until that wiring lands, rather than deleting working, tested implementations.
-#![allow(dead_code)]
-#![allow(unused_imports)]
 // soroban-sdk 26 deprecates `Events::publish` in favour of the `#[contractevent]`
 // macro. Migrating all 24 publish call-sites is a larger refactor; allow the
 // deprecation (including `String::from_slice`) until that migration lands.
@@ -24,393 +17,578 @@
 #[macro_use]
 extern crate std;
 
+#[allow(dead_code, unused_imports)]
 mod adaptive_quorum;
+#[allow(dead_code, unused_imports)]
 mod admin;
+#[allow(dead_code, unused_imports)]
 mod admin_op_limits;
+#[allow(dead_code, unused_imports)]
 mod alert_severity;
+#[allow(dead_code, unused_imports)]
 mod alerting;
+#[allow(dead_code, unused_imports)]
 mod alerts;
+#[allow(dead_code, unused_imports)]
 mod amm;
+// #859 — Aquarius / Phoenix Soroban AMM price-source adapters.
+#[allow(dead_code, unused_imports)]
+mod amm_adapters;
+#[allow(dead_code, unused_imports)]
 mod asset_inactivity;
+#[allow(dead_code, unused_imports)]
 mod assets;
+#[allow(dead_code, unused_imports)]
 mod auto_renewal;
+#[allow(dead_code, unused_imports)]
 mod basket;
+#[allow(dead_code, unused_imports)]
 mod feature_flags;
 // #480 — normative median definition (used by tests and docs).
+#[allow(dead_code, unused_imports)]
 mod breaker;
+#[allow(dead_code, unused_imports)]
 mod consensus_rounds;
+#[allow(dead_code, unused_imports)]
 mod constant_time;
+#[allow(dead_code, unused_imports)]
 mod derived_feeds;
-#[allow(dead_code)]
+#[allow(dead_code, unused_imports)]
 mod median_determinism;
+#[allow(dead_code, unused_imports)]
 pub mod param_registry;
+#[allow(dead_code, unused_imports)]
 pub mod proposal_impact;
+#[allow(dead_code, unused_imports)]
 mod storage_tier;
+#[allow(dead_code, unused_imports)]
 pub mod transparency_report;
+#[allow(dead_code, unused_imports)]
 pub mod treasury_budget;
 // The core module is always compiled (it has no Env deps).
 // When the `fuzz` feature is enabled it is also re-exported so that the
 // fuzz crate can call `price_oracle::core_pricing::*` directly.
 #[cfg(feature = "fuzz")]
+#[allow(dead_code, unused_imports)]
 pub mod core_pricing;
 #[cfg(not(feature = "fuzz"))]
+#[allow(dead_code, unused_imports)]
 pub(crate) mod core_pricing;
 // The fuzz harness differentially tests the SDK-Vec aggregation wrappers
 // against the pure core, so expose storage under the same feature.
+#[allow(dead_code, unused_imports)]
 mod audit_log;
+#[allow(dead_code, unused_imports)]
 mod batch_storage;
-#[allow(dead_code)]
+#[allow(dead_code, unused_imports)]
 mod blue_green;
+#[allow(dead_code, unused_imports)]
 mod config_history;
+#[allow(dead_code, unused_imports)]
 mod contribution_quality;
+#[allow(dead_code, unused_imports)]
 mod correlation;
+#[allow(dead_code, unused_imports)]
 mod coverage;
+#[allow(dead_code, unused_imports)]
 mod cross_reference;
+#[allow(dead_code, unused_imports)]
 mod dead_man;
+#[allow(dead_code, unused_imports)]
 mod deadline_rebate;
+#[allow(dead_code, unused_imports)]
 mod degradation;
+#[allow(dead_code, unused_imports)]
 mod dex;
+#[allow(dead_code, unused_imports)]
 mod drift;
+#[allow(dead_code, unused_imports)]
 mod emergency_pause;
+#[allow(dead_code, unused_imports)]
 mod errors;
 #[cfg(feature = "fuzz")]
+#[allow(dead_code, unused_imports)]
 pub mod storage;
 #[cfg(not(feature = "fuzz"))]
+#[allow(dead_code, unused_imports)]
 pub(crate) mod storage;
 // #223 — Price freeze mechanism for market emergencies (wired in from disk).
+#[allow(dead_code, unused_imports)]
 mod event_indexing;
+#[allow(dead_code, unused_imports)]
 mod events;
+#[allow(dead_code, unused_imports)]
 mod exotic_pricing;
+#[allow(dead_code, unused_imports)]
 mod explanation;
+#[allow(dead_code, unused_imports)]
 mod export_history;
+#[allow(dead_code, unused_imports)]
 mod fee_market;
+#[allow(dead_code, unused_imports)]
 mod finality;
-#[allow(dead_code)]
+#[allow(dead_code, unused_imports)]
 mod flash_swing;
+#[allow(dead_code, unused_imports)]
 mod freeze;
+#[allow(dead_code, unused_imports)]
 mod gas_metering;
+#[allow(dead_code, unused_imports)]
 mod health;
 // #506 — canonicalization & validation for every string/bytes parameter.
+#[allow(dead_code, unused_imports)]
 mod history;
+#[allow(dead_code, unused_imports)]
 mod incremental_aggregate;
+#[allow(dead_code, unused_imports)]
 mod input_validation;
+#[allow(dead_code, unused_imports)]
 mod metadata;
+#[allow(dead_code, unused_imports)]
 mod migration;
+#[allow(dead_code, unused_imports)]
 mod multisig;
+#[allow(dead_code, unused_imports)]
 mod notifications;
+#[allow(dead_code, unused_imports)]
 mod operations;
+#[allow(dead_code, unused_imports)]
 mod optimistic;
+#[allow(dead_code, unused_imports)]
 mod pause;
+#[allow(dead_code, unused_imports)]
 mod per_asset_decimals;
+#[allow(dead_code, unused_imports)]
 mod price_callback;
+#[allow(dead_code, unused_imports)]
 mod price_proof;
+#[allow(dead_code, unused_imports)]
 mod prices;
+#[allow(dead_code, unused_imports)]
 mod pruning;
+#[allow(dead_code, unused_imports)]
 mod rate_limiting;
+#[allow(dead_code, unused_imports)]
 mod rbac;
+#[allow(dead_code, unused_imports)]
 mod recovery;
+#[allow(dead_code, unused_imports)]
 mod reentrancy;
 // #235 — Price challenge / dispute mechanism (wired in from disk).
+#[allow(dead_code, unused_imports)]
 mod challenger;
+#[allow(dead_code, unused_imports)]
 mod relayer;
+#[allow(dead_code, unused_imports)]
 mod relayer_bonds;
+#[allow(dead_code, unused_imports)]
 mod relayer_dashboard;
+#[allow(dead_code, unused_imports)]
 mod reputation;
+#[allow(dead_code, unused_imports)]
 mod rotation;
+#[allow(dead_code, unused_imports)]
 mod scheduling;
+#[allow(dead_code, unused_imports)]
 mod signed_submission;
+#[allow(dead_code, unused_imports)]
 mod simulate_batch;
+#[allow(dead_code, unused_imports)]
 mod source_deviation;
+#[allow(dead_code, unused_imports)]
 mod source_diversity;
+#[allow(dead_code, unused_imports)]
 mod sources;
+#[allow(dead_code, unused_imports)]
 mod state_channel;
+#[allow(dead_code, unused_imports)]
 mod state_introspection;
+#[allow(dead_code, unused_imports)]
 mod submission_deadline;
+#[allow(dead_code, unused_imports)]
 mod subscription;
 // #304 — Consumer contract authorization (wired in from disk).
+#[allow(dead_code, unused_imports)]
 mod confidence_band;
+#[allow(dead_code, unused_imports)]
 mod consumer_auth;
 // #305 — Price update subscription registry (wired in from disk).
+#[allow(dead_code, unused_imports)]
 mod influence_cap;
+#[allow(dead_code, unused_imports)]
 mod price_update_subscription;
+#[allow(dead_code, unused_imports)]
 mod timelock;
+#[allow(dead_code, unused_imports)]
 mod triggers;
+#[allow(dead_code, unused_imports)]
 mod ttl_batching;
+#[allow(dead_code, unused_imports)]
 mod types;
+#[allow(dead_code, unused_imports)]
 mod vdf_sampler;
+#[allow(dead_code, unused_imports)]
 mod verification;
+#[allow(dead_code, unused_imports)]
 mod whitelisting;
+#[allow(dead_code, unused_imports)]
 mod wormhole_relay;
+#[allow(dead_code, unused_imports)]
 mod zk_verify;
 
 // ── Data-quality modules (#491 outlier filter, #492 latency analytics,
 // #493 provenance, #494 disagreement index) ──
+#[allow(dead_code, unused_imports)]
 mod disagreement;
+#[allow(dead_code, unused_imports)]
 mod latency;
+#[allow(dead_code, unused_imports)]
 mod outlier_filter;
+#[allow(dead_code, unused_imports)]
 mod provenance;
 
 // =============================================================================
 // #283 — Stellar DID Integration
 // =============================================================================
+#[allow(dead_code, unused_imports)]
 mod did;
 
 // =============================================================================
 // #282 — Bridge Oracle for Non-Stellar Assets
 // =============================================================================
+#[allow(dead_code, unused_imports)]
 mod bridge_oracle;
 
 // =============================================================================
 // #285 — Ecosystem Metadata Registration
 // =============================================================================
+#[allow(dead_code, unused_imports)]
 mod ecosystem_metadata;
 
 // =============================================================================
 // #284 — Event Streaming to External Databases
 // =============================================================================
+#[allow(dead_code, unused_imports)]
 mod event_streaming;
 
 // =============================================================================
 // Canonical Cross-Chain Asset Registry
 // =============================================================================
+#[allow(dead_code, unused_imports)]
 mod asset_registry;
 
 // =============================================================================
 // Axelar GMP Integration
 // =============================================================================
+#[allow(dead_code, unused_imports)]
 mod axelar_gmp;
 
 // =============================================================================
 // LayerZero Integration
 // =============================================================================
+#[allow(dead_code, unused_imports)]
 mod layerzero;
 
 // Shared wire format / submission plumbing used by the bridge integrations above.
+#[allow(dead_code, unused_imports)]
 mod bridge_common;
 
 // #226 — Cross-chain reference-price verification. Existed on disk but was never
 // wired into the crate (same class of dropped-wiring bug called out at the top of
 // this file); wired in now because `bridge_common` extends it for Axelar/LayerZero.
+#[allow(dead_code, unused_imports)]
 mod cross_chain_verify;
 
 // #182 — Cross-chain relay (validator-set / event-proof verification, wired in
 // from disk).
+#[allow(dead_code, unused_imports)]
 mod cross_chain_relay;
 
 // Cross-contract governance delegation (narrow, allow-listed governor powers).
+#[allow(dead_code, unused_imports)]
 mod external_governance;
 
 // Per-asset aggregation policy and freshness-weighted median.
+#[allow(dead_code, unused_imports)]
 mod freshness_weight;
+#[allow(dead_code, unused_imports)]
 mod policy;
 
 // #483: recompute the aggregate when the source set changes.
+#[allow(dead_code, unused_imports)]
 mod recompute;
 // #484: two-tier (soft clamp / hard reject) price bounds.
+#[allow(dead_code, unused_imports)]
 mod price_bounds;
 // #485: quorum-within-window deferred publication for illiquid assets.
+#[allow(dead_code, unused_imports)]
 mod deferral;
+#[allow(dead_code, unused_imports)]
 mod staged_rollout;
 // #486: authorized price corrections with an immutable revision chain.
+#[allow(dead_code, unused_imports)]
 mod corrections;
 // #398: pre-aggregation data-quality pipeline.
+#[allow(dead_code, unused_imports)]
 mod dq_pipeline;
 // #712: historical query completeness watermark.
+#[allow(dead_code, unused_imports)]
 mod watermark;
 // #713: consumer-visible uncertainty and confidence semantics.
+#[allow(dead_code, unused_imports)]
 mod spread_indicator;
 // #714: data retention and correction trace policy.
+#[allow(dead_code, unused_imports)]
 mod retention_policy;
 // #400: blackout / quiet-period windows.
+#[allow(dead_code, unused_imports)]
 mod blackout;
 // #401: cross-source comparison dashboard data.
+#[allow(dead_code, unused_imports)]
 mod source_comparison;
 // #402: source onboarding / offboarding lifecycle.
 #[cfg(test)]
+#[allow(dead_code, unused_imports)]
 mod issues_398_400_401_402_tests;
+#[allow(dead_code, unused_imports)]
 mod source_lifecycle;
 
 // #487: closed set of asset risk tiers that supply aggregation parameters.
+#[allow(dead_code, unused_imports)]
 mod risk_tier;
 // #488: cross-asset consistency relations with reject/flag/quarantine actions.
+#[allow(dead_code, unused_imports)]
 mod sanity_lattice;
 // #489: freshness-aware quorum that excludes expired submissions.
+#[allow(dead_code, unused_imports)]
 mod freshness_quorum;
 // #490: per-source rolling accuracy scorecards against a leave-one-out reference.
+#[allow(dead_code, unused_imports)]
 mod scorecards;
 
 #[cfg(test)]
+#[allow(dead_code, unused_imports)]
 mod circuit_breaker_tests;
 
 #[cfg(test)]
+#[allow(dead_code, unused_imports)]
 mod cross_module_seam_tests;
 
 #[cfg(test)]
+#[allow(dead_code, unused_imports)]
 mod case_study_tests;
 
 #[cfg(test)]
+#[allow(dead_code, unused_imports)]
 mod timelock_tests;
 
 #[cfg(test)]
+#[allow(dead_code, unused_imports)]
 mod config_bounds_tests;
 
 #[cfg(test)]
+#[allow(dead_code, unused_imports)]
 mod cross_ref_tests;
 
 #[cfg(test)]
+#[allow(dead_code, unused_imports)]
 mod override_tests;
 
 #[cfg(test)]
+#[allow(dead_code, unused_imports)]
 mod timing_shape_tests;
 
 #[cfg(test)]
+#[allow(dead_code, unused_imports)]
 mod multisig_rotation_tests;
 
 #[cfg(test)]
+#[allow(dead_code, unused_imports)]
 mod dead_man_switch_tests;
 
 #[cfg(test)]
+#[allow(dead_code, unused_imports)]
 mod capability_matrix_tests;
 
 #[cfg(test)]
+#[allow(dead_code, unused_imports)]
 mod prop_tests;
 
 // #505 — independent reference implementation + differential suite against it.
 #[cfg(test)]
+#[allow(dead_code, unused_imports)]
 mod reference_diff_tests;
 #[cfg(test)]
+#[allow(dead_code, unused_imports)]
 mod reference_pricing;
 
 // =============================================================================
 // #370 — Governance Analytics Dashboard Tests
 // =============================================================================
 #[cfg(test)]
+#[allow(dead_code, unused_imports)]
 mod governance_analytics_tests;
 
 // =============================================================================
 // #372 — Timelock Queue Viewer Tests
 // =============================================================================
 #[cfg(test)]
+#[allow(dead_code, unused_imports)]
 mod timelock_queue_viewer_tests;
 
 // =============================================================================
 // #371 — Proposal Simulation Tests
 // =============================================================================
 #[cfg(test)]
+#[allow(dead_code, unused_imports)]
 mod proposal_simulation_tests;
 
 // =============================================================================
 // #373 — Treasury Management Tests
 // =============================================================================
 #[cfg(test)]
+#[allow(dead_code, unused_imports)]
 mod treasury_management_tests;
 
 #[cfg(test)]
+#[allow(dead_code, unused_imports)]
 mod twap_tests;
 
 #[cfg(test)]
+#[allow(dead_code, unused_imports)]
 mod optimistic_oracle_tests;
 
 #[cfg(test)]
+#[allow(dead_code, unused_imports)]
 mod string_boundary_tests;
 
 // #504 — the endpoint fuzz-surface manifest must match lib.rs.
 #[cfg(test)]
+#[allow(dead_code, unused_imports)]
 mod fuzz_coverage_tests;
 
 // #506 — canonicalization & validation audit (completeness, boundary, adversarial).
 #[cfg(test)]
+#[allow(dead_code, unused_imports)]
 mod input_validation_tests;
 
 #[cfg(test)]
+#[allow(dead_code, unused_imports)]
 mod challenger_tests;
 
 #[cfg(test)]
+#[allow(dead_code, unused_imports)]
 mod challenger_griefing_tests;
 
 #[cfg(test)]
+#[allow(dead_code, unused_imports)]
 mod optimistic_liveness_tests;
 
 #[cfg(test)]
+#[allow(dead_code, unused_imports)]
 mod fixed_point_tests;
 
 #[cfg(test)]
+#[allow(dead_code, unused_imports)]
 mod channel_vdf_tests;
 
 #[cfg(test)]
+#[allow(dead_code, unused_imports)]
 mod audit_log_tests;
 
 #[cfg(test)]
+#[allow(dead_code, unused_imports)]
 mod rbac_tests;
 
 #[cfg(test)]
+#[allow(dead_code, unused_imports)]
 mod emergency_pause_tests;
 
 #[cfg(test)]
+#[allow(dead_code, unused_imports)]
 mod config_history_tests;
 
 #[cfg(test)]
+#[allow(dead_code, unused_imports)]
 mod state_introspection_tests;
 
 #[cfg(test)]
+#[allow(dead_code, unused_imports)]
 mod dex_tests;
 
 #[cfg(test)]
+#[allow(dead_code, unused_imports)]
 mod amm_integration_tests;
 
 #[cfg(test)]
+#[allow(dead_code, unused_imports)]
 mod l2_sequencer_oracle_tests;
 
 #[cfg(test)]
+#[allow(dead_code, unused_imports)]
 mod oracle_sync_tests;
 
 #[cfg(test)]
+#[allow(dead_code, unused_imports)]
 mod early_submission_discount_tests;
 
 #[cfg(test)]
+#[allow(dead_code, unused_imports)]
 mod upgrade_simulation_tests;
 
 #[cfg(test)]
+#[allow(dead_code, unused_imports)]
 mod sdk_v27_compatibility_tests;
 
 #[cfg(test)]
+#[allow(dead_code, unused_imports)]
 mod cross_contract_governance_tests;
 
 #[cfg(test)]
+#[allow(dead_code, unused_imports)]
 mod delta_encoding_storage_tests;
 
 // #513 — Model-based state-machine tests: an independently written model of the
 // aggregate lifecycle, driven by deterministic random traces with shrinking.
 // See docs/security/state-machine-model.md.
 #[cfg(test)]
+#[allow(dead_code, unused_imports)]
 mod model_state_machine_tests;
 
 // #512 — Bounded formal proofs (Kani) for the aggregation math. Compiled only
 // under `cfg(kani)`, so it costs nothing in the contract or test builds. Run
 // with `make kani-gate`. See docs/security/formal-verification.md.
 #[cfg(kani)]
+#[allow(dead_code, unused_imports)]
 mod kani_proofs;
 
 // #511 — Attack-regression corpus. Runs as its own CI job (make attack-gate)
 // so the security corpus has an explicit time budget separate from the rest of
 // the suite. See docs/security/attack-regression-corpus.md.
 #[cfg(test)]
+#[allow(dead_code, unused_imports)]
 mod attack_regression_tests;
 
 #[cfg(test)]
+#[allow(dead_code, unused_imports)]
 mod wasm_binary_size_tests;
 
+// #823 — Core suites (SEP-40 conformance + attack-regression pins) run against
+// the compiled release WASM, not only the native build. Gated behind the
+// `wasm-conformance` feature because it needs a pre-built artifact.
+// See docs/wasm-conformance.md.
+#[cfg(all(test, feature = "wasm-conformance"))]
+mod wasm_conformance_tests;
+
 #[cfg(test)]
+#[allow(dead_code, unused_imports)]
 mod issues_491_492_493_494_tests;
 
 // #689 — Upgrade authorization is bound to the approved release artifact: a
 // substituted WASM hash is refused before any mutation. See
 // docs/blue-green-upgrade.md.
-//
-// #824 — These tests embed the prebuilt release WASM with `include_bytes!`, so
-// they only compile when the `wasm-artifact-tests` feature is enabled (after
-// `make build`). Plain `cargo test` on a clean checkout skips them.
-#[cfg(all(test, feature = "wasm-artifact-tests"))]
+#[cfg(test)]
+#[allow(dead_code, unused_imports)]
 mod upgrade_artifact_binding_tests;
 
 pub use types::{
@@ -3594,6 +3772,16 @@ impl PriceOracleContract {
     ///
     /// Returns `None` for non-Stellar asset variants, unregistered assets, or when
     /// the current aggregate is older than the configured resolution window.
+    ///
+    /// # Staleness (#821)
+    ///
+    /// `lastprice` never serves stale data: once the newest aggregate is older than
+    /// the effective staleness window it returns `None` instead of the last known
+    /// price. The window is the per-asset resolution override set with
+    /// [`set_asset_resolution`](Self::set_asset_resolution) when non-zero, otherwise
+    /// the contract-wide [`resolution`](Self::resolution). A window of `0` disables
+    /// the check. The effective window is readable via
+    /// [`get_asset_resolution`](Self::get_asset_resolution).
     ///
     /// # Arguments
     ///
@@ -7707,135 +7895,185 @@ impl PriceOracleContract {
 }
 
 #[cfg(test)]
+#[allow(dead_code, unused_imports)]
 mod storage_tier_tests;
 
 #[cfg(test)]
+#[allow(dead_code, unused_imports)]
 mod auto_renewal_tests;
 
 #[cfg(test)]
+#[allow(dead_code, unused_imports)]
 mod consensus_rounds_tests;
 
 #[cfg(test)]
+#[allow(dead_code, unused_imports)]
 mod derived_feeds_tests;
 
 #[cfg(test)]
+#[allow(dead_code, unused_imports)]
 mod median_determinism_tests;
 
 #[cfg(test)]
+#[allow(dead_code, unused_imports)]
 mod basket_tests;
 
 #[cfg(test)]
+#[allow(dead_code, unused_imports)]
 mod breaker_tests;
 
 #[cfg(test)]
+#[allow(dead_code, unused_imports)]
 mod adaptive_quorum_tests;
 
 #[cfg(test)]
+#[allow(dead_code, unused_imports)]
 mod test_helpers;
 
 #[cfg(test)]
+#[allow(dead_code, unused_imports)]
 mod test;
 
 #[cfg(test)]
+#[allow(dead_code, unused_imports)]
 mod relayer_tests;
 
 #[cfg(test)]
+#[allow(dead_code, unused_imports)]
 mod asset_registry_gas_tests;
 
 #[cfg(test)]
+#[allow(dead_code, unused_imports)]
 mod heartbeat_tests;
 
 #[cfg(test)]
+#[allow(dead_code, unused_imports)]
 mod commit_reveal_tests;
 
 #[cfg(test)]
+#[allow(dead_code, unused_imports)]
 mod bft_tests;
 #[cfg(test)]
+#[allow(dead_code, unused_imports)]
 mod gas_budget_tests;
 #[cfg(test)]
+#[allow(dead_code, unused_imports)]
 mod load_v2_tests;
 
 #[cfg(test)]
+#[allow(dead_code, unused_imports)]
 mod finality_tests;
 
 #[cfg(test)]
+#[allow(dead_code, unused_imports)]
 mod chaos_tests;
 
 #[cfg(test)]
+#[allow(dead_code, unused_imports)]
 mod gas_amplification_tests;
 
 #[cfg(test)]
+#[allow(dead_code, unused_imports)]
 mod correlation_feature_tests;
 
 #[cfg(test)]
+#[allow(dead_code, unused_imports)]
 mod did_bridge_metadata_tests;
 
 #[cfg(test)]
+#[allow(dead_code, unused_imports)]
 mod issue_307_alert_rules_tests;
 
 #[cfg(test)]
+#[allow(dead_code, unused_imports)]
 mod issue_308_health_monitoring_tests;
 
 #[cfg(test)]
+#[allow(dead_code, unused_imports)]
 mod issue_309_rate_limiting_tests;
 
 #[cfg(test)]
+#[allow(dead_code, unused_imports)]
 mod issue_310_fee_market_tests;
 
 #[cfg(test)]
+#[allow(dead_code, unused_imports)]
 mod issue_378_lazy_loading_tests;
 
 #[cfg(test)]
+#[allow(dead_code, unused_imports)]
 mod issue_379_batch_writes_tests;
 
 #[cfg(test)]
+#[allow(dead_code, unused_imports)]
 mod issue_380_memory_allocation_tests;
 
 #[cfg(test)]
+#[allow(dead_code, unused_imports)]
 mod issue_381_adaptive_ttl_tests;
 
 #[cfg(test)]
+#[allow(dead_code, unused_imports)]
 mod source_diversity_tests;
 
 #[cfg(test)]
+#[allow(dead_code, unused_imports)]
 mod reputation_gaming_tests;
 
 #[cfg(test)]
+#[allow(dead_code, unused_imports)]
 mod event_integrity_tests;
 
 #[cfg(test)]
+#[allow(dead_code, unused_imports)]
 mod invariant_harness_tests;
 
 #[cfg(test)]
+#[allow(dead_code, unused_imports)]
 mod issues_483_486_tests;
 
 #[cfg(test)]
+#[allow(dead_code, unused_imports)]
 mod issues_487_490_tests;
 
 #[cfg(test)]
+#[allow(dead_code, unused_imports)]
 mod source_count_benchmark_tests;
 
 #[cfg(test)]
+#[allow(dead_code, unused_imports)]
 mod endpoint_budget_tests;
 
 #[cfg(test)]
+#[allow(dead_code, unused_imports)]
 mod history_retention_benchmark_tests;
 
 #[cfg(test)]
+#[allow(dead_code, unused_imports)]
 mod ledger_burst_capacity_tests;
 
 #[cfg(test)]
+#[allow(dead_code, unused_imports)]
 mod asset_lifecycle_tests;
 
 // #515-#518 verification suites (their `mod` lines were lost in a merge).
 #[cfg(test)]
+#[allow(dead_code, unused_imports)]
 mod event_schema_snapshot;
 #[cfg(test)]
+#[allow(dead_code, unused_imports)]
 mod interleaving_determinism_tests;
 #[cfg(test)]
+#[allow(dead_code, unused_imports)]
 mod sep40_conformance_tests;
 #[cfg(test)]
+#[allow(dead_code, unused_imports)]
 mod version_matrix_tests;
 
 #[cfg(test)]
+#[allow(dead_code, unused_imports)]
 mod key_rotation_rehearsal_tests;
+
+#[cfg(test)]
+#[allow(dead_code, unused_imports)]
+mod lastprice_footprint_tests;

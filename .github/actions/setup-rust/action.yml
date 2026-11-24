@@ -1,0 +1,64 @@
+name: Setup Rust + wasm target + Stellar CLI
+description: >-
+  Single source of truth for the Rust toolchain, the wasm32v1-none target and
+  the Stellar CLI used by every workflow (#838). Replaces the copy-pasted
+  dtolnay/rust-toolchain + Swatinem/rust-cache + stellar-cli download blocks.
+
+inputs:
+  toolchain:
+    description: >-
+      Toolchain to install. Defaults to the version pinned in
+      rust-toolchain.toml; pass "nightly" for cargo-fuzz jobs.
+    required: false
+    default: "1.91.0"
+  targets:
+    description: Comma-separated rustup targets to add.
+    required: false
+    default: "wasm32v1-none"
+  components:
+    description: Comma-separated rustup components to add.
+    required: false
+    default: "rustfmt, clippy"
+  cache:
+    description: Whether to restore the Swatinem/rust-cache dependency cache.
+    required: false
+    default: "true"
+  stellar-cli:
+    description: >-
+      Stellar CLI version to install, or "none" to skip. Installed from the
+      prebuilt release tarball (no cargo build).
+    required: false
+    default: "none"
+
+runs:
+  using: composite
+  steps:
+    - name: Install Rust toolchain
+      uses: dtolnay/rust-toolchain@master
+      with:
+        toolchain: ${{ inputs.toolchain }}
+        targets: ${{ inputs.targets }}
+        components: ${{ inputs.components }}
+
+    # rust-toolchain.toml pins 1.91.0 and would otherwise override a nightly
+    # install; a directory override is stronger than the toolchain file.
+    - name: Force requested toolchain for this job
+      if: inputs.toolchain == 'nightly'
+      shell: bash
+      run: rustup override set nightly
+
+    - name: Cache dependencies
+      if: inputs.cache == 'true'
+      uses: Swatinem/rust-cache@v2
+
+    - name: Install Stellar CLI
+      if: inputs.stellar-cli != 'none'
+      shell: bash
+      env:
+        STELLAR_CLI_VERSION: ${{ inputs.stellar-cli }}
+      run: |
+        set -euo pipefail
+        curl -fsSL \
+          "https://github.com/stellar/stellar-cli/releases/download/v${STELLAR_CLI_VERSION}/stellar-cli-${STELLAR_CLI_VERSION}-x86_64-unknown-linux-gnu.tar.gz" \
+          | tar -xz -C /usr/local/bin
+        stellar --version

@@ -210,6 +210,18 @@ pub fn triangulate(env: &Env, p_base: i128, p_pivot: i128, p_quote: i128, scale:
     mul_div(env, r1, p_pivot, p_quote)
 }
 
+/// Deviation of a scaled price from its reference fiat price, in basis points.
+///
+/// `deviation_bps = (p - reference) * 10_000 / reference`, truncated toward
+/// zero, so a price *below* the reference yields a negative deviation. A
+/// `reference` of `0` panics with [`ErrorCode::DerivedFeedZeroDenominator`].
+pub fn depeg_deviation_bps(env: &Env, p: i128, reference: i128) -> i128 {
+    if reference == 0 {
+        panic_with_error!(env, ErrorCode::DerivedFeedZeroDenominator);
+    }
+    mul_div(env, p - reference, 10_000, reference)
+}
+
 /// Enforces the derivation-graph depth bound.
 ///
 /// [`MAX_DERIVATION_DEPTH`] is 1 because inputs are always base prices, so this
@@ -299,8 +311,7 @@ pub fn get_ratio_feed(env: &Env, base: Address, quote: Address) -> DerivedFeed {
     compute_derived_feed(env, DerivedFeedKind::Ratio, base, quote, None)
 }
 
-/// Returns the triangulated cross-rate `base / pivot * pivot / quote`.
-pub fn get_triangulated_feed(
+/// Returns the triangulated cross-rate `base / pivot * pivot / quote`.pub fn get_triangulated_feed(
     env: &Env,
     base: Address,
     pivot: Address,

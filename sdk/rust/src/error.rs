@@ -55,4 +55,19 @@ impl fmt::Display for SdkError {
 
 impl std::error::Error for SdkError {}
 
+/// Map integer error code from contract to typed SdkError (#873).
+pub fn map_error_code(code: u32) -> SdkError {
+    match code {
+        0 => SdkError::Unauthorized,
+        1 => SdkError::Other("AlreadyInitialized".to_string()),
+        2 => SdkError::AssetNotRegistered,
+        3 => SdkError::Other("AssetAlreadyRegistered".to_string()),
+        4 => SdkError::Other("SourceAlreadyExists".to_string()),
+        6 => SdkError::Other("SourceNotActive".to_string()),
+        7 => SdkError::PriceOutOfBounds,
+        9 => SdkError::InsufficientSources,
+        _ => SdkError::Other(format!("Contract error #{}", code)),
+    }
+}
+
 pub type Result<T> = std::result::Result<T, SdkError>;

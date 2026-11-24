@@ -134,8 +134,30 @@ committed inputs.
 If step 4 fails, the new dependency embeds something environment-dependent.
 That is a blocker, not a nuisance: stop and find it before shipping.
 
-## 6. Out of scope
+## 6. The release pipeline
 
-Third-party reproducible-build attestation services (in-toto, SLSA provenance
-signing). This document stops at "two clean builds agree, and the digest is
-published".
+Tagging `vX.Y.Z` runs `.github/workflows/release.yml`, which:
+
+1. checks the tag against `interface/package.json`'s version,
+2. builds the WASM inside `docker/Dockerfile.canonical-build` (the same
+   containerized environment described above),
+3. runs `stellar contract optimize` on the artifact,
+4. computes its SHA-256,
+5. attests build provenance with `actions/attest-build-provenance`, and
+6. publishes a GitHub Release carrying `price_oracle.wasm`,
+   `price_oracle.wasm.sha256`, `interface.json`, `versions.json` and
+   `CHANGELOG.md`.
+
+Verification of a downloaded release:
+
+```bash
+sha256sum -c price_oracle.wasm.sha256
+gh attestation verify price_oracle.wasm --repo <owner>/<repo>
+```
+
+## 7. Out of scope
+
+Third-party reproducible-build attestation services beyond the GitHub build
+provenance attestation published by the release pipeline. This document stops
+at "two clean builds agree, the digest is published, and the released artifact
+carries a verifiable provenance attestation".

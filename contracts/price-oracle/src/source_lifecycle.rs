@@ -171,6 +171,29 @@ pub fn on_key_rotated(env: &Env, old: &Address, new: &Address) {
     storage.set(&LcKey::IdentityOwner(record.identity), new);
 }
 
+/// #818 — lifecycle state-machine invariant.
+///
+/// A source may only contribute to an aggregate while it is *active*: still in
+/// the registry (`SrcActive`), not suspended by demerits, and not inactive by
+/// heartbeat. Every aggregation pass filters its candidate set through this
+/// predicate, so a source that was removed, suspended or offboarded during an
+/// open round can never influence a later aggregate — including the aggregate
+/// recomputed in the same transaction as the removal.
+///
+/// Key rotation is modelled as a transition that carries the lifecycle record
+/// ([`on_key_rotated`]) but never the submission: the new address starts with
+/// no stored submission, so a rotation mid-round cannot resurrect the old
+/// key's value.
+pub fn is_contributing(env: &Env, source: &Address) -> bool {
+    if !crate::sources::is_source(env, source.clone()) {
+        return false;
+    }
+    if crate::sources::is_source_suspended(env, source.clone()) {
+        return false;
+    }
+    !crate::sources::is_source_inactive(env, source.clone())
+}
+
 /// Cheap global guard read once per aggregation round.
 pub fn any_probation(env: &Env) -> bool {
     if !crate::feature_flags::on(env, crate::feature_flags::SOURCE_LIFECYCLE) {

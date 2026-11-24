@@ -3,7 +3,17 @@
   "image": "mcr.microsoft.com/devcontainers/base:ubuntu-24.04",
   "features": {
     "ghcr.io/devcontainers/features/python:1": { "version": "3.12" },
-    "ghcr.io/devcontainers/features/node:1": { "version": "20" }
+    "ghcr.io/devcontainers/features/node:1": { "version": "20" },
+    "ghcr.io/devcontainers/features/rust:1": {
+      "version": "1.91.0",
+      "profile": "minimal",
+      "targets": "wasm32v1-none",
+      "components": "rustfmt,clippy"
+    }
   },
-  "postCreateCommand": "./scripts/dev-setup.sh --no-test"
+  "remoteEnv": {
+    "RUSTUP_TOOLCHAIN": "1.91.0"
+  },
+  "postCreateCommand": "./scripts/dev-setup.sh --no-test && ./scripts/devcontainer-tools.sh",
+  "hostRequirements": { "cpus": 4, "memory": "8gb", "storage": "32gb" }
 }

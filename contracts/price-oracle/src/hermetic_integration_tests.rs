@@ -291,6 +291,126 @@ fn aggregation_method_changes_the_published_value() {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Lending-protocol consumer (#831)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// A minimal lending pool, modelled on Blend's oracle interface.
+///
+/// It is deployed as a real contract and reads the aggregator through the
+/// SEP-40 entrypoints, exactly as a pool would on-chain. Collateral is valued
+/// with the published price; a missing, stale or paused price makes the pool
+/// fail closed (zero collateral value) rather than lend against a bad number.
+#[contract]
+pub struct MockLendingPool;
+
+#[contractimpl]
+impl MockLendingPool {
+    /// Collateral value of `amount` units of `asset`, in USD terms.
+    ///
+    /// Returns `0` when the aggregator has no usable price: unregistered,
+    /// never published, stale beyond `max_age`, or paused.
+    pub fn collateral_value(
+        env: Env,
+        oracle: Address,
+        asset: Address,
+        amount: i128,
+        max_age: u64,
+    ) -> i128 {
+        let client = PriceOracleContractClient::new(&env, &oracle);
+        if client.is_asset_paused(&asset) {
+            return 0;
+        }
+        match client.get_price(&asset, &max_age) {
+            Some(p) if p.price > 0 => p.price * amount,
+            _ => 0,
+        }
+    }
+
+    /// Whether the pool would accept `asset` as collateral right now.
+    pub fn accepts_collateral(env: Env, oracle: Address, asset: Address, max_age: u64) -> bool {
+        let client = PriceOracleContractClient::new(&env, &oracle);
+        !client.is_asset_paused(&asset) && client.get_price(&asset, &max_age).is_some()
+    }
+}
+
+fn deploy_pool(e: &Env) -> Address {
+    e.register(MockLendingPool, ())
+}
+
+/// A lending pool reads a live price, follows it as it changes, and refuses to
+/// value collateral once the price is stale or the asset is paused.
+#[test]
+fn lending_pool_consumes_prices_including_stale_and_paused() {
+    let e = Env::default();
+    let mut h = HermeticHarness::deploy(&e);
+    h.add_sources(2).add_assets(1);
+    let pool = deploy_pool(&e);
+    let oracle = h.address();
+    let asset = h.asset(0);
+    let pool_client = MockLendingPoolClient::new(&e, &pool);
+
+    // No price yet: the pool must not value the collateral.
+    assert_eq!(
+        pool_client.collateral_value(&oracle, &asset, &10i128, &0u64),
+        0,
+        "a pool must not value collateral before a price is published"
+    );
+    assert!(!pool_client.accepts_collateral(&oracle, &asset, &0u64));
+
+    // Publish 2_000_000.
+    h.at_ledger(50);
+    h.submit(0, 0, 2_000_000);
+    h.submit(1, 0, 2_000_000);
+
+    assert_eq!(
+        pool_client.collateral_value(&oracle, &asset, &10i128, &0u64),
+        20_000_000,
+        "the pool must value collateral at the published price"
+    );
+    assert!(pool_client.accepts_collateral(&oracle, &asset, &0u64));
+
+    // Drive a price change: the pool must observe the new value.
+    h.at_ledger(51);
+    h.submit(0, 0, 3_000_000);
+    h.submit(1, 0, 3_000_000);
+    assert_eq!(
+        pool_client.collateral_value(&oracle, &asset, &10i128, &0u64),
+        30_000_000,
+        "the pool must follow price changes"
+    );
+
+    // Stale: with a tight `max_age`, the same price is no longer usable.
+    h.at_ledger(60);
+    assert_eq!(
+        pool_client.collateral_value(&oracle, &asset, &10i128, &1u64),
+        0,
+        "a stale price must not be used to value collateral"
+    );
+    assert!(!pool_client.accepts_collateral(&oracle, &asset, &1u64));
+
+    // Paused: even a fresh price is refused while the asset is paused.
+    h.at_ledger(61);
+    h.submit(0, 0, 3_000_000);
+    h.submit(1, 0, 3_000_000);
+    h.client().pause_asset(&asset);
+    assert!(h.client().is_asset_paused(&asset));
+    assert_eq!(
+        pool_client.collateral_value(&oracle, &asset, &10i128, &0u64),
+        0,
+        "a paused asset must not be valued as collateral"
+    );
+    assert!(!pool_client.accepts_collateral(&oracle, &asset, &0u64));
+
+    // Unpausing restores normal service.
+    h.client().unpause_asset(&asset);
+    assert_eq!(
+        pool_client.collateral_value(&oracle, &asset, &10i128, &0u64),
+        30_000_000,
+        "unpausing must restore collateral valuation"
+    );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Determinism
 // ─────────────────────────────────────────────────────────────────────────────
 
