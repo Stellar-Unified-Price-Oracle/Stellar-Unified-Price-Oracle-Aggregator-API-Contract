@@ -84,24 +84,40 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        template: [web, indexer]
+        template: [web, indexer, typescript-dapp]
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 20
       - working-directory: examples/${{ matrix.template }}
-        run: npm ci && npm test
+        run: |
+          if [ -f package-lock.json ]; then npm ci; else npm install --no-audit --no-fund; fi
+          npm test
 
-  python-bot:
+  python-quickstarts:
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        dir: [examples/python-bot, examples/python-script]
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
           python-version: "3.12"
-      - working-directory: examples/python-bot
+      - working-directory: ${{ matrix.dir }}
         run: pip install -r requirements.txt && pytest -q
+
+  rust-consumer-quickstart:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32v1-none
+      - name: Test Rust consumer quickstart
+        run: cargo test --manifest-path examples/rust-consumer/Cargo.toml
 
   # #841: one job for all Python — ruff, mypy and pytest over services/,
   # scripts/ and sdk/python. Config lives in the root pyproject.toml; the
