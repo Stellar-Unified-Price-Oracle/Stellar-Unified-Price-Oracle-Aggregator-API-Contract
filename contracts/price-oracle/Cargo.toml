@@ -24,6 +24,10 @@ testutils = []
 # Exposes the deterministic consumer integration fixture library (#631) so
 # downstream example consumers can build against the shared fixtures.
 fixtures = []
+# #824 — gates the native unit tests that embed the prebuilt release WASM via
+# `include_bytes!`. Off by default so a clean checkout can run `cargo test`
+# without a prior `make build`; enable after building the artifact.
+wasm-artifact-tests = []
 
 [dependencies]
 soroban-sdk = { version = "=26.0.1" }

@@ -24,6 +24,10 @@ jobs:
       - uses: taiki-e/install-action@75a7c0f87bd666af3cdb75c5b9e9d03ab6044e6f # v2
         with:
           tool: cargo-mutants
+      # #827: the mutant test command is the nextest fast tier.
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: nextest
       # Tests embed the built WASM (include_bytes!); without it the unmutated
       # baseline does not compile and nothing is tested. mutants.toml sets
       # copy_target so the build reaches cargo-mutants' scratch copy.
@@ -65,6 +69,10 @@ jobs:
       - uses: taiki-e/install-action@75a7c0f87bd666af3cdb75c5b9e9d03ab6044e6f # v2
         with:
           tool: cargo-mutants
+      # #827: the mutant test command is the nextest fast tier.
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: nextest
       # Tests embed the built WASM (include_bytes!); without it the unmutated
       # baseline does not compile and nothing is tested. mutants.toml sets
       # copy_target so the build reaches cargo-mutants' scratch copy.

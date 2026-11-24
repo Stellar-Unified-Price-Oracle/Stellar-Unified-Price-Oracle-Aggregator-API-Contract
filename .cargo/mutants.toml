@@ -7,7 +7,12 @@
 #   general: everything else under contracts/price-oracle/src.
 
 test_package = ["price-oracle"]
-additional_cargo_test_args = ["--lib"]
+# #827: run mutants against the nextest fast tier instead of `cargo test --lib`.
+# The fast tier is the subset of the suite that must stay cheap enough to run
+# once per mutant; `scripts/mutation-fast-tier.sh` resolves it and falls back to
+# `cargo test --lib` when nextest is not installed.
+test_tool = "custom"
+test_command = "bash scripts/mutation-fast-tier.sh"
 timeout_multiplier = 3.0
 
 # Test-only code is never shipped, so mutating it proves nothing.
