@@ -1,0 +1,6 @@
+# Dev tooling for the single Python CI job (#841).
+# Regenerate the hashed lockfile with:
+#   pip-compile --generate-hashes requirements-dev.in -o requirements-dev.txt
+pytest==8.3.3
+ruff==0.6.9
+mypy==1.11.2

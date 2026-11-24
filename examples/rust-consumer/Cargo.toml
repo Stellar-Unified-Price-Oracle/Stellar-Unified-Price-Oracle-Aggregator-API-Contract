@@ -1,0 +1,17 @@
+[package]
+name = "quickstart-rust-consumer"
+version = "0.1.0"
+edition = "2021"
+description = "Five-minute consumer contract quickstart reading from Stellar SEP-40 price oracle"
+license = "MIT"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+doctest = false
+
+[dependencies]
+soroban-sdk = { version = "=26.0.1" }
+sep40-guard = { path = "../../crates/sep40-guard" }
+
+[dev-dependencies]
+soroban-sdk = { version = "=26.0.1", features = ["testutils"] }

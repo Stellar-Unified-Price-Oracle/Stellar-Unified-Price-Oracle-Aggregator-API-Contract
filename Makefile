@@ -41,7 +41,7 @@
         check-pins reproducible-build security rpc-gate indexer-trust \
         tx-review-gate redaction-gate trust-boundary source-count-bench \
         endpoint-budgets retention-bench burst-capacity malware-scan \
-        attack-gate fuzz-gate kani-gate
+        attack-gate fuzz-gate kani-gate size-gate
 
 all: build test
 
@@ -167,6 +167,19 @@ attack-gate:
 # #514 fuzz corpus size check + replay.
 fuzz-gate:
 	./scripts/fuzz-corpus-gate.sh
+
+# #836 WASM size gate: the release artifact must stay under the declared cap.
+# SIZE_BUDGET_BYTES overrides the default (65536 bytes).
+size-gate: build
+	@set -eu; \
+	wasm=target/wasm32v1-none/release/price_oracle.wasm; \
+	budget=$${SIZE_BUDGET_BYTES:-65536}; \
+	size=$$(wc -c < "$$wasm"); \
+	echo "wasm size: $$size bytes (budget $$budget)"; \
+	if [ "$$size" -gt "$$budget" ]; then \
+		echo "::error::$$wasm is $$size bytes, over the $$budget byte budget"; \
+		exit 1; \
+	fi
 
 # #512 bounded proofs; needs the Kani verifier (KANI_BUDGET_SECONDS, default 1800).
 kani-gate:

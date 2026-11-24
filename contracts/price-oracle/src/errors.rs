@@ -337,6 +337,12 @@ pub enum ErrorCode {
     /// The supplied diversity thresholds are invalid (e.g. max HHI > 10000).
     InvalidDiversityThresholds = 155,
 
+    // ── 185–186: #861 classic asset ↔ SAC mapping ───────────────────────────
+    /// The declared classic `code:issuer` does not derive the supplied SAC address.
+    SacAddressMismatch = 185,
+    /// The supplied classic asset code is empty or longer than 12 characters.
+    InvalidAssetCode = 186,
+
     // ── 156–158: #484 bound tiers, #485 deferral ────────────────────────────
     /// The soft/hard bound ordering supplied for an asset is invalid (#484).
     InvalidBoundOrdering = 185,

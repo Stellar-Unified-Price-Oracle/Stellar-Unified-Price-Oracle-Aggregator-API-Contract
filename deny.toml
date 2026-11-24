@@ -17,7 +17,26 @@ unmaintained = "workspace"
 yanked = "warn"
 # Acknowledged advisories that we have evaluated and accept.
 # Format: { id = "RUSTSEC-YYYY-NNNN", reason = "..." }
-ignore = []
+#
+# Every entry MUST carry a dated justification and an expiry date. An ignore
+# that reaches its expiry is a release blocker: either the patched dependency
+# is adopted and the entry is deleted, or the entry is renewed with a fresh
+# dated justification recorded in the PR that renews it.
+ignore = [
+    # RUSTSEC-2026-0387 — tracked by issue #815.
+    # Added: 2026-11-25. Expires: 2027-02-25 (90 days).
+    # Affects: soroban-env-host (transitive via soroban-sdk 22.0.0, the SDK
+    # version pinned in [workspace.metadata.compatibility]).
+    # Why ignored: no patched soroban-sdk / soroban-env-host release is
+    # available yet; the advisory is not reachable from the contract entry
+    # points we deploy, and the workspace cannot upgrade without leaving the
+    # supported protocol 22 / SDK 22.0.0 matrix.
+    # Removal: delete this entry as soon as a patched soroban-sdk (and the
+    # matching soroban-env-host) is published and the compatibility matrix is
+    # bumped. Do not renew past the expiry without a recorded maintainer
+    # decision on issue #815.
+    { id = "RUSTSEC-2026-0387", reason = "soroban-env-host via soroban-sdk 22.0.0; no patched release yet. Added 2026-11-25, expires 2027-02-25. Tracked in #815." },
+]
 
 # ---------------------------------------------------------------------------
 # License checking
