@@ -433,6 +433,10 @@ pub enum DataKey {
     DexPool(Address, Address),
     /// Soroswap pool configuration for an asset pair.
     SoroswapPool(Address, Address),
+    /// Aquarius AMM adapter pool for an asset (#859).
+    AquariusPool(Address),
+    /// Phoenix AMM adapter pool for an asset (#859).
+    PhoenixPool(Address),
 
     /// Challenge entries keyed by ID (#235).
     Challenge(u32),
@@ -551,6 +555,8 @@ pub enum DataKey {
     SourceRotationLedger(Address),
     /// Verification metadata for a source (#226 support).
     SourceVerification(Address),
+    /// SEP-1 `home_domain` declared by a source (#862).
+    SourceHomeDomain(Address),
     /// Whether cross-chain price verification is globally enabled (#226).
     CrossChainVerificationEnabled,
     /// Maximum allowed deviation (bps) between this chain and a reference chain (#226).
@@ -1334,6 +1340,23 @@ pub struct SourceVerification {
     pub verified: bool,
     pub verification_method: String,
     pub verifier: Address,
+}
+
+/// SEP-1 (stellar.toml) domain attestation state for a source (#862).
+///
+/// The `home_domain` is declared by the source itself; the `verified` flag is
+/// set by the admin after an off-chain verifier confirmed that
+/// `https://<home_domain>/.well-known/stellar.toml` lists the source account
+/// under `ACCOUNTS` (or `[[VALIDATORS]]`).
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct SourceDomainAttestation {
+    /// Declared SEP-1 home domain (e.g. `example.com`), no scheme or path.
+    pub home_domain: String,
+    /// Whether the off-chain verifier confirmed the domain lists the source.
+    pub verified: bool,
+    /// Ledger sequence at which the attestation was last updated.
+    pub updated_ledger: u32,
 }
 
 /// Represents a priced asset, following the SEP-40 oracle interface convention.
