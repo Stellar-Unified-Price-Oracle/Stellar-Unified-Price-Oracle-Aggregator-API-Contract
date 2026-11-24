@@ -2,6 +2,13 @@
 
 This directory contains a [Grafana](https://grafana.com/) dashboard template for monitoring the on-chain activity of the price oracle contract.
 
+For local distributed traces, run
+`docker compose -f compose.observability.yml up -d` from the repository root.
+The stack exposes Jaeger at `http://localhost:16686` and receives OTLP/HTTP traces at
+`http://localhost:4318/v1/traces`. Set `OTEL_EXPORTER_OTLP_ENDPOINT` to that
+trace endpoint on the Node event indexer and Python indexer; the Node
+`traceparent` must be preserved by any adapter between the services.
+
 ## Files
 
 | File | Description |

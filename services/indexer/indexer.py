@@ -34,6 +34,7 @@ import sqlite3
 from typing import Iterable, Optional
 
 from services.common.events import EventSource, _iter_raw
+from services.observability import configure_telemetry, start_span
 from services.indexer.authenticity import (
     AuthenticityCode,
     EventAuthenticityError,
@@ -158,7 +159,17 @@ class Indexer:
             if idx is None:
                 idx = counters.get(ledger, 0)
             counters[ledger] = (idx if isinstance(idx, int) else 0) + 1
-            added += self._ingest_one(row, idx if isinstance(idx, int) else 0, allow_gaps)
+            data = row.get("data", {}) if isinstance(row, dict) else {}
+            with start_span(
+                "oracle.indexer.event",
+                {
+                    "oracle.contract.id": str(row.get("contract_id", "")),
+                    "oracle.round": int(ledger) if isinstance(ledger, int) else -1,
+                    "oracle.asset": str(data.get("asset", "")) if isinstance(data, dict) else "",
+                },
+                row.get("traceparent") if isinstance(row, dict) else None,
+            ):
+                added += self._ingest_one(row, idx if isinstance(idx, int) else 0, allow_gaps)
         self.db.commit()
         return added
 
@@ -420,22 +431,27 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
     args = p.parse_args(argv)
     policy = TrustPolicy(expected_contract_id=args.contract_id)
     idx = Indexer(args.db, policy=policy)
+    provider = configure_telemetry("oracle-indexer")
     try:
-        n = idx.ingest(args.events, allow_gaps=args.allow_gaps)
-    except EventAuthenticityError as error:
-        print(f"REJECTED {error.to_dict()}")
-        return 2
-    except GapError as error:
-        print(f"GAP {error}; cursor={idx.cursor}; trusted={idx.trusted_ledger}")
-        return 2
-    print(
-        f"indexed {n} new events; contract={idx.contract_id}; cursor={idx.cursor}; "
-        f"trusted={idx.trusted_ledger}; gaps={idx.gaps()}; reorgs={len(idx.reorgs())}"
-    )
-    bad = idx.mismatches()
-    for m in bad:
-        print(f"MISMATCH {m}")
-    return 1 if bad else 0
+        try:
+            n = idx.ingest(args.events, allow_gaps=args.allow_gaps)
+        except EventAuthenticityError as error:
+            print(f"REJECTED {error.to_dict()}")
+            return 2
+        except GapError as error:
+            print(f"GAP {error}; cursor={idx.cursor}; trusted={idx.trusted_ledger}")
+            return 2
+        print(
+            f"indexed {n} new events; contract={idx.contract_id}; cursor={idx.cursor}; "
+            f"trusted={idx.trusted_ledger}; gaps={idx.gaps()}; reorgs={len(idx.reorgs())}"
+        )
+        bad = idx.mismatches()
+        for m in bad:
+            print(f"MISMATCH {m}")
+        return 1 if bad else 0
+    finally:
+        if provider is not None:
+            provider.shutdown()
 
 
 if __name__ == "__main__":

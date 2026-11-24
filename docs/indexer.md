@@ -47,6 +47,23 @@ Events are keyed by `(ledger, event_index)`. Re-ingesting anything already
 stored is a no-op, so after a crash simply replay from any earlier point — the
 safest choice is always "from the last cursor minus a few ledgers".
 
+`--db` is a durable SQLite store. To rebuild it from an archive, pass a local
+or HTTPS-hosted JSONL export of the canonical event envelopes as the input.
+An archive must include the complete range from the contract's first ledger;
+include stable `event_index` values so replay keys remain consistent:
+
+```bash
+python3 -m services.indexer.indexer \
+  https://archive.example/oracle-events.jsonl \
+  --db oracle-index.db \
+  --contract-id C...
+```
+
+HTTPS input is streamed with a bounded read timeout; it is not downloaded into
+memory or written to a temporary file. Archive providers that use another
+format (including Parquet) must first export the envelopes described in
+[`event-streaming`](event-streaming/README.md).
+
 ## Memory ceiling and backpressure (#697)
 
 `services/indexer/backpressure.py` streams a sustained event feed into the
@@ -76,6 +93,24 @@ report = IngestPump(idx, max_buffered_events=1_000, max_buffered_bytes=1 << 20,
 * **Stable indices.** Events without an `event_index` are numbered within their
   ledger before batching. A ledger split across two batches would otherwise
   reuse indices, and its second half would be skipped as a replay.
+
+## Distributed tracing (#867)
+
+The Node RPC indexer creates spans for event polling and each decoded event.
+The event span records the contract, ledger round, and asset when available;
+its W3C `traceparent` is included with the emitted row. The Python indexer
+continues that trace when the envelope adapter carries `traceparent` through.
+Set `OTEL_EXPORTER_OTLP_ENDPOINT` on both processes to export spans:
+
+```bash
+docker compose -f compose.observability.yml up -d
+pip install '.[telemetry]'
+OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318/v1/traces \
+  python3 -m services.indexer.indexer events.jsonl --db oracle-index.db
+```
+
+Jaeger is available at http://localhost:16686. Without the environment
+variable, telemetry dependencies are not imported and indexing is unchanged.
 
 `services/indexer/test/test_backpressure.py` replays a sustained stream against
 a slowed store. It checks the event and byte ceilings, flat Python memory as the
