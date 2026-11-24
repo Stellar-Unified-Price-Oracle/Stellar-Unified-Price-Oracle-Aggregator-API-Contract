@@ -11,10 +11,25 @@ pub struct PriceOracleClient {
     // and contract reference
 }
 
+/// Convert integer scaled price to decimal float (#873).
+pub fn to_decimal(price: i128, decimals: u32) -> f64 {
+    price as f64 / 10f64.powi(decimals as i32)
+}
+
 impl PriceOracleClient {
     /// Create a new client
     pub fn new() -> Self {
         PriceOracleClient {}
+    }
+
+    /// Get fresh price for an asset within max_age_sec (#873).
+    pub fn get_fresh_price(&self, asset: &str, max_age_sec: u64, current_ts: u64) -> Result<Option<Price>> {
+        let price = self.get_price(asset)?;
+        if current_ts.saturating_sub(price.timestamp) <= max_age_sec {
+            Ok(Some(price))
+        } else {
+            Ok(None)
+        }
     }
 
     /// Get current price for an asset

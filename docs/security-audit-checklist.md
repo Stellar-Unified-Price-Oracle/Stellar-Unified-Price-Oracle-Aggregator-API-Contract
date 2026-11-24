@@ -275,5 +275,5 @@ Before scheduling the audit engagement, confirm:
 - [ ] All 76+ tests pass with zero warnings (`cargo test -p price-oracle --lib`)
 - [ ] Clippy passes with zero warnings (`cargo clippy -p price-oracle -- -D warnings`)
 - [ ] Contract WASM is built in release mode and hash is recorded
-- [ ] Audit scope is defined (contract source only, or including indexer/monitoring infrastructure)
+- [ ] Audit scope is defined (contract source only, or including indexer/monitoring infrastructure) — see [`docs/security/external-audit-scope.md`](security/external-audit-scope.md)
 - [ ] Known limitations and intentional design decisions are documented for the auditors

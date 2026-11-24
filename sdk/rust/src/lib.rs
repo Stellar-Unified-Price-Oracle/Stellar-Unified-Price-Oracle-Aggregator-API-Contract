@@ -8,8 +8,8 @@ pub mod client;
 pub mod error;
 pub mod types;
 
-pub use client::PriceOracleClient;
-pub use error::{ErrorCode, SdkError};
+pub use client::{to_decimal, PriceOracleClient};
+pub use error::{map_error_code, ErrorCode, SdkError};
 pub use types::*;
 
 #[cfg(test)]

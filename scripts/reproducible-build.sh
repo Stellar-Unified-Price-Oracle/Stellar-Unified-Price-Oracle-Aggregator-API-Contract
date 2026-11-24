@@ -97,4 +97,8 @@ fi
 echo "==> reproducible: $HASH_A"
 echo "    digests written to $OUT_DIR/"
 
+# Keep the verified artifact next to its digests so the SEP-55 build
+# verification bundle (#834) can publish the exact bytes that were hashed.
+cp "$WORK_DIR/a/wasm32v1-none/release/price_oracle.wasm" "$OUT_DIR/price_oracle.wasm"
+
 [ "$KEEP" -eq 1 ] || rm -rf "$WORK_DIR"

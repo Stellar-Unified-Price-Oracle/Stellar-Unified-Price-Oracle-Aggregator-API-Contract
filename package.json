@@ -7,7 +7,7 @@
     "test:security": "cargo nextest run -p price-oracle --lib --profile security",
     "test:slow": "cargo nextest run -p price-oracle --lib --profile slow",
     "lint:contract": "cargo clippy -p price-oracle -- -D warnings && cargo fmt --manifest-path contracts/price-oracle/Cargo.toml -- --check",
-    "prepush": "npm run build:contract && npm run test:fast",
+    "prepush": "npm run lint:contract && cargo nextest run -p price-oracle --profile fast",
     "prepare": "husky"
   },
   "devDependencies": {

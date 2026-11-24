@@ -1,0 +1,53 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "oracle-ops"
+version = "0.1.0"
+description = "Operator toolkit for the Stellar Unified Price Oracle: one install, one CLI, all off-chain operator tools."
+readme = "docs/operator-toolkit.md"
+requires-python = ">=3.10"
+license = { text = "Apache-2.0" }
+dependencies = []
+
+[project.optional-dependencies]
+# Only the services that ship an HTTP server need third-party packages.
+servers = ["aiohttp>=3.9"]
+
+[project.scripts]
+oracle-ops = "services.cli:main"
+
+[tool.setuptools]
+packages = [
+    "services",
+    "services.common",
+    "services.access_review",
+    "services.admin_recovery",
+    "services.anomaly_detection",
+    "services.audit_findings",
+    "services.backup",
+    "services.canary",
+    "services.capacity",
+    "services.ci_policy",
+    "services.dependency_advisory",
+    "services.disclosure",
+    "services.dr_gameday",
+    "services.evidence_redaction",
+    "services.incident_review",
+    "services.indexer",
+    "services.ingest_failover",
+    "services.operator_dashboard",
+    "services.pinned_deps",
+    "services.provenance",
+    "services.reliability_score",
+    "services.revision_metrics",
+    "services.rpc_guard",
+    "services.runbook",
+    "services.secret_scan",
+    "services.sla_monitor",
+    "services.soak",
+    "services.static_analysis",
+    "services.tx_review",
+    "services.volatility_forecast",
+]

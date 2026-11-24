@@ -372,5 +372,25 @@ mod tests {
             let batch_result = client.batch_submit_prices(&submissions).unwrap();
             assert!(batch_result.success);
         }
+
+        #[test]
+        fn test_consumer_helpers_staleness_and_conversion() {
+            let client = setup();
+            // Test decimal conversion (#873)
+            let dec = crate::to_decimal(150_000_000, 8);
+            assert!((dec - 1.5).abs() < 1e-6);
+
+            // Test fresh price helper (#873)
+            let fresh = client.get_fresh_price("EURUSD", 300, 1234567890 + 60).unwrap();
+            assert!(fresh.is_some());
+
+            let stale = client.get_fresh_price("EURUSD", 60, 1234567890 + 3600).unwrap();
+            assert!(stale.is_none());
+
+            // Test error code mapping (#873)
+            assert_eq!(crate::map_error_code(0), SdkError::Unauthorized);
+            assert_eq!(crate::map_error_code(2), SdkError::AssetNotRegistered);
+            assert_eq!(crate::map_error_code(7), SdkError::PriceOutOfBounds);
+        }
     }
 }

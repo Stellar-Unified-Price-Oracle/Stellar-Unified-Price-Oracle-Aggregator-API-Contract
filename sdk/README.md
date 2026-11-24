@@ -9,6 +9,19 @@ The core surface below is intentionally the high-traffic subset of the contract'
 endpoints; the contract itself exposes many more admin/governance functions (see
 `contracts/price-oracle/src/lib.rs`) that can be wrapped the same way as needed.
 
+## Installation
+
+```bash
+# TypeScript / JavaScript
+npm i @stellar-oracle/sdk
+
+# Python
+pip install stellar-oracle-sdk
+
+# Rust
+cargo add stellar-oracle-sdk
+```
+
 ## TypeScript
 
 ```ts

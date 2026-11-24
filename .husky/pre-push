@@ -1,2 +1,6 @@
+# Fast tier only: fmt, clippy and the nextest `fast` profile. The full build and
+# test suite run in CI, so a warm-cache push stays well under two minutes.
 . "$HOME/.cargo/env" 2>/dev/null || true
-npm run prepush
+cargo fmt --manifest-path contracts/price-oracle/Cargo.toml -- --check || exit 1
+cargo clippy -p price-oracle -- -D warnings || exit 1
+cargo nextest run -p price-oracle --profile fast || exit 1
