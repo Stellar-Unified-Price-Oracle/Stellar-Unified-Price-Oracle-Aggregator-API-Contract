@@ -8064,6 +8064,6 @@ mod version_matrix_tests;
 #[allow(dead_code, unused_imports)]
 mod key_rotation_rehearsal_tests;
 
-pub(crate) mod history_ring_buffer;
 #[cfg(test)]
-mod history_ring_buffer_tests;
+#[allow(dead_code, unused_imports)]
+mod lastprice_footprint_tests;
