@@ -25,7 +25,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/configure-pages@v5
+      - uses: actions/configure-pages@v6
       - name: Configure testnet endpoint
         env:
           TESTNET_CONTRACT_ID: ${{ vars.ORACLE_TESTNET_CONTRACT_ID }}
